@@ -3,6 +3,7 @@ import { CreditCard, Banknote, QrCode, Smartphone, Building, Check } from "lucid
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export function PaymentSettingsPage() {
   const [cashEnabled, setCashEnabled] = useState(true);
@@ -15,25 +16,47 @@ export function PaymentSettingsPage() {
   const [accountHolder, setAccountHolder] = useState("PT Kebabs Choice POS");
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("kebabschoicepos_payment_settings");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed.cashEnabled === "boolean") setCashEnabled(parsed.cashEnabled);
-        if (typeof parsed.qrisEnabled === "boolean") setQrisEnabled(parsed.qrisEnabled);
-        if (parsed.qrisNmid) setQrisNmid(parsed.qrisNmid);
-        if (typeof parsed.cardEnabled === "boolean") setCardEnabled(parsed.cardEnabled);
-        if (typeof parsed.transferEnabled === "boolean") setTransferEnabled(parsed.transferEnabled);
-        if (parsed.bankName) setBankName(parsed.bankName);
-        if (parsed.accountNumber) setAccountNumber(parsed.accountNumber);
-        if (parsed.accountHolder) setAccountHolder(parsed.accountHolder);
+    async function loadSettings() {
+      try {
+        const saved = localStorage.getItem("kebabschoicepos_payment_settings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed.cashEnabled === "boolean") setCashEnabled(parsed.cashEnabled);
+          if (typeof parsed.qrisEnabled === "boolean") setQrisEnabled(parsed.qrisEnabled);
+          if (parsed.qrisNmid) setQrisNmid(parsed.qrisNmid);
+          if (typeof parsed.cardEnabled === "boolean") setCardEnabled(parsed.cardEnabled);
+          if (typeof parsed.transferEnabled === "boolean") setTransferEnabled(parsed.transferEnabled);
+          if (parsed.bankName) setBankName(parsed.bankName);
+          if (parsed.accountNumber) setAccountNumber(parsed.accountNumber);
+          if (parsed.accountHolder) setAccountHolder(parsed.accountHolder);
+        }
+
+        // Check Supabase outlets.settings.payment_settings
+        const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(5);
+        if (outletsData && Array.isArray(outletsData)) {
+          for (const out of outletsData) {
+            const payConf = (out.settings as any)?.payment_settings;
+            if (payConf) {
+              if (typeof payConf.cashEnabled === "boolean") setCashEnabled(payConf.cashEnabled);
+              if (typeof payConf.qrisEnabled === "boolean") setQrisEnabled(payConf.qrisEnabled);
+              if (payConf.qrisNmid) setQrisNmid(payConf.qrisNmid);
+              if (typeof payConf.cardEnabled === "boolean") setCardEnabled(payConf.cardEnabled);
+              if (typeof payConf.transferEnabled === "boolean") setTransferEnabled(payConf.transferEnabled);
+              if (payConf.bankName) setBankName(payConf.bankName);
+              if (payConf.accountNumber) setAccountNumber(payConf.accountNumber);
+              if (payConf.accountHolder) setAccountHolder(payConf.accountHolder);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
     }
+    loadSettings();
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const data = {
       cashEnabled,
       qrisEnabled,
@@ -45,6 +68,30 @@ export function PaymentSettingsPage() {
       accountHolder,
     };
     localStorage.setItem("kebabschoicepos_payment_settings", JSON.stringify(data));
+
+    try {
+      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
+      if (allOutlets && Array.isArray(allOutlets)) {
+        for (const out of allOutlets) {
+          const curr =
+            out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
+              ? (out.settings as Record<string, any>)
+              : {};
+          await supabase
+            .from("outlets")
+            .update({
+              settings: { ...curr, payment_settings: data } as any,
+            })
+            .eq("id", out.id);
+        }
+      }
+    } catch (sbErr) {
+      console.warn("Payment settings Supabase sync warning:", sbErr);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("storage"));
+    }
     toast.success("Metode Pembayaran berhasil disimpan");
   };
 

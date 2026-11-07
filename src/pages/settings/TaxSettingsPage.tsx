@@ -3,6 +3,7 @@ import { Percent, Info, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 
 export function TaxSettingsPage() {
   const [taxEnabled, setTaxEnabled] = useState(true);
@@ -13,23 +14,43 @@ export function TaxSettingsPage() {
   const [serviceRate, setServiceRate] = useState(5);
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("kebabschoicepos_tax_settings");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (typeof parsed.taxEnabled === "boolean") setTaxEnabled(parsed.taxEnabled);
-        if (parsed.taxRate !== undefined) setTaxRate(parsed.taxRate);
-        if (parsed.taxName) setTaxName(parsed.taxName);
-        if (parsed.taxMode) setTaxMode(parsed.taxMode);
-        if (typeof parsed.serviceEnabled === "boolean") setServiceEnabled(parsed.serviceEnabled);
-        if (parsed.serviceRate !== undefined) setServiceRate(parsed.serviceRate);
+    async function loadSettings() {
+      try {
+        const saved = localStorage.getItem("kebabschoicepos_tax_settings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (typeof parsed.taxEnabled === "boolean") setTaxEnabled(parsed.taxEnabled);
+          if (parsed.taxRate !== undefined) setTaxRate(parsed.taxRate);
+          if (parsed.taxName) setTaxName(parsed.taxName);
+          if (parsed.taxMode) setTaxMode(parsed.taxMode);
+          if (typeof parsed.serviceEnabled === "boolean") setServiceEnabled(parsed.serviceEnabled);
+          if (parsed.serviceRate !== undefined) setServiceRate(parsed.serviceRate);
+        }
+
+        // Check Supabase outlets.settings.tax_settings
+        const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(5);
+        if (outletsData && Array.isArray(outletsData)) {
+          for (const out of outletsData) {
+            const taxConf = (out.settings as any)?.tax_settings;
+            if (taxConf) {
+              if (typeof taxConf.taxEnabled === "boolean") setTaxEnabled(taxConf.taxEnabled);
+              if (taxConf.taxRate !== undefined) setTaxRate(taxConf.taxRate);
+              if (taxConf.taxName) setTaxName(taxConf.taxName);
+              if (taxConf.taxMode) setTaxMode(taxConf.taxMode);
+              if (typeof taxConf.serviceEnabled === "boolean") setServiceEnabled(taxConf.serviceEnabled);
+              if (taxConf.serviceRate !== undefined) setServiceRate(taxConf.serviceRate);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
     }
+    loadSettings();
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const data = {
       taxEnabled,
       taxRate,
@@ -39,6 +60,30 @@ export function TaxSettingsPage() {
       serviceRate,
     };
     localStorage.setItem("kebabschoicepos_tax_settings", JSON.stringify(data));
+
+    try {
+      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
+      if (allOutlets && Array.isArray(allOutlets)) {
+        for (const out of allOutlets) {
+          const curr =
+            out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
+              ? (out.settings as Record<string, any>)
+              : {};
+          await supabase
+            .from("outlets")
+            .update({
+              settings: { ...curr, tax_settings: data } as any,
+            })
+            .eq("id", out.id);
+        }
+      }
+    } catch (sbErr) {
+      console.warn("Tax settings Supabase sync warning:", sbErr);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("storage"));
+    }
     toast.success("Pengaturan Pajak & Biaya Layanan berhasil disimpan");
   };
 

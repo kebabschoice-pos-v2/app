@@ -1185,17 +1185,50 @@ export async function updatePOStatus(
         if (item.inventory_item_id) {
           const { data: invRow } = await supabase
             .from("inventory_items")
-            .select("stock")
+            .select("stock, unit, name")
             .eq("id", item.inventory_item_id)
             .single();
           if (invRow) {
             const nextStock = Number(invRow.stock) + Number(item.quantity);
             await supabase
               .from("inventory_items")
-              .update({ stock: nextStock })
+              .update({ stock: nextStock, updated_at: new Date().toISOString() })
               .eq("id", item.inventory_item_id);
+
+            const movPO: StockMovementRecord = {
+              id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+              business_id: bid,
+              inventory_item_id: item.inventory_item_id,
+              item_name: item.item_name || invRow.name,
+              outlet_id: target.outlet_id || null,
+              movement_type: "stock_in",
+              quantity: Number(item.quantity),
+              unit: item.unit || invRow.unit || "pcs",
+              remaining_stock: nextStock,
+              notes: `Penerimaan Purchase Order ${target.po_number || poId}`,
+              created_at: new Date().toISOString(),
+            };
+            store.stock_movements = [movPO, ...(store.stock_movements || [])];
+            try {
+              await supabase.from("stock_movements" as any).insert({
+                business_id: bid,
+                inventory_item_id: item.inventory_item_id,
+                item_name: item.item_name || invRow.name,
+                outlet_id: target.outlet_id || null,
+                movement_type: "stock_in",
+                quantity: Number(item.quantity),
+                unit: item.unit || invRow.unit || "pcs",
+                remaining_stock: nextStock,
+                notes: `Penerimaan Purchase Order ${target.po_number || poId}`,
+                created_at: new Date().toISOString(),
+              });
+            } catch {}
           }
         }
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("inventory:updated"));
+        window.dispatchEvent(new CustomEvent("pos:menu-updated"));
       }
     }
     await saveProcurementStore(bid, store);
@@ -1288,7 +1321,42 @@ export async function createStockOpname(
           .from("inventory_items")
           .update({ stock: item.physical_stock, updated_at: new Date().toISOString() })
           .eq("id", item.inventory_item_id);
+
+        if (item.difference !== 0) {
+          const movOpn: StockMovementRecord = {
+            id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            business_id: bid,
+            inventory_item_id: item.inventory_item_id,
+            item_name: item.item_name,
+            outlet_id: data.outlet_id || null,
+            movement_type: "opname",
+            quantity: item.difference,
+            unit: item.unit,
+            remaining_stock: item.physical_stock,
+            notes: `Stock Opname (${newOpname.opname_number}): sistem ${item.system_stock} -> fisik ${item.physical_stock} (selisih: ${item.difference > 0 ? "+" : ""}${item.difference}). ${item.notes || ""}`,
+            created_at: new Date().toISOString(),
+          };
+          store.stock_movements = [movOpn, ...(store.stock_movements || [])];
+          try {
+            await supabase.from("stock_movements" as any).insert({
+              business_id: bid,
+              inventory_item_id: item.inventory_item_id,
+              item_name: item.item_name,
+              outlet_id: data.outlet_id || null,
+              movement_type: "opname",
+              quantity: item.difference,
+              unit: item.unit,
+              remaining_stock: item.physical_stock,
+              notes: `Stock Opname (${newOpname.opname_number}): sistem ${item.system_stock} -> fisik ${item.physical_stock}`,
+              created_at: new Date().toISOString(),
+            });
+          } catch {}
+        }
       }
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("inventory:updated"));
+      window.dispatchEvent(new CustomEvent("pos:menu-updated"));
     }
   }
 
@@ -1381,15 +1449,48 @@ export async function recordWaste(data: {
     created_at: new Date().toISOString(),
   };
 
+  const store = await loadProcurementStore(bid);
+  let newStock = 0;
   if (invItem) {
-    const newStock = Math.max(0, Number(invItem.stock) - Number(data.quantity));
+    newStock = Math.max(0, Number(invItem.stock) - Number(data.quantity));
     await supabase
       .from("inventory_items")
-      .update({ stock: newStock })
+      .update({ stock: newStock, updated_at: new Date().toISOString() })
       .eq("id", data.inventory_item_id);
+
+    const movWaste: StockMovementRecord = {
+      id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      business_id: bid,
+      inventory_item_id: data.inventory_item_id,
+      item_name: itemName,
+      movement_type: "waste",
+      quantity: Number(data.quantity),
+      unit,
+      remaining_stock: newStock,
+      notes: `Waste/Rusak (${data.reason || "Expired"}). ${data.notes || ""}`,
+      created_at: new Date().toISOString(),
+    };
+    store.stock_movements = [movWaste, ...(store.stock_movements || [])];
+    try {
+      await supabase.from("stock_movements" as any).insert({
+        business_id: bid,
+        inventory_item_id: data.inventory_item_id,
+        item_name: itemName,
+        movement_type: "waste",
+        quantity: Number(data.quantity),
+        unit,
+        remaining_stock: newStock,
+        notes: `Waste/Rusak (${data.reason || "Expired"}). ${data.notes || ""}`,
+        created_at: new Date().toISOString(),
+      });
+    } catch {}
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("inventory:updated"));
+      window.dispatchEvent(new CustomEvent("pos:menu-updated"));
+    }
   }
 
-  const store = await loadProcurementStore(bid);
   store.waste_records = [newWaste, ...(store.waste_records || [])];
   await saveProcurementStore(bid, store);
   return newWaste;

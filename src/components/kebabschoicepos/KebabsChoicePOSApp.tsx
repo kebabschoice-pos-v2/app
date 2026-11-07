@@ -3118,7 +3118,7 @@ async function depleteIngredientStock({
   let origInvRow: any = null;
   if (ingredient.inventory_item_id) {
     const { data } = await (supabase.from("inventory_items" as any) as any)
-      .select("id, stock, name, unit, outlet_id")
+      .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
       .eq("id", ingredient.inventory_item_id)
       .maybeSingle();
     origInvRow = data;
@@ -3128,7 +3128,7 @@ async function depleteIngredientStock({
   if (!origInvRow && ingredient.ingredient_name) {
     try {
       const { data: nameMatch } = await (supabase.from("inventory_items" as any) as any)
-        .select("id, stock, name, unit, outlet_id")
+        .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
         .ilike("name", ingredient.ingredient_name.trim())
         .limit(1);
       if (nameMatch && nameMatch.length > 0) {
@@ -3139,21 +3139,81 @@ async function depleteIngredientStock({
 
   if (!origInvRow) return null;
 
+  // Enrich with item_meta from localStorage if yield_per_unit not in DB columns yet
+  if (typeof window !== "undefined") {
+    try {
+      const localStoreKey = `procurement_store_${businessId}`;
+      const rawStore = localStorage.getItem(localStoreKey);
+      if (rawStore) {
+        const store = JSON.parse(rawStore);
+        const meta = store.item_meta?.[origInvRow.id];
+        if (meta) {
+          if (!origInvRow.yield_per_unit && meta.yield_per_unit) origInvRow.yield_per_unit = meta.yield_per_unit;
+          if (!origInvRow.yield_unit && meta.yield_unit) origInvRow.yield_unit = meta.yield_unit;
+        }
+      }
+    } catch {}
+  }
+
   let targetInvRow: any = origInvRow;
 
-  // Prioritize branch-specific inventory item (outlet_id === chosenOutletId)
+  // STRICT MULTI-BRANCH ISOLATION:
+  // If chosenOutletId is specified, ensure we deplete ONLY the inventory item of chosenOutletId!
   if (chosenOutletId && origInvRow.outlet_id !== chosenOutletId) {
     try {
-      const { data: branchSpecificRows } = await (supabase.from("inventory_items" as any) as any)
-        .select("id, stock, name, unit, outlet_id")
-        .eq("outlet_id", chosenOutletId)
-        .ilike("name", origInvRow.name.trim())
-        .limit(1);
+      let branchSpecificRows: any[] | null = null;
+      if (origInvRow.sku) {
+        const { data: skuMatch } = await (supabase.from("inventory_items" as any) as any)
+          .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
+          .eq("outlet_id", chosenOutletId)
+          .eq("sku", origInvRow.sku)
+          .limit(1);
+        branchSpecificRows = skuMatch;
+      }
+
+      if (!branchSpecificRows || branchSpecificRows.length === 0) {
+        const { data: nameMatch } = await (supabase.from("inventory_items" as any) as any)
+          .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
+          .eq("outlet_id", chosenOutletId)
+          .ilike("name", origInvRow.name.trim())
+          .limit(1);
+        branchSpecificRows = nameMatch;
+      }
 
       if (branchSpecificRows && branchSpecificRows.length > 0) {
         targetInvRow = branchSpecificRows[0];
+      } else {
+        // Fallback: create branch-specific item in chosenOutletId with 0 initial stock so we NEVER bleed other branches!
+        const newBranchItem: any = {
+          id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          business_id: businessId,
+          outlet_id: chosenOutletId,
+          name: origInvRow.name,
+          sku: origInvRow.sku || null,
+          category: origInvRow.category || "Bahan Baku",
+          unit: origInvRow.unit || "kg",
+          cost_per_unit: Number(origInvRow.cost_per_unit) || 0,
+          yield_per_unit: origInvRow.yield_per_unit || null,
+          yield_unit: origInvRow.yield_unit || null,
+          stock: 0,
+          min_stock: Number(origInvRow.min_stock) || 5,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        };
+
+        try {
+          const { data: createdRow } = await (supabase.from("inventory_items" as any) as any)
+            .insert(newBranchItem)
+            .select()
+            .maybeSingle();
+          targetInvRow = createdRow || newBranchItem;
+        } catch {
+          targetInvRow = newBranchItem;
+        }
       }
-    } catch {}
+    } catch {
+      // Safe fallback - avoid depleting other branch
+    }
   }
 
   const rawQuantityNeeded = (Number(ingredient.quantity) || 1) * cartItemQuantity;
@@ -3161,9 +3221,14 @@ async function depleteIngredientStock({
     rawQuantityNeeded,
     ingredient.unit || "gram",
     targetInvRow.unit || "kg",
+    targetInvRow.yield_per_unit,
+    targetInvRow.yield_unit,
   );
 
-  const newStock = Math.max(0, (Number(targetInvRow.stock) || 0) - convertedQuantity);
+  const prevStock = Number(targetInvRow.stock) || 0;
+  const calculatedStock = prevStock - convertedQuantity;
+  const newStock = Math.max(0, Math.round(calculatedStock * 10000) / 10000);
+
   await (supabase.from("inventory_items" as any) as any)
     .update({ stock: newStock, updated_at: new Date().toISOString() })
     .eq("id", targetInvRow.id);
@@ -3173,7 +3238,7 @@ async function depleteIngredientStock({
     business_id: businessId,
     inventory_item_id: targetInvRow.id,
     item_name: targetInvRow.name,
-    outlet_id: chosenOutletId || null,
+    outlet_id: chosenOutletId || targetInvRow.outlet_id || null,
     order_id: orderId || null,
     reference_id: orderId || orderNumber,
     reference_type: "pos_order",
@@ -3197,6 +3262,12 @@ async function depleteIngredientStock({
       const rawStore = localStorage.getItem(localKey);
       const store = rawStore ? JSON.parse(rawStore) : {};
       store.stock_movements = [movementRecord, ...(store.stock_movements || [])].slice(0, 500);
+      if (Array.isArray(store.items)) {
+        const itemIdx = store.items.findIndex((it: any) => it.id === targetInvRow.id);
+        if (itemIdx >= 0) {
+          store.items[itemIdx].stock = newStock;
+        }
+      }
       localStorage.setItem(localKey, JSON.stringify(store));
     } catch {}
 
@@ -3213,6 +3284,7 @@ async function depleteIngredientStock({
     deductedQuantity: convertedQuantity,
   };
 }
+
 
 function PosPage({
   snapshot,
@@ -4659,6 +4731,79 @@ function PosPage({
               }
             }
           }
+          // Also deplete add-ons / toppings (toppings, additional meat/cheese, etc.)
+          const addOnList: Array<{ name: string; price?: number }> = [];
+          if (Array.isArray(cartItem.selected_addons) && cartItem.selected_addons.length > 0) {
+            for (const addon of cartItem.selected_addons) {
+              if (addon && addon.name) addOnList.push(addon);
+            }
+          }
+          if (Array.isArray(cartItem.selected_variant_groups)) {
+            for (const vg of cartItem.selected_variant_groups) {
+              const gName = (vg.group_name || "").toLowerCase();
+              if (
+                gName.includes("topping") ||
+                gName.includes("addon") ||
+                gName.includes("extra") ||
+                gName.includes("tambahan")
+              ) {
+                if (Array.isArray(vg.options)) {
+                  for (const opt of vg.options) {
+                    if (opt && opt.name) addOnList.push(opt);
+                  }
+                }
+              }
+            }
+          }
+
+          for (const addon of addOnList) {
+            const rawName = addon.name.trim();
+            const lower = rawName.toLowerCase();
+            let estimatedQty = 1;
+            let estimatedUnit = "pcs";
+            if (
+              lower.includes("daging") ||
+              lower.includes("beef") ||
+              lower.includes("ayam") ||
+              lower.includes("chicken")
+            ) {
+              estimatedQty = 20;
+              estimatedUnit = "gram";
+            } else if (lower.includes("keju") || lower.includes("cheese")) {
+              estimatedQty = 15;
+              estimatedUnit = "gram";
+            } else if (lower.includes("telur") || lower.includes("egg")) {
+              estimatedQty = 1;
+              estimatedUnit = "pcs";
+            } else if (lower.includes("tortilla") || lower.includes("kulit")) {
+              estimatedQty = 1;
+              estimatedUnit = "pcs";
+            } else if (lower.includes("saus") || lower.includes("sauce") || lower.includes("mayo")) {
+              estimatedQty = 15;
+              estimatedUnit = "ml";
+            }
+
+            const cleanName = rawName.replace(/^(extra|tambah|tambahan|\+)\s+/i, "").trim();
+
+            const addonDepletion = await depleteIngredientStock({
+              ingredient: {
+                ingredient_name: cleanName || rawName,
+                quantity: estimatedQty,
+                unit: estimatedUnit,
+              },
+              cartItemQuantity: cartItem.quantity,
+              cartItemName: `${cartItem.name} (+${rawName})`,
+              chosenOutletId,
+              businessId: snapshot.businessId || "",
+              orderId: order?.id || null,
+              orderNumber,
+              prefixNote: "POS Addon",
+            });
+            if (addonDepletion) {
+              deductedInventory[addonDepletion.inventoryId] =
+                (deductedInventory[addonDepletion.inventoryId] || 0) + addonDepletion.deductedQuantity;
+            }
+          }
         }
       } catch (bomErr) {
         console.warn("[BOM] Depletion warning:", bomErr);
@@ -5943,6 +6088,32 @@ function PosPage({
                     {btn.label}
                   </Button>
                 ))}
+              </div>
+              <div className="grid grid-cols-5 gap-1 pt-0.5">
+                {[
+                  { label: "+10rb", add: 10000 },
+                  { label: "+20rb", add: 20000 },
+                  { label: "+50rb", add: 50000 },
+                  { label: "+100rb", add: 100000 },
+                ].map((inc, i) => (
+                  <Button
+                    key={i}
+                    size="sm"
+                    variant="outline"
+                    className="h-7 rounded-lg text-[9px] font-bold p-0.5 bg-background/50 hover:bg-primary/10 border-primary/20"
+                    onClick={() => setCashTendered((prev) => Math.max(total, (prev || total) + inc.add))}
+                  >
+                    {inc.label}
+                  </Button>
+                ))}
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-7 rounded-lg text-[9px] font-bold p-0.5 text-muted-foreground hover:text-rose-500"
+                  onClick={() => setCashTendered(total)}
+                >
+                  Reset
+                </Button>
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-primary/10 text-xs">
                 <span className="font-semibold text-muted-foreground">Kembalian:</span>
@@ -7440,21 +7611,22 @@ function OrdersPage({
               for (const ing of prod.recipe.items) {
                 if (ing.inventory_item_id) {
                   const rawNeeded = (Number(ing.quantity) || 1) * (Number(itm.quantity) || 1);
-                  const { data: invRow } = await supabase
-                    .from("inventory_items")
-                    .select("id, stock, unit, name")
+                  const { data: invRow } = await (supabase.from("inventory_items" as any))
+                    .select("id, stock, unit, name, yield_per_unit, yield_unit")
                     .eq("id", ing.inventory_item_id)
                     .maybeSingle();
 
                   if (invRow) {
+                    const row = invRow as any;
                     const convertedQty = convertRecipeToInventoryQuantity(
                       rawNeeded,
                       ing.unit || "gram",
-                      invRow.unit || "kg",
+                      row.unit || "kg",
+                      row.yield_per_unit,
+                      row.yield_unit,
                     );
-                    const restoredStock = (Number(invRow.stock) || 0) + convertedQty;
-                    await supabase
-                      .from("inventory_items")
+                    const restoredStock = (Number(row.stock) || 0) + convertedQty;
+                    await (supabase.from("inventory_items" as any))
                       .update({ stock: restoredStock, updated_at: new Date().toISOString() })
                       .eq("id", ing.inventory_item_id);
 
@@ -7467,7 +7639,7 @@ function OrdersPage({
                       type: reversalType,
                       movement_type: reversalType,
                       quantity: convertedQty,
-                      unit: invRow.unit || ing.unit || "gram",
+                      unit: row.unit || ing.unit || "gram",
                       remaining_stock: restoredStock,
                       notes: `${actionModal.mode.toUpperCase()} Reversal #${ordNumber}: Pengembalian ${itm.quantity}x ${itm.name} (Otorisasi: ${authorizedBy})`,
                       created_at: new Date().toISOString(),

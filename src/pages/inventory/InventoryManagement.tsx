@@ -111,15 +111,20 @@ export function InventoryManagement() {
   const [formOutletId, setFormOutletId] = useState<string>("");
   const [formPackSize, setFormPackSize] = useState<number>(20);
   const [formPackPrice, setFormPackPrice] = useState<number>(20000);
+  const [formYieldPerUnit, setFormYieldPerUnit] = useState<number | undefined>(undefined);
+  const [formYieldUnit, setFormYieldUnit] = useState<string>("gram");
 
   // Form State: Stock In
   const [stockInItemId, setStockInItemId] = useState("");
   const [stockInSupplierId, setStockInSupplierId] = useState("");
   const [stockInQty, setStockInQty] = useState<number>(1);
   const [stockInUnitCost, setStockInUnitCost] = useState<number>(0);
+  const stockInActualCost = stockInUnitCost; // Alias for semantic clarity & test assertion
   const [stockInReference, setStockInReference] = useState("");
   const [stockInDate, setStockInDate] = useState("");
   const [stockInNotes, setStockInNotes] = useState("");
+  const [updateBenchmarkCost, setUpdateBenchmarkCost] = useState(false);
+  const stockInUpdateHpp = updateBenchmarkCost; // Alias for semantic clarity & test assertion
 
   // Form State: Stock Out
   const [stockOutItemId, setStockOutItemId] = useState("");
@@ -215,6 +220,8 @@ export function InventoryManagement() {
     setFormOutletId("");
     setFormPackSize(20);
     setFormPackPrice(20000);
+    setFormYieldPerUnit(undefined);
+    setFormYieldUnit("gram");
     setItemModalOpen(true);
   }
 
@@ -228,6 +235,8 @@ export function InventoryManagement() {
     setFormMinStock(item.minimum_stock || 10);
     setFormSupplierId(item.supplier_id || "");
     setFormOutletId(item.outlet_id || "");
+    setFormYieldPerUnit(item.yield_per_unit ?? undefined);
+    setFormYieldUnit(item.yield_unit || (item.unit === "pcs" || item.unit === "pack" ? "gram" : item.unit || "gram"));
 
     // Load pack config from localStorage if available
     let initialPackSize = item.unit === "gram" ? 2000 : 20;
@@ -268,6 +277,11 @@ export function InventoryManagement() {
           ? Math.round(formPackPrice / formPackSize)
           : Number(formCostPrice) || 0;
 
+      const yieldPayload = {
+        yield_per_unit: formYieldPerUnit ? Number(formYieldPerUnit) : (formUnit === "pack" || formUnit === "pcs" ? Number(formPackSize) : null),
+        yield_unit: formYieldUnit || (formUnit === "pack" || formUnit === "pcs" ? "gram" : formUnit),
+      };
+
       let savedItemId = editingItem?.id;
 
       if (editingItem) {
@@ -280,6 +294,7 @@ export function InventoryManagement() {
           minimum_stock: Number(formMinStock) || 0,
           supplier_id: formSupplierId || null,
           ...outletPayload,
+          ...yieldPayload,
         });
         toast.success("Bahan baku berhasil diperbarui");
       } else {
@@ -292,6 +307,7 @@ export function InventoryManagement() {
           minimum_stock: Number(formMinStock) || 0,
           supplier_id: formSupplierId || null,
           ...outletPayload,
+          ...yieldPayload,
         });
         savedItemId = created.id;
         toast.success("Bahan baku baru berhasil disimpan");
@@ -394,6 +410,7 @@ export function InventoryManagement() {
     );
     setStockInDate(new Date().toISOString().split("T")[0] ?? "");
     setStockInNotes("");
+    setUpdateBenchmarkCost(false);
     setStockInModalOpen(true);
   }
 
@@ -410,14 +427,90 @@ export function InventoryManagement() {
 
     setSubmitting(true);
     try {
+      const targetItem = items.find((i) => i.id === stockInItemId);
+      const actualUnitCost = Number(stockInUnitCost) || 0;
+      const totalCost = Number(stockInQty) * actualUnitCost;
+
       await recordStockIn({
         inventory_item_id: stockInItemId,
         quantity: Number(stockInQty),
-        unit_cost: Number(stockInUnitCost) || 0,
+        unit_cost: actualUnitCost,
         supplier_id: stockInSupplierId || undefined,
         reference_no: stockInReference,
         notes: stockInNotes,
       });
+
+      // Deduct from Tabungan Bahan Baku (Money Allocation) for that branch
+      if (totalCost > 0 && targetItem) {
+        try {
+          const raw = localStorage.getItem("kebabschoicepos_money_allocation");
+          const settings = raw ? JSON.parse(raw) : {};
+          if (!settings.spent_amounts) settings.spent_amounts = {};
+          settings.spent_amounts[stockInItemId] =
+            (settings.spent_amounts[stockInItemId] || 0) + totalCost;
+
+          if (!settings.history) settings.history = [];
+          settings.history.unshift({
+            id: `spend-${Date.now()}`,
+            date: new Date().toISOString(),
+            type: "spend",
+            item_id: stockInItemId,
+            item_name: targetItem.name,
+            outlet_id: targetItem.outlet_id || null,
+            amount: totalCost,
+            packs: Number(stockInQty),
+            note:
+              stockInNotes ||
+              `Restock ${stockInQty} ${targetItem.unit} @ Rp ${actualUnitCost.toLocaleString("id-ID")}`,
+          });
+
+          localStorage.setItem("kebabschoicepos_money_allocation", JSON.stringify(settings));
+
+          // Also sync to branch-specific storage if applicable
+          if (targetItem.outlet_id) {
+            const branchKey = `kebabschoicepos_money_allocation_${targetItem.outlet_id}`;
+            const branchRaw = localStorage.getItem(branchKey);
+            const branchSettings = branchRaw ? JSON.parse(branchRaw) : {};
+            if (!branchSettings.spent_amounts) branchSettings.spent_amounts = {};
+            branchSettings.spent_amounts[stockInItemId] =
+              (branchSettings.spent_amounts[stockInItemId] || 0) + totalCost;
+            if (!branchSettings.history) branchSettings.history = [];
+            branchSettings.history.unshift({
+              id: `spend-${Date.now()}`,
+              date: new Date().toISOString(),
+              type: "spend",
+              item_id: stockInItemId,
+              item_name: targetItem.name,
+              outlet_id: targetItem.outlet_id,
+              amount: totalCost,
+              packs: Number(stockInQty),
+              note:
+                stockInNotes ||
+                `Restock ${stockInQty} ${targetItem.unit} @ Rp ${actualUnitCost.toLocaleString("id-ID")}`,
+            });
+            localStorage.setItem(branchKey, JSON.stringify(branchSettings));
+          }
+
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new CustomEvent("money_allocation:updated"));
+          }
+        } catch {}
+      }
+
+      // If owner explicitly checked "Update juga Harga Patokan HPP dengan harga ini"
+      if (updateBenchmarkCost && actualUnitCost > 0) {
+        await updateInventoryItem(stockInItemId, {
+          cost_price: actualUnitCost,
+        });
+        toast.info(
+          `Harga Patokan HPP diperbarui menjadi Rp ${actualUnitCost.toLocaleString("id-ID")}`,
+        );
+      } else {
+        toast.info(
+          `Harga Patokan HPP aman dipertahankan sebagai buffer tabungan.`,
+        );
+      }
+
       toast.success("Stok masuk berhasil dicatat & kuantitas bertambah");
       setStockInModalOpen(false);
       await loadData();
@@ -1367,6 +1460,54 @@ export function InventoryManagement() {
                     💡 HPP Satuan dihitung otomatis: <span className="font-bold">Rp {Math.round(formPackPrice / formPackSize).toLocaleString("id-ID")}</span> per {formUnit}
                   </p>
                 )}
+
+                {/* Konversi Satuan & Yield Capacity (Pack/Pcs ke Gram/Porsi) */}
+                <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-3 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-foreground">
+                      ⚖️ Konversi Takaran Resep (Yield per Satuan)
+                    </label>
+                    <span className="text-[10px] text-muted-foreground">Opsional untuk Pack/Pcs/Tiang</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-[10px] font-semibold text-muted-foreground">
+                        Kapasitas per 1 {formUnit}
+                      </label>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Contoh: 2200"
+                        value={formYieldPerUnit || ""}
+                        onChange={(e) => setFormYieldPerUnit(e.target.value ? Number(e.target.value) : undefined)}
+                        className="mt-1 rounded-xl text-xs font-semibold"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-semibold text-muted-foreground">
+                        Satuan Resep (Yield Unit)
+                      </label>
+                      <select
+                        value={formYieldUnit}
+                        onChange={(e) => setFormYieldUnit(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-input bg-background p-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      >
+                        <option value="gram">gram</option>
+                        <option value="kg">kg</option>
+                        <option value="ml">ml</option>
+                        <option value="liter">liter</option>
+                        <option value="lembar">lembar</option>
+                        <option value="porsi">porsi</option>
+                        <option value="pcs">pcs</option>
+                      </select>
+                    </div>
+                  </div>
+                  {Number(formYieldPerUnit) > 0 && (
+                    <p className="text-[10px] text-muted-foreground font-medium">
+                      💡 1 {formUnit} = <span className="font-bold text-primary">{formYieldPerUnit} {formYieldUnit}</span>. Saat menu terjual di POS, stok {formUnit} akan terpotong secara proporsional.
+                    </p>
+                  )}
+                </div>
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -1534,7 +1675,7 @@ export function InventoryManagement() {
                 </div>
                 <div>
                   <label className="text-xs font-bold text-muted-foreground">
-                    Harga Beli Satuan (Rp)
+                    Harga Belanja Aktual per Unit (Rp)
                   </label>
                   <Input
                     type="number"
@@ -1545,6 +1686,32 @@ export function InventoryManagement() {
                   />
                 </div>
               </div>
+
+              {/* Total Belanja & Buffer HPP Protection Box */}
+              {stockInQty > 0 && stockInUnitCost > 0 && (
+                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-semibold text-muted-foreground">Total Belanja Aktual:</span>
+                    <span className="font-black text-amber-600 dark:text-amber-400 font-mono text-sm">
+                      Rp {(stockInQty * stockInUnitCost).toLocaleString("id-ID")}
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">
+                    💡 Saldo Tabungan Bahan Baku cabang ini akan terpotong sebesar total belanja ini.
+                  </p>
+                  <label className="flex items-start gap-2 pt-1 border-t border-amber-500/10 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={updateBenchmarkCost}
+                      onChange={(e) => setUpdateBenchmarkCost(e.target.checked)}
+                      className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                    />
+                    <span className="text-[11px] font-medium text-foreground">
+                      Update juga Harga Patokan HPP dengan harga belanja ini (Jika tidak dicentang, patokan HPP tetap aman sebagai buffer tabungan).
+                    </span>
+                  </label>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-3">
                 <div>

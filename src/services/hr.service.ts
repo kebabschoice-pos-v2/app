@@ -909,12 +909,17 @@ export async function calculateStaffPayroll(
 export async function generateMonthlyPayrollList(
   month: number = new Date().getMonth() + 1,
   year: number = new Date().getFullYear(),
+  outletId?: string,
 ): Promise<StaffPayroll[]> {
   const [profiles, allAttendances, businessId] = await Promise.all([
     getHRStaffProfiles(),
-    getAttendanceList({ month, year }),
+    getAttendanceList({ month, year, outletId }),
     resolveBusinessId(),
   ]);
+
+  const targetProfiles = outletId
+    ? profiles.filter((p) => p.outlet_id === outletId)
+    : profiles;
 
   // Load existing payrolls from local or DB
   const localSaved =
@@ -925,7 +930,7 @@ export async function generateMonthlyPayrollList(
   const rosterCache = new Map<string, MonthlyRosterSchedule | null>();
   const payrolls: StaffPayroll[] = [];
 
-  for (const staff of profiles) {
+  for (const staff of targetProfiles) {
     if (staff.role === "owner") continue; // Owners do not get staff payrolls
 
     const outletKey = staff.outlet_id || "all";

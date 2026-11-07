@@ -82,13 +82,20 @@ export function convertRecipeToInventoryQuantity(
   recipeQty: number,
   recipeUnit: string,
   inventoryUnit: string,
+  yieldPerUnit?: number | null,
+  yieldUnit?: string | null,
 ): number {
   const rUnit = (recipeUnit || "").toLowerCase().trim();
   const iUnit = (inventoryUnit || "").toLowerCase().trim();
+  const yUnit = (yieldUnit || "").toLowerCase().trim();
+  const yieldCapacity = Number(yieldPerUnit) > 0 ? Number(yieldPerUnit) : 0;
 
-  if (!rUnit || !iUnit || rUnit === iUnit) return recipeQty;
+  if (!rUnit || !iUnit) return recipeQty;
 
-  // Weight: gram <-> kg
+  // 1. Same unit directly
+  if (rUnit === iUnit) return recipeQty;
+
+  // 2. Standard metric weight conversion: gram <-> kg
   if ((rUnit === "gram" || rUnit === "g") && (iUnit === "kg" || iUnit === "kilogram")) {
     return recipeQty / 1000;
   }
@@ -96,12 +103,27 @@ export function convertRecipeToInventoryQuantity(
     return recipeQty * 1000;
   }
 
-  // Volume: ml <-> liter
+  // 3. Standard metric volume conversion: ml <-> liter
   if ((rUnit === "ml" || rUnit === "mililiter") && (iUnit === "liter" || iUnit === "l")) {
     return recipeQty / 1000;
   }
   if ((rUnit === "liter" || rUnit === "l") && (iUnit === "ml" || iUnit === "mililiter")) {
     return recipeQty * 1000;
+  }
+
+  // 4. Large package/pcs/tiang conversion using yield capacity
+  // Example: Inventory is 1 pcs/tiang/pack containing 2200 gram (yieldCapacity = 2200, yieldUnit = "gram")
+  // Recipe uses 20 gram -> convertedQty = 20 / 2200 = 0.0090909 pcs
+  if (yieldCapacity > 0) {
+    let normalizedRecipeQty = recipeQty;
+    // Normalize if recipe is in kg/liter but yield is in gram/ml
+    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g" || !yUnit)) {
+      normalizedRecipeQty = recipeQty * 1000;
+    } else if ((rUnit === "liter" || rUnit === "l") && (yUnit === "ml" || yUnit === "mililiter" || !yUnit)) {
+      normalizedRecipeQty = recipeQty * 1000;
+    }
+
+    return normalizedRecipeQty / yieldCapacity;
   }
 
   return recipeQty;
@@ -232,6 +254,8 @@ export interface InventoryIngredient {
   minimum_stock: number;
   cost_price?: number;
   selling_price?: number;
+  yield_per_unit?: number | null;
+  yield_unit?: string | null;
 }
 
 /**
@@ -559,6 +583,8 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
         stock: item.stock,
         minimum_stock: item.minimum_stock,
         cost_price: item.cost_price,
+        yield_per_unit: (item as any).yield_per_unit,
+        yield_unit: (item as any).yield_unit,
       }));
     }
   } catch (err) {

@@ -42,6 +42,7 @@ import {
   type StockMovementRecord,
 } from "@/services/inventory.service";
 import { getHRStaffProfiles, type StaffProfile } from "@/services/hr.service";
+import { convertRecipeToInventoryQuantity } from "@/services/menu.service";
 
 export interface PackConfig {
   pack_size: number;
@@ -76,7 +77,7 @@ export interface MoneyAllocationHistoryItem {
   id: string;
   outlet_id: string;
   outlet_name: string;
-  type: "belanja_bahan" | "bayar_operasional" | "bayar_gaji";
+  type: "belanja_bahan" | "bayar_operasional" | "bayar_gaji" | "suntik_saldo";
   title: string;
   amount: number;
   timestamp: string;
@@ -152,6 +153,24 @@ export function MoneyAllocationPage({
   const [spendPacks, setSpendPacks] = useState<number>(1);
   const [spendNote, setSpendNote] = useState<string>("");
   const [spendingLoading, setSpendingLoading] = useState(false);
+
+  // Top-Up / Suntik Saldo Modal (Owner Capital Injection)
+  const [topUpModalOpen, setTopUpModalOpen] = useState(false);
+  const [topUpItem, setTopUpItem] = useState<{
+    item: InventoryItemDetail;
+    accumulated_balance: number;
+    totalEarned: number;
+    spent: number;
+    added: number;
+    unit_cost: number;
+    pack_price: number;
+  } | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState<number>(100000);
+  const [topUpSource, setTopUpSource] = useState<
+    "owner_capital" | "branch_profit" | "owner_profit" | "emergency_fund"
+  >("owner_capital");
+  const [topUpNote, setTopUpNote] = useState<string>("");
+  const [topUpLoading, setTopUpLoading] = useState(false);
 
   // Pay Op Modal
   const [payOpModal, setPayOpModal] = useState<OperationalExpensePocket | null>(null);
@@ -525,13 +544,18 @@ export function MoneyAllocationPage({
   const computedBomPockets = useMemo(() => {
     return inventoryList.map((item) => {
       // Pack Config fallback
+      const hasYield = Number(item.yield_per_unit) > 0;
+      const isPackOrPcs = item.unit === "pcs" || item.unit === "pack" || item.unit === "tiang";
+
       const config = packConfigs[item.id] || {
-        pack_size: item.unit === "gram" ? 2000 : item.unit === "ml" ? 1000 : 20,
+        pack_size: hasYield || isPackOrPcs ? 1 : item.unit === "gram" ? 2000 : item.unit === "ml" ? 1000 : 20,
         pack_price:
           item.cost_price > 0
-            ? item.unit === "gram"
-              ? item.cost_price * 2000
-              : item.cost_price * 20
+            ? hasYield || isPackOrPcs
+              ? item.cost_price
+              : item.unit === "gram"
+                ? item.cost_price * 2000
+                : item.cost_price * 20
             : item.unit === "gram"
               ? 100000
               : 20000,
@@ -539,20 +563,37 @@ export function MoneyAllocationPage({
 
       const pack_size = Number(config.pack_size) > 0 ? Number(config.pack_size) : 1;
       const pack_price =
-        Number(config.pack_price) > 0 ? Number(config.pack_price) : item.cost_price * pack_size;
+        Number(config.pack_price) > 0 ? Number(config.pack_price) : item.cost_price > 0 ? item.cost_price * pack_size : 20000;
       const unit_cost =
         pack_price > 0 && pack_size > 0 ? pack_price / pack_size : item.cost_price || 0;
 
-      // Engine 1: Real movements of type pos_sale or stock_out for this item
-      const itemMovements = stockMovements.filter(
-        (m) =>
-          m.inventory_item_id === item.id &&
-          (m.movement_type === "pos_sale" || m.movement_type === "stock_out") &&
-          (selectedOutletId === "all" || !m.outlet_id || m.outlet_id === selectedOutletId),
-      );
-      const movementUsedQty = itemMovements.reduce(
-        (sum, m) => sum + Math.abs(Number(m.quantity) || 0),
+      // Engine 1: Real movements of type pos_sale or stock_out for this item (with void/refund reversal deductions)
+      const itemMovements = stockMovements.filter((m) => {
+        if (m.inventory_item_id !== item.id) return false;
+        if (selectedOutletId !== "all" && m.outlet_id && m.outlet_id !== selectedOutletId) return false;
+        const mType = (m.movement_type as string) || (m as any).type || "";
+        return (
+          mType === "pos_sale" ||
+          mType === "stock_out" ||
+          mType === "void_restore" ||
+          mType === "void_reversal" ||
+          mType === "refund_reversal"
+        );
+      });
+      const movementUsedQty = Math.max(
         0,
+        itemMovements.reduce((sum, m) => {
+          const q = Math.abs(Number(m.quantity) || 0);
+          const mType = (m.movement_type as string) || (m as any).type || "";
+          if (
+            mType === "void_restore" ||
+            mType === "void_reversal" ||
+            mType === "refund_reversal"
+          ) {
+            return sum - q;
+          }
+          return sum + q;
+        }, 0),
       );
 
       // Engine 2: Fallback from valid non-void sales orders * menu_recipes
@@ -576,7 +617,14 @@ export function MoneyAllocationPage({
                   ing.id === item.id ||
                   (ing.name && ing.name.toLowerCase() === item.name.toLowerCase())
                 ) {
-                  recipeBomUsedQty += (Number(ing.quantity) || 1) * lineQty;
+                  const ingConverted = convertRecipeToInventoryQuantity(
+                    Number(ing.quantity) || 1,
+                    ing.unit || "gram",
+                    item.unit || "gram",
+                    item.yield_per_unit,
+                    item.yield_unit,
+                  );
+                  recipeBomUsedQty += ingConverted * lineQty;
                 }
               }
             }
@@ -597,6 +645,9 @@ export function MoneyAllocationPage({
         pack_price,
         unit_cost,
         usedQty,
+        totalEarned,
+        spent,
+        added,
         accumulated_balance,
         canBuyPacks: pack_price > 0 ? Math.floor(accumulated_balance / pack_price) : 0,
       };
@@ -887,6 +938,64 @@ export function MoneyAllocationPage({
     }
   }
 
+  // ACTION: Suntik / Tambah Saldo Celengan Bahan Baku (Owner Top-Up)
+  async function handleExecuteTopUp() {
+    if (!topUpItem) return;
+    const amount = Number(topUpAmount);
+    if (amount <= 0) {
+      toast.error("Nominal suntik saldo harus lebih dari Rp 0");
+      return;
+    }
+
+    setTopUpLoading(true);
+    try {
+      const updatedManual = {
+        ...manualAdded,
+        [topUpItem.item.id]: (manualAdded[topUpItem.item.id] || 0) + amount,
+      };
+
+      const sourceLabel =
+        topUpSource === "owner_capital"
+          ? "Uang Pribadi / Suntikan Modal Owner"
+          : topUpSource === "branch_profit" || topUpSource === "owner_profit"
+            ? "Ambil dari Kantong Profit Owner Cabang Ini"
+            : "Ambil dari Dana Darurat Cabang Ini";
+
+      const activeOutletName =
+        outletsList.find((o) => o.id === selectedOutletId)?.name || "Semua Cabang (HQ)";
+
+      const newHistoryItem: MoneyAllocationHistoryItem = {
+        id: `hist-topup-${Date.now()}`,
+        outlet_id: selectedOutletId,
+        outlet_name: activeOutletName,
+        type: "suntik_saldo",
+        title: `+ Tambah Saldo ${topUpItem.item.name}`,
+        amount: amount,
+        timestamp: new Date().toISOString(),
+        note: topUpNote ? `${topUpNote} (${sourceLabel})` : `Sumber: ${sourceLabel}`,
+      };
+
+      const updatedHistory = [newHistoryItem, ...history];
+
+      setManualAdded(updatedManual);
+      setHistory(updatedHistory);
+      await persistSettings(packConfigs, spentAmounts, updatedManual, opPockets, updatedHistory);
+
+      setTopUpModalOpen(false);
+      setTopUpItem(null);
+      setTopUpAmount(100000);
+      setTopUpNote("");
+      toast.success(
+        `💰 Berhasil menambah saldo ${formatRupiah(amount)} untuk ${topUpItem.item.name} (${sourceLabel})!`,
+      );
+      await loadData();
+    } catch (err: any) {
+      toast.error("Gagal menambah saldo", { description: err.message });
+    } finally {
+      setTopUpLoading(false);
+    }
+  }
+
   // ACTION: Bayar Biaya Operasional
   async function handleExecutePayOp() {
     if (!payOpModal) return;
@@ -1118,6 +1227,86 @@ export function MoneyAllocationPage({
             </p>
           </div>
         </div>
+
+        {/* Multi-Branch Comparison Cards (HQ Summary View - Strict Per-Branch Isolation) */}
+        {selectedOutletId === "all" && outletsList.length > 0 && (
+          <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Store className="size-4 text-primary" />
+                <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
+                  Rekap Keuangan Cabang Berjalan (Multi-Cabang HQ) - Isolasi Antar Cabang
+                </h3>
+              </div>
+              <span className="text-[10px] text-muted-foreground font-medium">
+                Kebutuhan operasional cabang 100% memotong omzet cabang terkait (Tanpa subsidi silang liar)
+              </span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+              {outletsList.map((out) => {
+                const outOrders = salesOrders.filter((o) => o.outlet_id === out.id);
+                const outRevenue = outOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+                const outMovements = stockMovements.filter(
+                  (m) =>
+                    m.outlet_id === out.id &&
+                    (m.movement_type === "pos_sale" || m.movement_type === "stock_out"),
+                );
+                const outBomSavings = outMovements.reduce((sum, m) => {
+                  const itm = inventoryList.find((i) => i.id === m.inventory_item_id);
+                  return sum + (Number(m.quantity) || 0) * (itm?.cost_price || 0);
+                }, 0);
+                const outDays = new Set(
+                  outOrders.map((o) => (o.created_at || "").slice(0, 10)),
+                ).size;
+                const outOpCost = computedOpPockets.reduce(
+                  (sum, op) => sum + outDays * (op.daily_allocation || 0),
+                  0,
+                );
+                const outProfit = Math.max(0, outRevenue - outBomSavings - outOpCost);
+
+                return (
+                  <div
+                    key={out.id}
+                    className="rounded-xl border border-border bg-card p-3.5 space-y-2 shadow-xs"
+                  >
+                    <div className="flex items-center justify-between border-b border-border/50 pb-1.5">
+                      <span className="font-black text-xs text-foreground truncate">
+                        {out.name}
+                      </span>
+                      <Badge variant="outline" className="text-[9px] font-mono font-bold">
+                        {out.code || "CABANG"}
+                      </Badge>
+                    </div>
+                    <div className="space-y-1 text-[11px]">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>1. Total Omzet Masuk:</span>
+                        <span className="font-semibold text-foreground font-mono">
+                          {formatRupiah(outRevenue)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                        <span>2. Celengan Bahan (BOM):</span>
+                        <span className="font-mono font-semibold">
+                          -{formatRupiah(outBomSavings)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-blue-600 dark:text-blue-400">
+                        <span>3. Kebutuhan Operasional:</span>
+                        <span className="font-mono font-semibold">
+                          -{formatRupiah(outOpCost)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between pt-1 border-t border-border font-bold text-emerald-600 dark:text-emerald-400">
+                        <span>4. Estimasi Profit Bersih:</span>
+                        <span className="font-mono font-black">{formatRupiah(outProfit)}</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* 3. Section 1: Celengan Belanja Bahan Baku (BOM Repurchase Pocket) */}
@@ -1209,35 +1398,67 @@ export function MoneyAllocationPage({
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3">
+                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 block">
-                        Saldo Celengan Terkumpul:
+                        Saldo Siap Belanja Saat Ini:
                       </span>
                       {pocket.canBuyPacks >= 1 && (
                         <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                          🟢 Siap Belanja {pocket.canBuyPacks} Pak
+                          🟢 Siap Belanja {pocket.canBuyPacks} {pocket.item.unit || "Pak"}
                         </span>
                       )}
                     </div>
-                    <p className="text-xl font-black font-mono text-amber-600 dark:text-amber-400 mt-1">
+                    <p className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
                       {formatRupiah(pocket.accumulated_balance)}
                     </p>
-                    <div className="flex items-center justify-between text-[10px] text-muted-foreground mt-1">
-                      <span>
-                        Keluar: <strong>{pocket.usedQty} {pocket.item.unit}</strong>
-                      </span>
-                      <span>
-                        Modal: <strong>{formatRupiah(pocket.unit_cost)} / {pocket.item.unit}</strong>
-                      </span>
+
+                    {/* Transparent Formula Breakdown */}
+                    <div className="pt-2 border-t border-amber-500/20 space-y-1 text-[10px]">
+                      <div className="flex justify-between text-muted-foreground">
+                        <span>Terkumpul Penjualan (Patokan HPP):</span>
+                        <span className="font-semibold text-foreground">
+                          +{formatRupiah(pocket.totalEarned)}
+                        </span>
+                      </div>
+                      {pocket.added > 0 && (
+                        <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
+                          <span>+ Tambahan/Suntikan Saldo:</span>
+                          <span>+{formatRupiah(pocket.added)}</span>
+                        </div>
+                      )}
+                      {pocket.spent > 0 && (
+                        <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold">
+                          <span>- Terpakai Belanja Restock:</span>
+                          <span>-{formatRupiah(pocket.spent)}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-[9px] text-muted-foreground pt-1 border-t border-amber-500/10">
+                        <span>
+                          Keluar: <strong>{pocket.usedQty} {pocket.item.unit}</strong>
+                        </span>
+                        <span>
+                          Patokan: <strong>{formatRupiah(pocket.unit_cost)} / {pocket.item.unit}</strong>
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between">
-                  <span className="text-[10px] text-muted-foreground">
-                    Cukup {pocket.canBuyPacks} pak
-                  </span>
+                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="rounded-xl font-bold text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                    onClick={() => {
+                      setTopUpItem(pocket);
+                      setTopUpAmount(Math.max(100000, pocket.pack_price - pocket.accumulated_balance));
+                      setTopUpModalOpen(true);
+                    }}
+                  >
+                    <Plus className="size-3.5" />
+                    + Suntik Saldo
+                  </Button>
                   <Button
                     size="sm"
                     className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-amber-600 hover:bg-amber-700 text-white"
@@ -2161,6 +2382,114 @@ export function MoneyAllocationPage({
                 onClick={handleDisburseSalary}
               >
                 {payingSalaryLoading ? "Memproses..." : "Konfirmasi Pencairan Gaji Tim"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 6: Tambah / Suntik Saldo Bahan Baku (Top-Up Modal) */}
+      {topUpModalOpen && topUpItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-2xl bg-primary/10 text-primary flex items-center justify-center">
+                <Plus className="size-5" />
+              </div>
+              <div>
+                <h3 className="font-black text-base">Suntik / Tambah Saldo Bahan Baku</h3>
+                <p className="text-xs text-muted-foreground">{topUpItem.item.name}</p>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-muted/40 p-3 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Saldo Saat Ini:</span>
+                <span className="font-mono font-bold">
+                  {formatRupiah(topUpItem.accumulated_balance)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Harga 1 Pack ({topUpItem.item.unit}):</span>
+                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                  {formatRupiah(topUpItem.pack_price)}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-foreground block mb-1">
+                Sumber Dana:
+              </label>
+              <select
+                value={topUpSource}
+                onChange={(e) => setTopUpSource(e.target.value as any)}
+                className="w-full rounded-xl border border-input bg-background p-2.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="owner_capital">Uang Pribadi / Suntikan Modal Owner</option>
+                <option value="branch_profit">Ambil dari Kantong Profit Owner Cabang Ini (branch_profit)</option>
+                <option value="owner_profit">Ambil dari Saldo Profit Pemilik</option>
+                <option value="emergency_fund">Ambil dari Dana Darurat Cabang Ini</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-foreground block mb-1">
+                Nominal Suntikan Saldo (Rp):
+              </label>
+              <Input
+                type="number"
+                min="1000"
+                step="10000"
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(Number(e.target.value))}
+                className="rounded-xl font-mono text-base font-bold"
+              />
+              <div className="flex gap-1.5 mt-1.5">
+                {[50000, 100000, 200000, 500000].map((v) => (
+                  <Button
+                    key={v}
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="h-6 text-[10px] rounded-lg px-2 font-mono"
+                    onClick={() => setTopUpAmount(v)}
+                  >
+                    +{formatRupiah(v)}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs font-bold text-foreground block mb-1">
+                Catatan / Keterangan (Opsional):
+              </label>
+              <Input
+                value={topUpNote}
+                onChange={(e) => setTopUpNote(e.target.value)}
+                placeholder="Misal: Tambahan modal restock awal bulan"
+                className="rounded-xl text-xs"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                className="rounded-xl text-xs"
+                onClick={() => {
+                  setTopUpModalOpen(false);
+                  setTopUpItem(null);
+                }}
+              >
+                Batal
+              </Button>
+              <Button
+                disabled={topUpLoading || topUpAmount <= 0}
+                className="rounded-xl font-bold shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
+                onClick={handleExecuteTopUp}
+              >
+                {topUpLoading ? "Memproses..." : "Konfirmasi Suntik Saldo"}
               </Button>
             </div>
           </div>

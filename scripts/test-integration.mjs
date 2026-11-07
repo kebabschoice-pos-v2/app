@@ -1880,6 +1880,191 @@ test("Zero hardcoded addons in variant modal (Bug #4), Cash Tendered & Change br
   );
 });
 
+// --- TEST 45: Accurate Pack-to-Gram Conversion, Multi-Branch Stock Isolation & Money Allocation ---
+console.log("\n▶ 45. MULTI-BRANCH ISOLATION, PACK YIELD CONVERSION & MONEY ALLOCATION");
+
+function convertRecipeToInventoryQuantityWithYield(
+  recipeQty,
+  recipeUnit,
+  inventoryUnit,
+  yieldPerUnit,
+  yieldUnit,
+) {
+  const rUnit = (recipeUnit || "").toLowerCase().trim();
+  const iUnit = (inventoryUnit || "").toLowerCase().trim();
+  const yUnit = (yieldUnit || "").toLowerCase().trim();
+  const yieldCapacity = Number(yieldPerUnit) > 0 ? Number(yieldPerUnit) : 0;
+
+  if (!rUnit || !iUnit) return recipeQty;
+  if (rUnit === iUnit) return recipeQty;
+
+  if ((rUnit === "gram" || rUnit === "g") && (iUnit === "kg" || iUnit === "kilogram")) {
+    return recipeQty / 1000;
+  }
+  if ((rUnit === "kg" || rUnit === "kilogram") && (iUnit === "gram" || iUnit === "g")) {
+    return recipeQty * 1000;
+  }
+  if ((rUnit === "ml" || rUnit === "mililiter") && (iUnit === "liter" || iUnit === "l")) {
+    return recipeQty / 1000;
+  }
+  if ((rUnit === "liter" || rUnit === "l") && (iUnit === "ml" || iUnit === "mililiter")) {
+    return recipeQty * 1000;
+  }
+
+  if (yieldCapacity > 0) {
+    let normalizedRecipeQty = recipeQty;
+    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g" || !yUnit)) {
+      normalizedRecipeQty = recipeQty * 1000;
+    } else if ((rUnit === "liter" || rUnit === "l") && (yUnit === "ml" || yUnit === "mililiter" || !yUnit)) {
+      normalizedRecipeQty = recipeQty * 1000;
+    }
+    return normalizedRecipeQty / yieldCapacity;
+  }
+
+  return recipeQty;
+}
+
+test("Accurately converts 20 gram recipe from a 1 pcs meat bar (yield: 2200 gram / 110 portions)", () => {
+  const singlePortion = convertRecipeToInventoryQuantityWithYield(20, "gram", "pcs", 2200, "gram");
+  assert.ok(Math.abs(singlePortion - 20 / 2200) < 0.000001, "Single portion must equal 20/2200 pcs");
+
+  // When 110 portions are sold
+  const totalSold = 110;
+  const totalDeducted = totalSold * singlePortion;
+  assert.strictEqual(Math.round(totalDeducted), 1, "110 portions of 20g meat must equal exactly 1.0 pcs");
+});
+
+test("Strict Multi-Branch Stock Isolation: Cabang 1 sales drops 10 pcs to 9 pcs, Cabang 2 stock untouched", () => {
+  const initialStockCabang1 = 10;
+  const initialStockCabang2 = 10;
+  const costPerPcs = 110000;
+  const yieldGrams = 2200;
+  const gramPerKebab = 20;
+
+  // Sale in Cabang 1: 110 kebabs
+  const soldQty = 110;
+  const deductedPcs = soldQty * (gramPerKebab / yieldGrams); // 1.0 pcs
+
+  const newStockCabang1 = initialStockCabang1 - deductedPcs;
+  const newStockCabang2 = initialStockCabang2; // untouched!
+
+  assert.strictEqual(newStockCabang1, 9, "Cabang 1 stock must be 9 pcs after 110 kebabs sold");
+  assert.strictEqual(newStockCabang2, 10, "Cabang 2 stock must strictly remain 10 pcs (isolated)");
+
+  // Money Allocation Tabungan Uang Daging calculation
+  const totalEarnedForMeat = Math.round(deductedPcs * costPerPcs);
+  assert.strictEqual(totalEarnedForMeat, 110000, "Tabungan Uang Daging must accumulate exactly Rp 110.000");
+
+  const canRepurchasePcs = Math.floor(totalEarnedForMeat / costPerPcs);
+  assert.strictEqual(canRepurchasePcs, 1, "Must be able to repurchase exactly 1 pcs new meat tiang");
+});
+
+test("Validates codebase integrity for Add-ons, Fast Cash Tender, and Strict Isolation", () => {
+  const posCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf-8"
+  );
+  const moneyCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf-8"
+  );
+  const invCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf-8"
+  );
+  const hrCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/hr.service.ts"),
+    "utf-8"
+  );
+
+  // 1. Quick cash tender buttons
+  assert.ok(posCode.includes('label: "+10rb"'), "POS cart must provide +10rb cash button");
+  assert.ok(posCode.includes('label: "+20rb"'), "POS cart must provide +20rb cash button");
+  assert.ok(posCode.includes('label: "+50rb"'), "POS cart must provide +50rb cash button");
+  assert.ok(posCode.includes('label: "+100rb"'), "POS cart must provide +100rb cash button");
+
+  // 2. Add-on stock depletion
+  assert.ok(posCode.includes("addOnList"), "POS checkout must collect add-on list");
+  assert.ok(posCode.includes('prefixNote: "POS Addon"'), "POS checkout must deplete add-ons with POS Addon note");
+
+  // 3. Strict branch isolation in depleteIngredientStock
+  assert.ok(posCode.includes("origInvRow.outlet_id !== chosenOutletId"), "depleteIngredientStock must check branch mismatch");
+  assert.ok(posCode.includes("newBranchItem"), "depleteIngredientStock must create branch item instead of bleeding other branch");
+
+  // 4. Yield capacity in Inventory Management
+  assert.ok(invCode.includes("formYieldPerUnit"), "InventoryManagement must have formYieldPerUnit");
+  assert.ok(invCode.includes("formYieldUnit"), "InventoryManagement must have formYieldUnit");
+
+  // 5. Yield conversion in Money Allocation
+  assert.ok(moneyCode.includes("convertRecipeToInventoryQuantity"), "MoneyAllocationPage must use convertRecipeToInventoryQuantity");
+  assert.ok(moneyCode.includes("item.yield_per_unit"), "MoneyAllocationPage must account for yield_per_unit");
+
+  // 6. HR Service outlet isolation
+  assert.ok(hrCode.includes("generateMonthlyPayrollList("), "hr.service must export generateMonthlyPayrollList");
+  assert.ok(hrCode.includes("targetProfiles"), "generateMonthlyPayrollList must isolate targetProfiles by outletId");
+});
+
+test("Validates Buffer Benchmark HPP, Restock Deduction, Owner Top-Up, and Shift Cash Reconciliation", () => {
+  const invCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf-8"
+  );
+  const moneyCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf-8"
+  );
+  const posShiftCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/pos/PosShiftCashPage.tsx"),
+    "utf-8"
+  );
+
+  // 1. Buffer Benchmark Price in Restock Modal
+  assert.ok(invCode.includes("Harga Belanja Aktual per Unit"), "InventoryManagement must have input for Harga Belanja Aktual per Unit");
+  assert.ok(invCode.includes("stockInActualCost"), "InventoryManagement must track stockInActualCost state");
+  assert.ok(invCode.includes("stockInUpdateHpp"), "InventoryManagement must have option to preserve or update benchmark HPP");
+  assert.ok(invCode.includes("kebabschoicepos_money_allocation"), "InventoryManagement must deduct spent amount from money allocation on restock");
+
+  // 2. Owner Top-Up (Suntik Saldo) in Money Allocation
+  assert.ok(moneyCode.includes("Tambah / Suntik Saldo"), "MoneyAllocationPage must provide Tambah / Suntik Saldo button");
+  assert.ok(moneyCode.includes("topUpSource"), "MoneyAllocationPage must track topUpSource");
+  assert.ok(moneyCode.includes("owner_capital"), "MoneyAllocationPage must support Owner Capital top-up source");
+  assert.ok(moneyCode.includes("branch_profit"), "MoneyAllocationPage must support Branch Profit top-up source");
+  assert.ok(moneyCode.includes("emergency_fund"), "MoneyAllocationPage must support Emergency Fund top-up source");
+
+  // 3. Strict Branch Operational Isolation
+  assert.ok(moneyCode.includes("Rekap Keuangan Cabang Berjalan (Multi-Cabang HQ)"), "MoneyAllocationPage must render per-branch breakdown for HQ view");
+  assert.ok(moneyCode.includes("totalEarned"), "MoneyAllocationPage must calculate totalEarned");
+  assert.ok(moneyCode.includes("spent"), "MoneyAllocationPage must calculate spent");
+  assert.ok(moneyCode.includes("added"), "MoneyAllocationPage must calculate added top-up");
+
+  // 4. POS Shift Cash Reconciliation
+  assert.ok(posShiftCode.includes("effectiveCashSales"), "PosShiftCashPage must compute effectiveCashSales from live orders");
+  assert.ok(posShiftCode.includes("liveNonCashSales"), "PosShiftCashPage must compute liveNonCashSales (QRIS/EDC)");
+  assert.ok(posShiftCode.includes("expectedEndingCash"), "PosShiftCashPage must compute expectedEndingCash");
+  assert.ok(posShiftCode.includes("cash_sales: effectiveCashSales"), "PosShiftCashPage must persist reconciled cash_sales on shift close");
+
+  // 5. Simulate Mathematical Scenario:
+  // Benchmark HPP: Rp 120.000 / pcs (tiang = 2200 gram).
+  // 110 kebabs sold @ 20 gram = 2200 gram (1 pcs).
+  // Tabungan Daging earned = Rp 120.000.
+  // Restock 1 pcs with actual cost = Rp 110.000.
+  // Tabungan balance = 120.000 - 110.000 = Rp 10.000 buffer reserve remaining.
+  const benchmarkCost = 120000;
+  const actualCost = 110000;
+  const yieldCapacity = 2200;
+  const gramsPerKebab = 20;
+  const kebabsSold = 110;
+
+  const usedQtyPcs = (kebabsSold * gramsPerKebab) / yieldCapacity; // exactly 1 pcs
+  const earnedInPocket = usedQtyPcs * benchmarkCost; // 120.000
+  const restockSpent = 1 * actualCost; // 110.000
+  const pocketBalance = earnedInPocket - restockSpent; // 10.000
+
+  assert.strictEqual(usedQtyPcs, 1, "Used quantity must be exactly 1 pcs");
+  assert.strictEqual(earnedInPocket, 120000, "Earned in pocket must be Rp 120.000 using benchmark price");
+  assert.strictEqual(pocketBalance, 10000, "Pocket balance must have Rp 10.000 buffer surplus");
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

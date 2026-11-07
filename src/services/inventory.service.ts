@@ -18,6 +18,8 @@ export interface InventoryItemDetail {
   ai_alert?: string | null;
   updated_at?: string;
   status: "aman" | "menipis" | "habis";
+  yield_per_unit?: number | null;
+  yield_unit?: string | null;
 }
 
 export interface StockMovementRecord {
@@ -296,6 +298,8 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
             stock: stockVal,
             minimum_stock: minVal,
             cost_price: Number(item.cost_price ?? 0),
+            yield_per_unit: Number(item.yield_per_unit) || null,
+            yield_unit: item.yield_unit || null,
             status,
           };
         });
@@ -341,6 +345,12 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
     const matchedSup = suppliers.find((s) => s.id === supplierId);
     const outletId = (row as any).outlet_id || meta.outlet_id || null;
     const outletName = meta.outlet_name || null;
+    const yieldPerUnit =
+      Number((row as any).yield_per_unit ?? meta.yield_per_unit ?? meta.pack_size ?? 0) || null;
+    const yieldUnit =
+      (row as any).yield_unit ||
+      meta.yield_unit ||
+      (row.unit === "pcs" || row.unit === "pack" || row.unit === "tiang" ? "gram" : null);
 
     let status: "aman" | "menipis" | "habis" = "aman";
     if (stockVal <= 0) {
@@ -365,9 +375,46 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
       health_score: Number(row.health_score) || 100,
       ai_alert: row.ai_alert,
       updated_at: row.updated_at,
+      yield_per_unit: yieldPerUnit,
+      yield_unit: yieldUnit,
       status,
     };
   });
+}
+
+/**
+ * Helper: Computes portion HPP cost for a given recipe usage
+ * If inventory item is 1 tiang = 2200 gram @ Rp 110.000, 20 gram = (20/2200) * 110.000 = Rp 1.000
+ */
+export function calculateIngredientPortionCost(
+  item: InventoryItemDetail,
+  recipeQuantity: number,
+  recipeUnit: string,
+): number {
+  const cost = item.cost_price || 0;
+  if (cost <= 0) return 0;
+
+  const yieldCap = Number(item.yield_per_unit) > 0 ? Number(item.yield_per_unit) : 0;
+  if (yieldCap > 0) {
+    let normalizedQty = recipeQuantity;
+    const rUnit = (recipeUnit || "").toLowerCase().trim();
+    const yUnit = (item.yield_unit || "gram").toLowerCase().trim();
+    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g")) {
+      normalizedQty = recipeQuantity * 1000;
+    }
+    return (normalizedQty / yieldCap) * cost;
+  }
+
+  const rUnit = (recipeUnit || "").toLowerCase().trim();
+  const iUnit = (item.unit || "").toLowerCase().trim();
+  if ((rUnit === "gram" || rUnit === "g") && (iUnit === "kg" || iUnit === "kilogram")) {
+    return (recipeQuantity / 1000) * cost;
+  }
+  if ((rUnit === "ml" || rUnit === "mililiter") && (iUnit === "liter" || iUnit === "l")) {
+    return (recipeQuantity / 1000) * cost;
+  }
+
+  return recipeQuantity * cost;
 }
 
 /**
@@ -384,6 +431,8 @@ export async function createInventoryItem(
     supplier_id?: string | null;
     outlet_id?: string | null;
     outlet_name?: string | null;
+    yield_per_unit?: number | null;
+    yield_unit?: string | null;
   },
   businessId?: string,
 ): Promise<InventoryItemDetail> {
@@ -430,6 +479,12 @@ export async function createInventoryItem(
   if (data.outlet_id) {
     insertPayload.outlet_id = data.outlet_id;
   }
+  if (data.yield_per_unit !== undefined && data.yield_per_unit !== null) {
+    insertPayload.yield_per_unit = Number(data.yield_per_unit);
+  }
+  if (data.yield_unit) {
+    insertPayload.yield_unit = data.yield_unit;
+  }
 
   const { data: resWithOutlet, error: errWithOutlet } = await supabase
     .from("inventory_items")
@@ -440,8 +495,10 @@ export async function createInventoryItem(
   if (resWithOutlet) {
     inserted = resWithOutlet;
   } else {
-    // Retry without outlet_id column if table column doesn't exist
+    // Retry without extra columns if table columns don't exist
     delete insertPayload.outlet_id;
+    delete insertPayload.yield_per_unit;
+    delete insertPayload.yield_unit;
     const { data: resFallback, error: errFallback } = await supabase
       .from("inventory_items")
       .insert(insertPayload)
@@ -454,7 +511,7 @@ export async function createInventoryItem(
     inserted = resFallback;
   }
 
-  // Save cost_price, supplier_id, and outlet_id into procurement store meta
+  // Save cost_price, supplier_id, yield, and outlet_id into procurement store meta
   const store = await loadProcurementStore(bid);
   store.item_meta = store.item_meta || {};
   store.item_meta[inserted.id] = {
@@ -462,6 +519,8 @@ export async function createInventoryItem(
     supplier_id: data.supplier_id || null,
     outlet_id: data.outlet_id || null,
     outlet_name: data.outlet_name || null,
+    yield_per_unit: data.yield_per_unit !== undefined && data.yield_per_unit !== null ? Number(data.yield_per_unit) : null,
+    yield_unit: data.yield_unit || null,
   };
   await saveProcurementStore(bid, store);
 
@@ -482,6 +541,8 @@ export async function createInventoryItem(
     minimum_stock: Number(inserted.minimum_stock),
     cost_price: Number(data.cost_price) || 0,
     supplier_id: data.supplier_id || null,
+    yield_per_unit: data.yield_per_unit !== undefined && data.yield_per_unit !== null ? Number(data.yield_per_unit) : null,
+    yield_unit: data.yield_unit || null,
     health_score: 100,
     status:
       Number(inserted.stock) <= 0
@@ -507,6 +568,8 @@ export async function updateInventoryItem(
     supplier_id?: string | null;
     outlet_id?: string | null;
     outlet_name?: string | null;
+    yield_per_unit?: number | null;
+    yield_unit?: string | null;
   },
   businessId?: string,
 ): Promise<void> {
@@ -547,6 +610,8 @@ export async function updateInventoryItem(
   if (data.stock !== undefined) updatePayload.stock = Number(data.stock);
   if (data.minimum_stock !== undefined) updatePayload.minimum_stock = Number(data.minimum_stock);
   if (data.outlet_id !== undefined) updatePayload.outlet_id = data.outlet_id;
+  if (data.yield_per_unit !== undefined) updatePayload.yield_per_unit = data.yield_per_unit !== null ? Number(data.yield_per_unit) : null;
+  if (data.yield_unit !== undefined) updatePayload.yield_unit = data.yield_unit;
 
   const { error } = await supabase
     .from("inventory_items")
@@ -554,17 +619,15 @@ export async function updateInventoryItem(
     .eq("id", id);
 
   if (error) {
-    if (data.outlet_id !== undefined) {
-      delete updatePayload.outlet_id;
-      const { error: err2 } = await supabase
-        .from("inventory_items")
-        .update(updatePayload as any)
-        .eq("id", id);
-      if (err2) {
-        throw new Error(err2.message || "Gagal memperbarui bahan baku");
-      }
-    } else {
-      throw new Error(error.message || "Gagal memperbarui bahan baku");
+    delete updatePayload.outlet_id;
+    delete updatePayload.yield_per_unit;
+    delete updatePayload.yield_unit;
+    const { error: err2 } = await supabase
+      .from("inventory_items")
+      .update(updatePayload as any)
+      .eq("id", id);
+    if (err2) {
+      throw new Error(err2.message || "Gagal memperbarui bahan baku");
     }
   }
 
@@ -576,6 +639,8 @@ export async function updateInventoryItem(
     ...(data.supplier_id !== undefined ? { supplier_id: data.supplier_id } : {}),
     ...(data.outlet_id !== undefined ? { outlet_id: data.outlet_id } : {}),
     ...(data.outlet_name !== undefined ? { outlet_name: data.outlet_name } : {}),
+    ...(data.yield_per_unit !== undefined ? { yield_per_unit: data.yield_per_unit !== null ? Number(data.yield_per_unit) : null } : {}),
+    ...(data.yield_unit !== undefined ? { yield_unit: data.yield_unit } : {}),
   };
   await saveProcurementStore(bid, store);
 

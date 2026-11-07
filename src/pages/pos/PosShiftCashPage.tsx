@@ -367,6 +367,63 @@ export function PosShiftCashPage() {
     });
   }, []);
 
+  // Live order sales during active shift (Cash vs Non-cash like QRIS/Transfer)
+  const [liveCashSales, setLiveCashSales] = useState(0);
+  const [liveNonCashSales, setLiveNonCashSales] = useState(0);
+  const [liveOrderCount, setLiveOrderCount] = useState(0);
+
+  // Poll / sync sales_orders for active shift
+  useEffect(() => {
+    if (!activeShift?.startTime) {
+      setLiveCashSales(0);
+      setLiveNonCashSales(0);
+      setLiveOrderCount(0);
+      return;
+    }
+
+    const fetchShiftSales = async () => {
+      try {
+        let q = supabase
+          .from("sales_orders")
+          .select("id, total, payment_method, status, created_at, outlet_id")
+          .in("status" as any, ["paid", "completed"])
+          .gte("created_at", activeShift.startTime);
+
+        if (outletId && outletId !== "all" && outletId !== "default") {
+          q = q.eq("outlet_id", outletId);
+        }
+
+        const { data: orders, error } = await q;
+        if (error) throw error;
+
+        let cashSum = 0;
+        let nonCashSum = 0;
+        let count = 0;
+
+        (orders || []).forEach((o: any) => {
+          count++;
+          const tot = Number(o.total) || 0;
+          const method = String(o.payment_method || "cash").toLowerCase();
+          if (method === "cash" || method === "tunai") {
+            cashSum += tot;
+          } else {
+            nonCashSum += tot;
+          }
+        });
+
+        setLiveCashSales(cashSum);
+        setLiveNonCashSales(nonCashSum);
+        setLiveOrderCount(count);
+      } catch (err) {
+        console.warn("[PosShift] fetchShiftSales warning:", err);
+      }
+    };
+
+    fetchShiftSales();
+    const timer = setInterval(fetchShiftSales, 10000);
+    return () => clearInterval(timer);
+  }, [activeShift?.startTime, outletId]);
+
   // Compute live cash metrics for active shift
   const currentShiftMovements = useMemo(() => {
     if (!activeShift) return [];
@@ -385,14 +442,18 @@ export function PosShiftCashPage() {
       .reduce((sum, m) => sum + m.amount, 0);
   }, [currentShiftMovements]);
 
+  // Combined Cash Sales (either live orders or stored shift cash sales)
+  const effectiveCashSales = useMemo(() => {
+    return Math.max(liveCashSales, Number(activeShift?.cashSales) || 0);
+  }, [liveCashSales, activeShift?.cashSales]);
+
   // Expected Cash calculation:
   // Saldo Awal + Penjualan Cash + Cash In - Cash Out = Saldo Akhir
   const expectedEndingCash = useMemo(() => {
     if (!activeShift) return 0;
     const start = Number(activeShift.startingCash) || 0;
-    const sales = Number(activeShift.cashSales) || 0;
-    return start + sales + totalCashIn - totalCashOut;
-  }, [activeShift, totalCashIn, totalCashOut]);
+    return start + effectiveCashSales + totalCashIn - totalCashOut;
+  }, [activeShift, effectiveCashSales, totalCashIn, totalCashOut]);
 
   // Handle Open Shift (DB Persistence + LocalStorage)
   const handleOpenShift = async () => {
@@ -561,6 +622,7 @@ export function PosShiftCashPage() {
           .update({
             end_time: endTime,
             status: "closed",
+            cash_sales: effectiveCashSales,
             total_cash_in: totalCashIn,
             total_cash_out: totalCashOut,
             expected_ending_cash: expectedEndingCash,
@@ -579,6 +641,7 @@ export function PosShiftCashPage() {
       ...activeShift,
       endTime,
       status: "closed",
+      cashSales: effectiveCashSales,
       totalCashIn,
       totalCashOut,
       expectedEndingCash,
@@ -921,10 +984,10 @@ export function PosShiftCashPage() {
                 Penjualan Tunai
               </span>
               <div className="text-xl font-black text-success mt-1">
-                +{formatRupiah(activeShift.cashSales)}
+                +{formatRupiah(effectiveCashSales)}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1">
-                Otomatis dari order POS tunai
+              <div className="text-[11px] text-muted-foreground mt-1 flex items-center justify-between">
+                <span>{liveOrderCount} order ({formatRupiah(liveNonCashSales)} Non-Tunai)</span>
               </div>
             </div>
 
@@ -1146,8 +1209,14 @@ export function PosShiftCashPage() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Penjualan Tunai POS:</span>
-                  <span className="text-success">+{formatRupiah(activeShift.cashSales)}</span>
+                  <span className="text-success">+{formatRupiah(effectiveCashSales)}</span>
                 </div>
+                {liveNonCashSales > 0 && (
+                  <div className="flex justify-between text-[11px] text-muted-foreground">
+                    <span>Penjualan Non-Tunai (QRIS/EDC):</span>
+                    <span>{formatRupiah(liveNonCashSales)}</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Total Cash In:</span>
                   <span className="text-success">+{formatRupiah(totalCashIn)}</span>

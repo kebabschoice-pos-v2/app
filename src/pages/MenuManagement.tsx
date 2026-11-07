@@ -933,7 +933,13 @@ export function MenuManagement() {
       } else {
         const matchedInv = inventoryIngredients.find((inv) => inv.id === r.inventory_item_id);
         if (matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0) {
-          const invQty = convertRecipeToInventoryQuantity(r.quantity || 1, r.unit, matchedInv.unit);
+          const invQty = convertRecipeToInventoryQuantity(
+            r.quantity || 1,
+            r.unit,
+            matchedInv.unit,
+            matchedInv.yield_per_unit,
+            matchedInv.yield_unit,
+          );
           estimatedCost += invQty * matchedInv.cost_price;
         } else {
           const nameLower = (r.ingredient_name || "").toLowerCase();

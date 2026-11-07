@@ -124,6 +124,7 @@ import { getStaffList, type StaffItem } from "@/services/staff.service";
 import {
   printReceipt,
   kickCashDrawer,
+  getSavedPrinterConfig,
   subscribePrinterStatus,
   connectBluetoothPrinter,
   connectUsbPrinter,
@@ -733,6 +734,21 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
         storedOutletAssignments[prodId] = assignList as any[];
       }
     }
+    if (setObj.tax_settings) {
+      try {
+        localStorage.setItem("kebabschoicepos_tax_settings", JSON.stringify(setObj.tax_settings));
+      } catch {}
+    }
+    if (setObj.payment_settings) {
+      try {
+        localStorage.setItem("kebabschoicepos_payment_settings", JSON.stringify(setObj.payment_settings));
+      } catch {}
+    }
+    if (setObj.printer_settings) {
+      try {
+        localStorage.setItem("kebabschoicepos_printer_settings", JSON.stringify(setObj.printer_settings));
+      } catch {}
+    }
   }
 
   function deduplicateEntitiesById<T extends { id?: string }>(items: T[]): T[] {
@@ -757,6 +773,7 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     code: o.code || "",
     address: o.address || "",
     active: o.active !== false && o.is_active !== false,
+    settings: (o.settings as any) || {},
   }));
   const mappedOutlets: OutletItem[] = deduplicateEntitiesById(rawOutlets);
 
@@ -2649,6 +2666,10 @@ function ReceiptModal({
   onClose: () => void;
 }) {
   if (!data) return null;
+  const printerCfg = getSavedPrinterConfig();
+  const headerStoreName = printerCfg.storeName || businessName || "KEBABSCHOICE POS";
+  const branchAddress = printerCfg.branchAddress;
+  const footerText = printerCfg.footerMessage || "Terima kasih atas kunjungan Anda!";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
@@ -2659,9 +2680,12 @@ function ReceiptModal({
             <Receipt className="size-8" />
           </div>
           <h2 className="text-base font-black tracking-wider uppercase text-foreground">
-            {businessName || "KEBABSCHOICE POS"}
+            {headerStoreName}
           </h2>
           <p className="text-xs text-muted-foreground mt-0.5">Cabang: {data.outletName}</p>
+          {branchAddress && (
+            <p className="text-[10px] text-muted-foreground">{branchAddress}</p>
+          )}
           <p className="text-[11px] text-muted-foreground">
             {new Date(data.createdAt).toLocaleString("id-ID", {
               day: "numeric",
@@ -2787,8 +2811,8 @@ function ReceiptModal({
             )}
           </div>
 
-          <p className="mt-4 text-[10px] text-muted-foreground">
-            *** Terima kasih atas kunjungan Anda! ***
+          <p className="mt-4 text-[10px] text-muted-foreground whitespace-pre-line">
+            *** {footerText} ***
           </p>
         </div>
 
@@ -2805,11 +2829,14 @@ function ReceiptModal({
             onClick={async () => {
               try {
                 await printReceipt({
-                  storeName: businessName || "KEBABSCHOICE POS",
+                  storeName: headerStoreName,
                   outletName: data.outletName,
+                  branchAddress: branchAddress,
                   orderNumber: data.orderNumber,
                   cashierName: data.cashierName,
                   customerName: data.customerName,
+                  orderType: data.orderType,
+                  tableNumber: data.tableNumber,
                   createdAt: data.createdAt,
                   date: new Date(data.createdAt).toLocaleString("id-ID"),
                   items: data.items.map((it) => ({
@@ -2819,11 +2846,15 @@ function ReceiptModal({
                     price: it.price,
                     subtotal: it.subtotal,
                   })),
+                  subtotal: data.subtotal,
+                  discount: data.discountAmount,
+                  serviceCharge: data.serviceChargeAmount,
+                  tax: data.taxAmount,
                   total: data.total,
                   paymentMethod: data.paymentMethod,
                   cashTendered: data.cashReceived ?? data.total,
                   change: data.changeAmount ?? Math.max(0, (data.cashReceived ?? data.total) - data.total),
-                  footerMessage: "Terima kasih atas kunjungan Anda!",
+                  footerMessage: footerText,
                 });
               } catch (err) {
                 console.warn("Print receipt fallback:", err);
@@ -3519,21 +3550,80 @@ function PosPage({
     };
   });
 
-  // Re-read tax settings on window focus or storage event
+  // Re-read tax & payment settings on outlet change, window focus, or storage event
   useEffect(() => {
-    const readTax = () => {
-      try {
-        const raw = localStorage.getItem("kebabschoicepos_tax_settings");
-        if (raw) setTaxSettings(JSON.parse(raw));
-      } catch {}
+    const syncSettings = () => {
+      // 1. Resolve active outlet
+      const activeOutlet = snapshot.outlets?.find((o) => o.id === selectedOutletId);
+
+      // Tax settings
+      const outletTax = activeOutlet?.settings?.tax_settings;
+      if (outletTax) {
+        setTaxSettings((prev) => ({
+          ...prev,
+          taxEnabled: outletTax.taxEnabled ?? prev.taxEnabled,
+          taxRate: outletTax.taxRate ?? prev.taxRate,
+          taxName: outletTax.taxName || prev.taxName,
+          taxMode: outletTax.taxMode || prev.taxMode,
+          serviceEnabled: outletTax.serviceEnabled ?? prev.serviceEnabled,
+          serviceRate: outletTax.serviceRate ?? prev.serviceRate,
+        }));
+      } else {
+        try {
+          const raw = localStorage.getItem("kebabschoicepos_tax_settings");
+          if (raw) setTaxSettings(JSON.parse(raw));
+        } catch {}
+      }
+
+      // Payment settings
+      const outletPay = activeOutlet?.settings?.payment_settings;
+      if (outletPay) {
+        setPaymentSettings({
+          cashEnabled: outletPay.cashEnabled ?? true,
+          qrisEnabled: outletPay.qrisEnabled ?? true,
+          cardEnabled: outletPay.cardEnabled ?? true,
+          transferEnabled: outletPay.transferEnabled ?? false,
+        });
+      } else {
+        try {
+          const saved = localStorage.getItem("kebabschoicepos_payment_settings");
+          if (saved) {
+            const parsed = JSON.parse(saved);
+            setPaymentSettings({
+              cashEnabled: parsed.cashEnabled ?? true,
+              qrisEnabled: parsed.qrisEnabled ?? true,
+              cardEnabled: parsed.cardEnabled ?? true,
+              transferEnabled: parsed.transferEnabled ?? false,
+            });
+          }
+        } catch {}
+      }
     };
-    window.addEventListener("focus", readTax);
-    window.addEventListener("storage", readTax);
+
+    syncSettings();
+    window.addEventListener("focus", syncSettings);
+    window.addEventListener("storage", syncSettings);
     return () => {
-      window.removeEventListener("focus", readTax);
-      window.removeEventListener("storage", readTax);
+      window.removeEventListener("focus", syncSettings);
+      window.removeEventListener("storage", syncSettings);
     };
-  }, []);
+  }, [selectedOutletId, snapshot.outlets]);
+
+  // Auto switch paymentMethod to first enabled option if current selection is disabled
+  useEffect(() => {
+    const isCurrentEnabled =
+      (paymentMethod === "cash" && paymentSettings.cashEnabled) ||
+      (paymentMethod === "qris" && paymentSettings.qrisEnabled) ||
+      (paymentMethod === "card" && paymentSettings.cardEnabled) ||
+      (paymentMethod === "ewallet" && paymentSettings.transferEnabled);
+
+    if (!isCurrentEnabled) {
+      if (paymentSettings.cashEnabled) setPaymentMethod("cash");
+      else if (paymentSettings.qrisEnabled) setPaymentMethod("qris");
+      else if (paymentSettings.cardEnabled) setPaymentMethod("card");
+      else if (paymentSettings.transferEnabled) setPaymentMethod("ewallet");
+    }
+  }, [paymentMethod, paymentSettings]);
 
   // Cart total computation with Discount, Service Charge, and Tax
   const subtotal = cart.reduce(
@@ -4138,17 +4228,36 @@ function PosPage({
       window.dispatchEvent(new CustomEvent("order:created", { detail: newSalesOrder }));
     }
 
-    // Print receipt automatically
-    printReceipt({
-      storeName: snapshot.businessName || "KEBAB'S CHOICE",
-      outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
-      orderNumber,
-      cashierName: activeCashierName || profile?.displayName || "Kasir",
-      paymentMethod: "QRIS",
-      customerName: effectiveCustomerName,
-      items: receiptData.items,
-      total: orderTotal,
-    }).catch(() => {});
+    // Print receipt automatically if configured
+    const savedPrinter = getSavedPrinterConfig();
+    if (savedPrinter.autoPrint !== false) {
+      printReceipt({
+        storeName: savedPrinter.storeName || snapshot.businessName || "KEBAB'S CHOICE",
+        outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
+        branchAddress: savedPrinter.branchAddress,
+        orderNumber,
+        cashierName: activeCashierName || profile?.displayName || "Kasir",
+        paymentMethod: "QRIS",
+        customerName: effectiveCustomerName,
+        orderType: qrisPendingOrder?.orderType ?? "dine_in",
+        tableNumber: qrisPendingOrder?.tableNumber || undefined,
+        createdAt: receiptData.createdAt,
+        date: new Date(receiptData.createdAt).toLocaleString("id-ID"),
+        items: receiptData.items.map((it: any) => ({
+          name: it.name,
+          quantity: it.quantity,
+          qty: it.quantity,
+          price: it.price,
+          subtotal: it.subtotal,
+        })),
+        subtotal: qrisPendingOrder?.subtotal ?? orderTotal,
+        discount: qrisPendingOrder?.discountAmount ?? 0,
+        serviceCharge: qrisPendingOrder?.serviceChargeAmount ?? 0,
+        tax: qrisPendingOrder?.taxAmount ?? 0,
+        total: orderTotal,
+        footerMessage: savedPrinter.footerMessage || "Terima kasih atas kunjungan Anda!",
+      }).catch(() => {});
+    }
 
     setCart([]);
     setCustomerQueueName("");
@@ -4226,29 +4335,6 @@ function PosPage({
     const chosenOutletId =
       selectedOutletId !== "all" ? selectedOutletId : activeOutlets[0]?.id || null;
     const isOjolChannel = ["gofood", "grabfood", "shopeefood"].includes(orderType);
-    const orderPayload: any = {
-      business_id: snapshot.businessId,
-      order_number: orderNumber,
-      subtotal,
-      discount_amount: discountAmount,
-      service_charge: serviceChargeAmount,
-      tax_amount: taxAmount,
-      total,
-      payment_method: paymentMethod,
-      order_type: orderType,
-      table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
-      status: "paid",
-      channel: isOjolChannel ? orderType : "store",
-      paid_at: new Date().toISOString(),
-    };
-    if (customerQueueName || ojolOrderCode) {
-      orderPayload.notes = [
-        customerQueueName ? `Antrean: ${customerQueueName}` : null,
-        ojolOrderCode ? `Kode Ojol: ${ojolOrderCode}` : null,
-      ]
-        .filter(Boolean)
-        .join(" | ");
-    }
     let effectiveCustomerId: string | null = null;
     let effectiveCustomerName = "Pelanggan Umum";
 
@@ -4278,6 +4364,31 @@ function PosPage({
       } catch (err) {
         console.warn("[CRM] New customer insertion warning:", err);
       }
+    }
+
+    const orderPayload: any = {
+      business_id: snapshot.businessId,
+      order_number: orderNumber,
+      subtotal,
+      discount_amount: discountAmount,
+      service_charge: serviceChargeAmount,
+      tax_amount: taxAmount,
+      total,
+      payment_method: paymentMethod,
+      order_type: orderType,
+      table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
+      status: "paid",
+      channel: isOjolChannel ? orderType : "store",
+      paid_at: new Date().toISOString(),
+      customer_name: effectiveCustomerName || null,
+    };
+    if (customerQueueName || ojolOrderCode) {
+      orderPayload.notes = [
+        customerQueueName ? `Antrean: ${customerQueueName}` : null,
+        ojolOrderCode ? `Kode Ojol: ${ojolOrderCode}` : null,
+      ]
+        .filter(Boolean)
+        .join(" | ");
     }
 
     if (chosenOutletId) {
@@ -4388,10 +4499,19 @@ function PosPage({
             business_id: snapshot.businessId,
             order_number: orderNumber,
             total,
+            subtotal,
+            discount_amount: discountAmount,
+            service_charge: serviceChargeAmount,
+            tax_amount: taxAmount,
             payment_method: paymentMethod.toLowerCase(),
+            order_type: orderType,
+            table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
             status: "paid",
+            customer_name: effectiveCustomerName || null,
+            channel: isOjolChannel ? orderType : "store",
           };
           if (chosenOutletId) corePayload.outlet_id = chosenOutletId;
+          if (effectiveCustomerId) corePayload.customer_id = effectiveCustomerId;
 
           let retryRes = await supabase.from("sales_orders").insert(corePayload).select("id").single();
 
@@ -4485,6 +4605,8 @@ function PosPage({
           order_id: it.order_id,
           product_id: it.product_id,
           name: it.name,
+          variant_name: it.variant_name || null,
+          notes: it.notes || null,
           quantity: it.quantity,
           unit_price: it.unit_price,
           subtotal: it.subtotal,
@@ -4691,6 +4813,39 @@ function PosPage({
     // Otomatis kick cash drawer jika pembayaran tunai (ESC p 0)
     if (paymentMethod.toLowerCase() === "cash") {
       kickCashDrawer().catch(() => {});
+    }
+
+    // Auto print receipt if configured
+    const savedPrinter = getSavedPrinterConfig();
+    if (savedPrinter.autoPrint !== false) {
+      printReceipt({
+        storeName: savedPrinter.storeName || snapshot.businessName || "KEBAB'S CHOICE",
+        outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
+        branchAddress: savedPrinter.branchAddress,
+        orderNumber,
+        orderType,
+        tableNumber: orderType === "dine_in" && tableNumber ? tableNumber : undefined,
+        cashierName: activeCashierName || profile?.displayName || "Kasir",
+        paymentMethod: paymentMethod.toUpperCase(),
+        customerName: effectiveCustomerName,
+        createdAt: receiptData.createdAt,
+        date: new Date(receiptData.createdAt).toLocaleString("id-ID"),
+        items: receiptData.items.map((it) => ({
+          name: it.name,
+          quantity: it.quantity,
+          qty: it.quantity,
+          price: it.price,
+          subtotal: it.subtotal,
+        })),
+        subtotal,
+        discount: discountAmount,
+        serviceCharge: serviceChargeAmount,
+        tax: taxAmount,
+        total,
+        cashTendered: cashReceived,
+        change: changeAmount,
+        footerMessage: savedPrinter.footerMessage || "Terima kasih atas kunjungan Anda!",
+      }).catch(() => {});
     }
 
     setCart([]);
@@ -5745,8 +5900,8 @@ function PosPage({
             {[
               ["cash", "Cash", DollarSign, paymentSettings.cashEnabled],
               ["qris", "QRIS", QrCode, paymentSettings.qrisEnabled],
-              ["ewallet", "E-wallet", WalletCards, true],
-              ["card", "Card", CreditCard, paymentSettings.cardEnabled],
+              ["ewallet", "E-wallet / Transfer", WalletCards, paymentSettings.transferEnabled],
+              ["card", "Card / EDC", CreditCard, paymentSettings.cardEnabled],
             ]
               .filter((item) => item[3] !== false)
               .map(([key, label, Icon]: any) => (

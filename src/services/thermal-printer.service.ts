@@ -29,10 +29,13 @@ export interface ThermalReceiptPayload {
   storeName: string;
   outletName?: string;
   address?: string;
+  branchAddress?: string;
   phone?: string;
   headerMessage?: string;
   footerMessage?: string;
   orderNumber: string;
+  orderType?: string;
+  tableNumber?: string;
   cashierName?: string;
   customerName?: string | null;
   paymentMethod: string;
@@ -41,6 +44,7 @@ export interface ThermalReceiptPayload {
   items: ThermalReceiptItem[];
   subtotal?: number;
   discount?: number;
+  serviceCharge?: number;
   tax?: number;
   total: number;
   cashTendered?: number;
@@ -48,6 +52,7 @@ export interface ThermalReceiptPayload {
   paperSize?: PaperSize;
   autoCut?: boolean;
   openDrawer?: boolean;
+  autoPrint?: boolean;
 }
 
 // Check if running on client browser (SSR-safe guard)
@@ -131,9 +136,13 @@ export function getSavedPrinterConfig(): {
   paperSize: PaperSize;
   openCashDrawer: boolean;
   autoCut: boolean;
+  storeName?: string;
+  branchAddress?: string;
+  footerMessage?: string;
+  autoPrint?: boolean;
 } {
   if (!isClient()) {
-    return { paperSize: "58mm", openCashDrawer: true, autoCut: true };
+    return { paperSize: "58mm", openCashDrawer: true, autoCut: true, autoPrint: true };
   }
   try {
     const raw = localStorage.getItem("kebabschoicepos_printer_settings");
@@ -143,10 +152,16 @@ export function getSavedPrinterConfig(): {
         paperSize: parsed.paperSize === "80mm" ? "80mm" : "58mm",
         openCashDrawer: parsed.openCashDrawer !== false,
         autoCut: parsed.autoCut !== false,
+        storeName: parsed.storeName || parsed.printerName || "Kebab's Choice",
+        branchAddress: parsed.branchAddress || "",
+        footerMessage:
+          parsed.footerMessage ||
+          "Terima kasih atas kunjungan Anda!\nSajian Kebab Pilihan Keluarga",
+        autoPrint: parsed.autoPrint !== false,
       };
     }
   } catch {}
-  return { paperSize: "58mm", openCashDrawer: true, autoCut: true };
+  return { paperSize: "58mm", openCashDrawer: true, autoCut: true, autoPrint: true };
 }
 
 /**
@@ -229,8 +244,8 @@ export function encodeEscPosReceipt(payload: ThermalReceiptPayload): Uint8Array 
   if (payload.outletName) {
     appendLine(`Cabang: ${payload.outletName}`);
   }
-  if (payload.address) {
-    appendLine(payload.address);
+  if (payload.branchAddress || payload.address) {
+    appendLine(payload.branchAddress || payload.address);
   }
   if (payload.phone) {
     appendLine(`Telp: ${payload.phone}`);
@@ -254,6 +269,11 @@ export function encodeEscPosReceipt(payload: ThermalReceiptPayload): Uint8Array 
   appendBytes(ESC_POS.ALIGN_LEFT);
   appendLine(padLine(`No: ${payload.orderNumber}`, payload.paymentMethod.toUpperCase(), maxChars));
   appendLine(padLine(`Waktu: ${timeStr}`, dateStr, maxChars));
+  if (payload.orderType) {
+    const formattedType = payload.orderType.replace("_", " ").toUpperCase();
+    const tableInfo = payload.tableNumber ? ` (Meja ${payload.tableNumber})` : "";
+    appendLine(`Tipe: ${formattedType}${tableInfo}`);
+  }
   if (payload.cashierName) {
     appendLine(`Kasir: ${payload.cashierName}`);
   }
@@ -280,8 +300,14 @@ export function encodeEscPosReceipt(payload: ThermalReceiptPayload): Uint8Array 
   appendLine(divider);
 
   // 5. Totals
+  if (payload.subtotal !== undefined && payload.subtotal > 0 && (payload.discount || payload.tax || payload.serviceCharge)) {
+    appendLine(padLine("Subtotal", formatCurrency(payload.subtotal), maxChars));
+  }
   if (payload.discount && payload.discount > 0) {
     appendLine(padLine("Diskon Promosi", `-${formatCurrency(payload.discount)}`, maxChars));
+  }
+  if (payload.serviceCharge && payload.serviceCharge > 0) {
+    appendLine(padLine("Biaya Layanan", formatCurrency(payload.serviceCharge), maxChars));
   }
   if (payload.tax && payload.tax > 0) {
     appendLine(padLine("Pajak Resto (PB1)", formatCurrency(payload.tax), maxChars));
@@ -303,7 +329,10 @@ export function encodeEscPosReceipt(payload: ThermalReceiptPayload): Uint8Array 
   // 6. Footer (Center)
   appendBytes(ESC_POS.ALIGN_CENTER);
   if (payload.footerMessage) {
-    appendLine(payload.footerMessage);
+    const lines = payload.footerMessage.split("\n");
+    for (const l of lines) {
+      if (l.trim()) appendLine(l.trim());
+    }
   } else {
     appendLine("Terima kasih atas kunjungan Anda!");
     appendLine("Sajian Kebab Pilihan Keluarga");

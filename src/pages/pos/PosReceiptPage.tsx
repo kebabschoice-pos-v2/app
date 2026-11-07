@@ -30,6 +30,7 @@ import { getUserRole } from "@/integrations/supabase/role-resolver";
 import {
   printReceipt,
   kickCashDrawer,
+  getSavedPrinterConfig,
   subscribePrinterStatus,
   connectBluetoothPrinter,
   connectUsbPrinter,
@@ -42,12 +43,19 @@ interface ReceiptOrder {
   order_number: string;
   created_at: string;
   total: number;
+  subtotal?: number;
+  discount_amount?: number;
+  service_charge?: number;
+  tax_amount?: number;
+  order_type?: string | null;
+  table_number?: string | null;
   payment_method: string;
   status: string;
   channel?: string | null;
   customer_id?: string | null;
   outlet_id?: string | null;
   outlet_name?: string;
+  outlet_address?: string;
   cashier_name?: string;
   customer_name?: string;
   cashReceived?: number;
@@ -133,13 +141,13 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
           });
 
           // Outlet mapping
-          const { data: outletRows } = await supabase.from("outlets").select("id, name, address");
-          const outletMap: Record<string, string> = {};
-          (outletRows || []).forEach((o) => {
-            outletMap[o.id] = o.name;
+          const { data: outletRows } = await supabase.from("outlets").select("id, name, address, settings");
+          const outletMap: Record<string, { name: string; address?: string; settings?: any }> = {};
+          (outletRows || []).forEach((o: any) => {
+            outletMap[o.id] = { name: o.name, address: o.address || undefined, settings: o.settings };
           });
 
-          mapped = orderRows.map((ord) => {
+          mapped = (orderRows as any[]).map((ord: any) => {
             const relatedItems = (itemRows || [])
               .filter((it) => it.order_id === ord.id)
               .map((it) => ({
@@ -151,21 +159,27 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
                 notes: it.notes,
               }));
 
+            const outInfo = ord.outlet_id ? outletMap[ord.outlet_id] : null;
             return {
               id: ord.id,
               order_number: ord.order_number,
               created_at: ord.created_at,
               total: Number(ord.total) || 0,
+              subtotal: ord.subtotal != null ? Number(ord.subtotal) : undefined,
+              discount_amount: ord.discount_amount != null ? Number(ord.discount_amount) : undefined,
+              service_charge: ord.service_charge != null ? Number(ord.service_charge) : undefined,
+              tax_amount: ord.tax_amount != null ? Number(ord.tax_amount) : undefined,
+              order_type: ord.order_type || null,
+              table_number: ord.table_number || null,
               payment_method: ord.payment_method || "CASH",
               status: ord.status || "paid",
               channel: ord.channel,
               customer_id: ord.customer_id,
               outlet_id: ord.outlet_id,
-              outlet_name: ord.outlet_id
-                ? outletMap[ord.outlet_id] || "Outlet Utama"
-                : "Outlet Utama",
+              outlet_name: outInfo ? outInfo.name : "Outlet Utama",
+              outlet_address: outInfo?.address,
               cashier_name: "Kasir POS",
-              customer_name: ord.customer_id ? custMap[ord.customer_id] : "Pelanggan Umum",
+              customer_name: ord.customer_name || (ord.customer_id ? custMap[ord.customer_id] : "Pelanggan Umum"),
               items:
                 relatedItems.length > 0
                   ? relatedItems
@@ -191,6 +205,12 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
                 order_number: so.order_number || so.id,
                 created_at: so.created_at || new Date().toISOString(),
                 total: Number(so.total) || 0,
+                subtotal: so.subtotal != null ? Number(so.subtotal) : undefined,
+                discount_amount: so.discount_amount != null ? Number(so.discount_amount) : undefined,
+                service_charge: so.service_charge != null ? Number(so.service_charge) : undefined,
+                tax_amount: so.tax_amount != null ? Number(so.tax_amount) : undefined,
+                order_type: so.order_type || null,
+                table_number: so.table_number || null,
                 payment_method: (so.payment_method || "CASH").toUpperCase(),
                 status: so.status || "paid",
                 channel: so.channel,
@@ -198,7 +218,7 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
                 outlet_id: so.outlet_id,
                 outlet_name: "Outlet Utama",
                 cashier_name: "Kasir POS",
-                customer_name: "Pelanggan Umum",
+                customer_name: so.customer_name || "Pelanggan Umum",
                 cashReceived: so.cashReceived,
                 changeAmount: so.changeAmount,
                 items: [
@@ -229,12 +249,19 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
                   order_number: ro.order_number || ro.id,
                   created_at: ro.created_at || new Date().toISOString(),
                   total: Number(ro.total) || 0,
+                  subtotal: ro.subtotal != null ? Number(ro.subtotal) : undefined,
+                  discount_amount: ro.discount_amount != null ? Number(ro.discount_amount) : undefined,
+                  service_charge: ro.service_charge != null ? Number(ro.service_charge) : undefined,
+                  tax_amount: ro.tax_amount != null ? Number(ro.tax_amount) : undefined,
+                  order_type: ro.order_type || null,
+                  table_number: ro.table_number || null,
                   payment_method: (ro.payment_method || "CASH").toUpperCase(),
                   status: ro.status || "paid",
                   channel: ro.channel,
                   customer_id: ro.customer_id,
                   outlet_id: ro.outlet_id,
                   outlet_name: ro.outlet_name || "Outlet Utama",
+                  outlet_address: ro.outlet_address,
                   cashier_name: ro.cashier_name || "Kasir POS",
                   customer_name: ro.customer_name || "Pelanggan Umum",
                   cashReceived: ro.cashReceived,
@@ -321,12 +348,16 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
     if (!selectedOrder) return;
     toast.info("Mengirim data ke printer struk thermal...");
     try {
+      const printerConfig = getSavedPrinterConfig();
       await printReceipt({
-        storeName: businessProfile?.name || "KebabsChoice POS",
+        storeName: printerConfig.storeName || businessProfile?.name || "KebabsChoice POS",
         outletName: selectedOrder.outlet_name || "Outlet Utama",
-        address: businessProfile?.address,
+        branchAddress: printerConfig.branchAddress || selectedOrder.outlet_address || businessProfile?.address,
+        address: printerConfig.branchAddress || selectedOrder.outlet_address || businessProfile?.address,
         phone: businessProfile?.phone,
         orderNumber: selectedOrder.order_number,
+        orderType: selectedOrder.order_type || undefined,
+        tableNumber: selectedOrder.table_number || undefined,
         cashierName: selectedOrder.cashier_name || "Kasir POS",
         customerName: selectedOrder.customer_name,
         createdAt: selectedOrder.created_at,
@@ -338,11 +369,15 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
           price: it.unit_price,
           subtotal: it.subtotal,
         })),
+        subtotal: selectedOrder.subtotal ?? selectedOrder.total,
+        discount: selectedOrder.discount_amount ?? 0,
+        serviceCharge: selectedOrder.service_charge ?? 0,
+        tax: selectedOrder.tax_amount ?? 0,
         total: selectedOrder.total,
         paymentMethod: selectedOrder.payment_method || "CASH",
         cashTendered: selectedOrder.cashReceived,
         change: selectedOrder.changeAmount,
-        footerMessage: "Terima kasih atas kunjungan Anda!",
+        footerMessage: printerConfig.footerMessage || "Terima kasih atas kunjungan Anda!",
       });
     } catch (err: any) {
       console.warn("Thermal print fallback to browser:", err);
@@ -567,122 +602,151 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
                 style={{ fontFamily: "'Courier New', Courier, monospace" }}
               >
                 {/* Header Struk */}
-                <div className="text-center space-y-1 pb-3 border-b border-dashed border-zinc-400">
-                  <h3 className="font-black text-base uppercase tracking-wider">
-                    {businessProfile?.name || snapshot?.businessName || "KEBABS CHOICE POS"}
-                  </h3>
-                  <p className="text-[11px] text-zinc-600 font-bold">{selectedOrder.outlet_name}</p>
-                  <p className="text-[10px] text-zinc-500">
-                    {businessProfile?.address || businessProfile?.city || "Jakarta, Indonesia"} ·
-                    Telp: {businessProfile?.phone || "0812-3456-7890"}
-                  </p>
-                </div>
+                {(() => {
+                  const printerConfig = getSavedPrinterConfig();
+                  const headerTitle = printerConfig.storeName || businessProfile?.name || snapshot?.businessName || "KEBABS CHOICE POS";
+                  const branchAddress = printerConfig.branchAddress || selectedOrder.outlet_address || businessProfile?.address || businessProfile?.city || "Jakarta, Indonesia";
+                  const footerText = printerConfig.footerMessage || "Terima kasih atas kunjungan Anda!";
 
-                {/* Metadata */}
-                <div className="py-2.5 space-y-0.5 border-b border-dashed border-zinc-400 text-[11px]">
-                  <div className="flex justify-between">
-                    <span>No. Order:</span>
-                    <span className="font-bold">{selectedOrder.order_number}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Tanggal:</span>
-                    <span>
-                      {new Date(selectedOrder.created_at).toLocaleDateString("id-ID")}{" "}
-                      {new Date(selectedOrder.created_at).toLocaleTimeString("id-ID")}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Kasir:</span>
-                    <span>{selectedOrder.cashier_name}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Pelanggan:</span>
-                    <span className="font-bold">{selectedOrder.customer_name}</span>
-                  </div>
-                </div>
-
-                {/* Items */}
-                <div className="py-3 border-b border-dashed border-zinc-400 space-y-2 text-[11px]">
-                  {(selectedOrder.items || []).map((item, idx) => (
-                    <div key={idx} className="space-y-0.5">
-                      <div className="font-bold text-zinc-900">{item.name}</div>
-                      {item.variant_name && (
-                        <div className="text-[10px] text-zinc-500 pl-2">
-                          Varian: {item.variant_name}
-                        </div>
-                      )}
-                      {item.notes && (
-                        <div className="text-[10px] text-zinc-500 pl-2 italic">
-                          Note: {item.notes}
-                        </div>
-                      )}
-                      <div className="flex justify-between text-zinc-600 text-[10px]">
-                        <span>
-                          {item.quantity} x {formatRupiah(item.unit_price)}
-                        </span>
-                        <span className="font-bold text-zinc-900">
-                          {formatRupiah(item.subtotal)}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Totals */}
-                <div className="py-3 space-y-1 border-b border-dashed border-zinc-400 text-[11px]">
-                  <div className="flex justify-between">
-                    <span>Subtotal:</span>
-                    <span>{formatRupiah(selectedOrder.total)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Diskon:</span>
-                    <span>Rp 0</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Pajak:</span>
-                    <span>Rp 0</span>
-                  </div>
-                  <div className="flex justify-between font-black text-sm pt-1 border-t border-zinc-300">
-                    <span>TOTAL:</span>
-                    <span>{formatRupiah(selectedOrder.total)}</span>
-                  </div>
-                  <div className="flex justify-between text-[11px] pt-1">
-                    <span>Metode:</span>
-                    <span className="font-bold uppercase">{selectedOrder.payment_method}</span>
-                  </div>
-                  {selectedOrder.payment_method?.toUpperCase() === "CASH" && (
+                  return (
                     <>
-                      <div className="flex justify-between text-[11px]">
-                        <span>Tunai Diterima:</span>
-                        <span className="font-bold">
-                          {formatRupiah(
-                            selectedOrder.cashReceived ??
-                              (selectedOrder.total ? selectedOrder.total : 0),
-                          )}
-                        </span>
+                      <div className="text-center space-y-1 pb-3 border-b border-dashed border-zinc-400">
+                        <h3 className="font-black text-base uppercase tracking-wider">
+                          {headerTitle}
+                        </h3>
+                        <p className="text-[11px] text-zinc-600 font-bold">{selectedOrder.outlet_name}</p>
+                        <p className="text-[10px] text-zinc-500">
+                          {branchAddress} · Telp: {businessProfile?.phone || "0812-3456-7890"}
+                        </p>
                       </div>
-                      <div className="flex justify-between text-[11px]">
-                        <span>Kembalian:</span>
-                        <span className="font-bold text-emerald-700">
-                          {formatRupiah(selectedOrder.changeAmount ?? 0)}
-                        </span>
+
+                      {/* Metadata */}
+                      <div className="py-2.5 space-y-0.5 border-b border-dashed border-zinc-400 text-[11px]">
+                        <div className="flex justify-between">
+                          <span>No. Order:</span>
+                          <span className="font-bold">{selectedOrder.order_number}</span>
+                        </div>
+                        {selectedOrder.order_type && (
+                          <div className="flex justify-between">
+                            <span>Tipe Pesanan:</span>
+                            <span className="font-bold uppercase">
+                              {selectedOrder.order_type.replace("_", " ")}
+                              {selectedOrder.table_number ? ` (Meja ${selectedOrder.table_number})` : ""}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex justify-between">
+                          <span>Tanggal:</span>
+                          <span>
+                            {new Date(selectedOrder.created_at).toLocaleDateString("id-ID")}{" "}
+                            {new Date(selectedOrder.created_at).toLocaleTimeString("id-ID")}
+                          </span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Kasir:</span>
+                          <span>{selectedOrder.cashier_name}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Pelanggan:</span>
+                          <span className="font-bold">{selectedOrder.customer_name}</span>
+                        </div>
+                      </div>
+
+                      {/* Items */}
+                      <div className="py-3 border-b border-dashed border-zinc-400 space-y-2 text-[11px]">
+                        {(selectedOrder.items || []).map((item, idx) => (
+                          <div key={idx} className="space-y-0.5">
+                            <div className="font-bold text-zinc-900">{item.name}</div>
+                            {item.variant_name && (
+                              <div className="text-[10px] text-zinc-500 pl-2">
+                                Varian: {item.variant_name}
+                              </div>
+                            )}
+                            {item.notes && (
+                              <div className="text-[10px] text-zinc-500 pl-2 italic">
+                                Note: {item.notes}
+                              </div>
+                            )}
+                            <div className="flex justify-between text-zinc-600 text-[10px]">
+                              <span>
+                                {item.quantity} x {formatRupiah(item.unit_price)}
+                              </span>
+                              <span className="font-bold text-zinc-900">
+                                {formatRupiah(item.subtotal)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Totals */}
+                      <div className="py-3 space-y-1 border-b border-dashed border-zinc-400 text-[11px]">
+                        <div className="flex justify-between">
+                          <span>Subtotal:</span>
+                          <span>{formatRupiah(selectedOrder.subtotal ?? selectedOrder.total)}</span>
+                        </div>
+                        {Boolean(selectedOrder.discount_amount) && (
+                          <div className="flex justify-between text-rose-600 font-semibold">
+                            <span>Diskon:</span>
+                            <span>-{formatRupiah(selectedOrder.discount_amount || 0)}</span>
+                          </div>
+                        )}
+                        {Boolean(selectedOrder.service_charge) && (
+                          <div className="flex justify-between">
+                            <span>Biaya Layanan:</span>
+                            <span>+{formatRupiah(selectedOrder.service_charge || 0)}</span>
+                          </div>
+                        )}
+                        {Boolean(selectedOrder.tax_amount) && (
+                          <div className="flex justify-between">
+                            <span>Pajak Resto (PB1):</span>
+                            <span>+{formatRupiah(selectedOrder.tax_amount || 0)}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between font-black text-sm pt-1 border-t border-zinc-300">
+                          <span>TOTAL:</span>
+                          <span>{formatRupiah(selectedOrder.total)}</span>
+                        </div>
+                        <div className="flex justify-between text-[11px] pt-1">
+                          <span>Metode:</span>
+                          <span className="font-bold uppercase">{selectedOrder.payment_method}</span>
+                        </div>
+                        {selectedOrder.payment_method?.toUpperCase() === "CASH" && (
+                          <>
+                            <div className="flex justify-between text-[11px]">
+                              <span>Tunai Diterima:</span>
+                              <span className="font-bold">
+                                {formatRupiah(
+                                  selectedOrder.cashReceived ??
+                                    (selectedOrder.total ? selectedOrder.total : 0),
+                                )}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-[11px]">
+                              <span>Kembalian:</span>
+                              <span className="font-bold text-emerald-700">
+                                {formatRupiah(selectedOrder.changeAmount ?? 0)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        <div className="flex justify-between text-[11px]">
+                          <span>Status:</span>
+                          <span className="font-bold text-emerald-700 uppercase">
+                            {selectedOrder.status}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Footer */}
+                      <div className="text-center pt-4 space-y-1 text-[10px] text-zinc-500 whitespace-pre-line">
+                        <p className="font-bold text-zinc-800">*** {footerText} ***</p>
+                        <p>Barang yang sudah dibeli tidak dapat ditukar</p>
+                        <p className="text-[9px] pt-1">Powered by KebabsChoicePOS Enterprise V2.0</p>
                       </div>
                     </>
-                  )}
-                  <div className="flex justify-between text-[11px]">
-                    <span>Status:</span>
-                    <span className="font-bold text-emerald-700 uppercase">
-                      {selectedOrder.status}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Footer */}
-                <div className="text-center pt-4 space-y-1 text-[10px] text-zinc-500">
-                  <p className="font-bold text-zinc-800">*** TERIMA KASIH ***</p>
-                  <p>Barang yang sudah dibeli tidak dapat ditukar</p>
-                  <p className="text-[9px] pt-1">Powered by KebabsChoicePOS Enterprise V2.0</p>
-                </div>
+                  );
+                })()}
               </div>
             ) : (
               <div className="py-20 text-center text-muted-foreground text-sm">

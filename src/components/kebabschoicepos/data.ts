@@ -200,6 +200,7 @@ export type OutletItem = {
   code?: string;
   address?: string;
   active: boolean;
+  settings?: Record<string, any>;
 };
 
 export type Snapshot = {

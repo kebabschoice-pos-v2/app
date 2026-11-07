@@ -14,6 +14,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
 import {
   connectBluetoothPrinter,
   connectUsbPrinter,
@@ -33,6 +34,12 @@ export function PrinterSettingsPage() {
   const [paperSize, setPaperSize] = useState<"58mm" | "80mm">("58mm");
   const [printerName, setPrinterName] = useState("Thermal POS 58-BT");
   const [printerIp, setPrinterIp] = useState("192.168.1.200");
+  const [storeName, setStoreName] = useState("Kebab's Choice");
+  const [branchAddress, setBranchAddress] = useState("");
+  const [footerMessage, setFooterMessage] = useState(
+    "Terima kasih atas kunjungan Anda!\nSajian Kebab Pilihan Keluarga",
+  );
+  const [autoPrint, setAutoPrint] = useState(true);
   const [autoCut, setAutoCut] = useState(true);
   const [openCashDrawer, setOpenCashDrawer] = useState(true);
   const [copies, setCopies] = useState(1);
@@ -47,21 +54,50 @@ export function PrinterSettingsPage() {
   });
 
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("kebabschoicepos_printer_settings");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed.connectionType) setConnectionType(parsed.connectionType);
-        if (parsed.paperSize) setPaperSize(parsed.paperSize);
-        if (parsed.printerName) setPrinterName(parsed.printerName);
-        if (parsed.printerIp) setPrinterIp(parsed.printerIp);
-        if (typeof parsed.autoCut === "boolean") setAutoCut(parsed.autoCut);
-        if (typeof parsed.openCashDrawer === "boolean") setOpenCashDrawer(parsed.openCashDrawer);
-        if (parsed.copies) setCopies(parsed.copies);
+    async function loadSettings() {
+      try {
+        const saved = localStorage.getItem("kebabschoicepos_printer_settings");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (parsed.connectionType) setConnectionType(parsed.connectionType);
+          if (parsed.paperSize) setPaperSize(parsed.paperSize);
+          if (parsed.printerName) setPrinterName(parsed.printerName);
+          if (parsed.printerIp) setPrinterIp(parsed.printerIp);
+          if (parsed.storeName) setStoreName(parsed.storeName);
+          if (parsed.branchAddress !== undefined) setBranchAddress(parsed.branchAddress);
+          if (parsed.footerMessage !== undefined) setFooterMessage(parsed.footerMessage);
+          if (typeof parsed.autoPrint === "boolean") setAutoPrint(parsed.autoPrint);
+          if (typeof parsed.autoCut === "boolean") setAutoCut(parsed.autoCut);
+          if (typeof parsed.openCashDrawer === "boolean") setOpenCashDrawer(parsed.openCashDrawer);
+          if (parsed.copies) setCopies(parsed.copies);
+        }
+
+        // Check Supabase outlets.settings.printer_settings
+        const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(5);
+        if (outletsData && Array.isArray(outletsData)) {
+          for (const out of outletsData) {
+            const prConf = (out.settings as any)?.printer_settings;
+            if (prConf) {
+              if (prConf.connectionType) setConnectionType(prConf.connectionType);
+              if (prConf.paperSize) setPaperSize(prConf.paperSize);
+              if (prConf.printerName) setPrinterName(prConf.printerName);
+              if (prConf.printerIp) setPrinterIp(prConf.printerIp);
+              if (prConf.storeName) setStoreName(prConf.storeName);
+              if (prConf.branchAddress !== undefined) setBranchAddress(prConf.branchAddress);
+              if (prConf.footerMessage !== undefined) setFooterMessage(prConf.footerMessage);
+              if (typeof prConf.autoPrint === "boolean") setAutoPrint(prConf.autoPrint);
+              if (typeof prConf.autoCut === "boolean") setAutoCut(prConf.autoCut);
+              if (typeof prConf.openCashDrawer === "boolean") setOpenCashDrawer(prConf.openCashDrawer);
+              if (prConf.copies) setCopies(prConf.copies);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.error(e);
       }
-    } catch (e) {
-      console.error(e);
     }
+    loadSettings();
 
     const unsub = subscribePrinterStatus((info) => {
       setPrinterInfo(info);
@@ -76,18 +112,46 @@ export function PrinterSettingsPage() {
     return () => unsub();
   }, []);
 
-  const handleSave = () => {
+  const handleSave = async () => {
     const data = {
       connectionType,
       paperSize,
       printerName,
       printerIp,
+      storeName,
+      branchAddress,
+      footerMessage,
+      autoPrint,
       autoCut,
       openCashDrawer,
       copies,
     };
     localStorage.setItem("kebabschoicepos_printer_settings", JSON.stringify(data));
-    toast.success("Pengaturan Printer berhasil disimpan");
+
+    try {
+      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
+      if (allOutlets && Array.isArray(allOutlets)) {
+        for (const out of allOutlets) {
+          const curr =
+            out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
+              ? (out.settings as Record<string, any>)
+              : {};
+          await supabase
+            .from("outlets")
+            .update({
+              settings: { ...curr, printer_settings: data } as any,
+            })
+            .eq("id", out.id);
+        }
+      }
+    } catch (sbErr) {
+      console.warn("Printer settings Supabase sync warning:", sbErr);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("storage"));
+    }
+    toast.success("Pengaturan Printer & Struk berhasil disimpan");
   };
 
   const handleConnectBt = async () => {
@@ -391,6 +455,21 @@ export function PrinterSettingsPage() {
               />
             </label>
 
+            <label className="flex items-center justify-between cursor-pointer p-2 rounded-xl hover:bg-secondary/40">
+              <div>
+                <p className="text-sm font-bold">Auto-Print Struk saat Checkout</p>
+                <p className="text-xs text-muted-foreground">
+                  Langsung kirim perintah cetak ke printer thermal setelah transaksi kasir berhasil.
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={autoPrint}
+                onChange={(e) => setAutoPrint(e.target.checked)}
+                className="size-4 accent-primary rounded"
+              />
+            </label>
+
             <div className="flex items-center justify-between p-2">
               <div>
                 <p className="text-sm font-bold">Jumlah Rangkap Struk</p>
@@ -415,6 +494,45 @@ export function PrinterSettingsPage() {
                 ))}
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* Header, Alamat & Footer Struk untuk Pembeli */}
+        <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
+          <h2 className="text-lg font-bold">Tampilan & Teks Struk Pembeli</h2>
+          <p className="text-xs text-muted-foreground">
+            Atur nama toko, alamat cabang, dan pesan penutup yang tercetak di struk thermal pembeli.
+          </p>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label className="text-xs font-bold text-foreground/80">Header Nama Toko / Brand</label>
+              <Input
+                className="mt-1.5 rounded-xl"
+                value={storeName}
+                onChange={(e) => setStoreName(e.target.value)}
+                placeholder="Kebab's Choice POS"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-bold text-foreground/80">Alamat Cabang</label>
+              <Input
+                className="mt-1.5 rounded-xl"
+                value={branchAddress}
+                onChange={(e) => setBranchAddress(e.target.value)}
+                placeholder="Jl. Raya Pasar Jumat No. 12"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-bold text-foreground/80">Pesan Footer / Kritik & Saran</label>
+            <textarea
+              className="mt-1.5 w-full min-h-[70px] rounded-xl border border-input bg-background p-2.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              value={footerMessage}
+              onChange={(e) => setFooterMessage(e.target.value)}
+              placeholder="Terima kasih atas kunjungan Anda!&#10;Kritik & Saran: wa.me/0859106660608"
+            />
           </div>
         </div>
 

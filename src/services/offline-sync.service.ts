@@ -430,6 +430,8 @@ export async function syncPendingTransactions(
               order_id: it.order_id,
               product_id: it.product_id,
               name: it.name,
+              variant_name: it.variant_name || null,
+              notes: it.notes || null,
               quantity: it.quantity,
               unit_price: it.unit_price,
               subtotal: it.subtotal,

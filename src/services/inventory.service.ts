@@ -233,6 +233,168 @@ async function saveProcurementStore(businessId: string, store: Record<string, an
   }
 }
 
+export interface BranchMoneyLedgerData {
+  spent_amounts: Record<string, number>;
+  manual_added: Record<string, number>;
+  history?: any[];
+  topup_history?: any[];
+  operational_items?: any[];
+  opPockets?: any[];
+  pack_configs?: Record<string, any>;
+  salary_paid?: Record<string, number>;
+}
+
+/**
+ * Load authoritative Branch Money Ledger from Supabase outlets.settings.money_allocation_ledger
+ * with localStorage fallback
+ */
+export async function loadBranchMoneyLedger(outletId?: string | null): Promise<BranchMoneyLedgerData> {
+  const defaultLedger: BranchMoneyLedgerData = {
+    spent_amounts: {},
+    manual_added: {},
+    history: [],
+    topup_history: [],
+    operational_items: [],
+  };
+
+  const localKey = outletId && outletId !== "all"
+    ? `kebabschoicepos_money_allocation_${outletId}`
+    : "kebabschoicepos_money_allocation";
+
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const local = window.localStorage.getItem(localKey);
+      if (local) {
+        Object.assign(defaultLedger, JSON.parse(local));
+      }
+    } catch (_) {}
+  }
+
+  if (!outletId || outletId === "all" || outletId === "default") {
+    return defaultLedger;
+  }
+
+  try {
+    const { data: outletRow } = await supabase
+      .from("outlets")
+      .select("id, settings")
+      .eq("id", outletId)
+      .maybeSingle();
+
+    if (outletRow && outletRow.settings) {
+      const s = outletRow.settings as any;
+      const ledger = s.money_allocation_ledger || s.money_allocation;
+      if (ledger) {
+        return {
+          spent_amounts: { ...(defaultLedger.spent_amounts || {}), ...(ledger.spent_amounts || {}) },
+          manual_added: { ...(defaultLedger.manual_added || {}), ...(ledger.manual_added || {}) },
+          history: Array.isArray(ledger.history) ? ledger.history : defaultLedger.history || [],
+          topup_history: Array.isArray(ledger.topup_history) ? ledger.topup_history : defaultLedger.topup_history || [],
+          operational_items: Array.isArray(ledger.operational_items) ? ledger.operational_items : defaultLedger.operational_items || [],
+          opPockets: ledger.opPockets || defaultLedger.opPockets,
+          pack_configs: ledger.pack_configs || defaultLedger.pack_configs,
+          salary_paid: ledger.salary_paid || defaultLedger.salary_paid,
+        };
+      }
+    }
+  } catch (err) {
+    console.warn("[inventory.service] loadBranchMoneyLedger DB warning:", err);
+  }
+
+  return defaultLedger;
+}
+
+/**
+ * Save authoritative Branch Money Ledger directly to Supabase outlets.settings.money_allocation_ledger
+ * and sync to localStorage
+ */
+export async function saveBranchMoneyLedger(
+  outletId: string | null | undefined,
+  ledgerData: Partial<BranchMoneyLedgerData>,
+): Promise<void> {
+  const localKey = outletId && outletId !== "all"
+    ? `kebabschoicepos_money_allocation_${outletId}`
+    : "kebabschoicepos_money_allocation";
+
+  // 1. Sync localStorage immediately
+  if (typeof window !== "undefined" && window.localStorage) {
+    try {
+      const existing = window.localStorage.getItem(localKey);
+      const parsed = existing ? JSON.parse(existing) : {};
+      const merged = { ...parsed, ...ledgerData };
+      window.localStorage.setItem(localKey, JSON.stringify(merged));
+      // Also sync global key for backward compatibility
+      window.localStorage.setItem("kebabschoicepos_money_allocation", JSON.stringify(merged));
+    } catch (_) {}
+  }
+
+  // 2. Persist to Supabase outlets table
+  try {
+    if (outletId && outletId !== "all" && outletId !== "default") {
+      const { data: outRow } = await supabase
+        .from("outlets")
+        .select("id, settings")
+        .eq("id", outletId)
+        .maybeSingle();
+
+      if (outRow) {
+        const currSettings = (outRow.settings as any) || {};
+        const currLedger = currSettings.money_allocation_ledger || currSettings.money_allocation || {};
+        const updatedLedger = {
+          ...currLedger,
+          ...ledgerData,
+          spent_amounts: { ...(currLedger.spent_amounts || {}), ...(ledgerData.spent_amounts || {}) },
+          manual_added: { ...(currLedger.manual_added || {}), ...(ledgerData.manual_added || {}) },
+          history: ledgerData.history ?? currLedger.history ?? [],
+          topup_history: ledgerData.topup_history ?? currLedger.topup_history ?? [],
+          updated_at: new Date().toISOString(),
+        };
+
+        await supabase
+          .from("outlets")
+          .update({
+            settings: {
+              ...currSettings,
+              money_allocation_ledger: updatedLedger,
+              money_allocation: updatedLedger,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", outletId);
+      }
+    } else {
+      // If outletId is all/null, sync to all business outlets
+      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
+      for (const o of allOutlets || []) {
+        const currSettings = (o.settings as any) || {};
+        const currLedger = currSettings.money_allocation_ledger || currSettings.money_allocation || {};
+        const updatedLedger = {
+          ...currLedger,
+          ...ledgerData,
+          spent_amounts: { ...(currLedger.spent_amounts || {}), ...(ledgerData.spent_amounts || {}) },
+          manual_added: { ...(currLedger.manual_added || {}), ...(ledgerData.manual_added || {}) },
+          updated_at: new Date().toISOString(),
+        };
+
+        await supabase
+          .from("outlets")
+          .update({
+            settings: {
+              ...currSettings,
+              money_allocation_ledger: updatedLedger,
+              money_allocation: updatedLedger,
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", o.id);
+      }
+    }
+  } catch (err) {
+    console.warn("[inventory.service] saveBranchMoneyLedger DB warning:", err);
+  }
+}
+
+
 /**
  * 1. INVENTORY DASHBOARD METRICS
  */
@@ -1295,10 +1457,46 @@ export async function updatePOStatus(
         window.dispatchEvent(new CustomEvent("inventory:updated"));
         window.dispatchEvent(new CustomEvent("pos:menu-updated"));
       }
+
+      // Automatically sync and deduct branch money allocation ledger on PO received
+      try {
+        const poOutletId = target.outlet_id || null;
+        const currentLedger = await loadBranchMoneyLedger(poOutletId);
+        const updatedSpent = { ...(currentLedger.spent_amounts || {}) };
+        const updatedHistory = [...(currentLedger.history || [])];
+
+        for (const itm of target.items || []) {
+          const itmCost = (Number(itm.quantity) || 0) * (Number(itm.unit_cost) || 0);
+          if (itmCost > 0 && itm.inventory_item_id) {
+            updatedSpent[itm.inventory_item_id] = (updatedSpent[itm.inventory_item_id] || 0) + itmCost;
+            updatedHistory.unshift({
+              id: `po-spend-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+              date: new Date().toISOString(),
+              timestamp: new Date().toISOString(),
+              type: "belanja_bahan",
+              item_id: itm.inventory_item_id,
+              item_name: itm.item_name,
+              outlet_id: poOutletId,
+              amount: itmCost,
+              title: `Belanja PO #${target.po_number || poId}`,
+              note: `Penerimaan ${itm.quantity} ${itm.unit} ${itm.item_name}`,
+            });
+          }
+        }
+
+        await saveBranchMoneyLedger(poOutletId, {
+          spent_amounts: updatedSpent,
+          history: updatedHistory,
+        });
+      } catch (poLedgerErr) {
+        console.warn("[inventory.service] Error updating money ledger on PO received:", poLedgerErr);
+      }
     }
     await saveProcurementStore(bid, store);
   }
 }
+
+export const updatePurchaseOrderStatus = updatePOStatus;
 
 /**
  * 12. STOCK OPNAME

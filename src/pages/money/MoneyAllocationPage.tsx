@@ -38,6 +38,8 @@ import {
   getStockMovements,
   createInventoryItem,
   recordStockIn,
+  loadBranchMoneyLedger,
+  saveBranchMoneyLedger,
   type InventoryItemDetail,
   type StockMovementRecord,
 } from "@/services/inventory.service";
@@ -361,9 +363,16 @@ export function MoneyAllocationPage({
       } catch {}
       setMenuRecipes(recipes);
 
-      // 5. Load persistent configurations (pack configs, expenses, history)
+      // 5. Load persistent configurations (pack configs, expenses, history) via loadBranchMoneyLedger
       let loadedConfigs: MoneyAllocationSettings | null = null;
-      if (typeof window !== "undefined") {
+      try {
+        const branchLedger = await loadBranchMoneyLedger(selectedOutletId);
+        if (branchLedger) loadedConfigs = branchLedger as MoneyAllocationSettings;
+      } catch (err) {
+        console.warn("[MoneyAllocationPage] loadBranchMoneyLedger warning:", err);
+      }
+
+      if (!loadedConfigs && typeof window !== "undefined") {
         try {
           const raw = localStorage.getItem(STORAGE_KEY);
           if (raw) loadedConfigs = JSON.parse(raw);
@@ -379,7 +388,11 @@ export function MoneyAllocationPage({
             .limit(1)
             .maybeSingle();
           const setObj = (outData?.settings as any) || {};
-          if (setObj.money_allocation) loadedConfigs = setObj.money_allocation;
+          if (setObj.money_allocation_ledger) {
+            loadedConfigs = setObj.money_allocation_ledger;
+          } else if (setObj.money_allocation) {
+            loadedConfigs = setObj.money_allocation;
+          }
         } catch {}
       }
 
@@ -473,7 +486,7 @@ export function MoneyAllocationPage({
     return () => window.removeEventListener("inventory:updated", handleInvUpdate);
   }, [loadData]);
 
-  // Persist Helper
+  // Persist Helper (Supabase-authoritative via saveBranchMoneyLedger)
   async function persistSettings(
     newConfigs = packConfigs,
     newSpent = spentAmounts,
@@ -498,34 +511,9 @@ export function MoneyAllocationPage({
     }
 
     try {
-      const bId =
-        snapshot?.businessId ||
-        (typeof window !== "undefined"
-          ? localStorage.getItem("kebabschoicepos_active_business_id")
-          : null);
-      if (bId) {
-        const { data: outletsData } = await supabase
-          .from("outlets")
-          .select("id, settings")
-          .eq("business_id", bId)
-          .limit(1);
-
-        if (outletsData && outletsData[0]) {
-          const out = outletsData[0];
-          const curr = (out.settings as any) || {};
-          await supabase
-            .from("outlets")
-            .update({
-              settings: {
-                ...curr,
-                money_allocation: payload,
-              },
-            })
-            .eq("id", out.id);
-        }
-      }
+      await saveBranchMoneyLedger(selectedOutletId, payload);
     } catch (e) {
-      console.warn("[persistSettings] Supabase save warning:", e);
+      console.warn("[persistSettings] saveBranchMoneyLedger warning:", e);
     }
   }
 
@@ -721,13 +709,25 @@ export function MoneyAllocationPage({
   }, [outletCashOutMovements]);
 
   // 6. Financial KPI Totals (Truthful, Zero-Safe & Multi-Pillar)
+  const ownerProfitTransferDeduction = Number(spentAmounts["__owner_profit__"] || 0);
+  const emergencyFundTransferDeduction = Number(spentAmounts["__emergency_fund__"] || 0);
+
   const totalOmzet = analytics?.totalRevenue ?? 0;
   const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
-  const totalOpSavings = computedOpPockets.reduce((sum, op) => sum + op.accumulated_balance, 0);
-  const labaBersihMurni = Math.max(
+  const rawTotalOpSavings = computedOpPockets.reduce((sum, op) => sum + op.accumulated_balance, 0);
+  const totalOpSavings = Math.max(0, rawTotalOpSavings - emergencyFundTransferDeduction);
+
+  // Pure BOM savings generated strictly from sales without manual injections
+  const totalBomFromSales = computedBomPockets.reduce(
+    (sum, b) => sum + Math.max(0, b.totalEarned - b.spent),
     0,
-    totalOmzet - totalBomSavings - totalOpSavings - totalSalarySavings - totalCashOut,
   );
+
+  const baseProfit = Math.max(
+    0,
+    totalOmzet - totalBomFromSales - rawTotalOpSavings - totalSalarySavings - totalCashOut,
+  );
+  const labaBersihMurni = Math.max(0, baseProfit - ownerProfitTransferDeduction);
 
   // ACTION: Cairkan Gaji & Tunjangan Tim
   async function handleDisburseSalary() {
@@ -947,8 +947,32 @@ export function MoneyAllocationPage({
       return;
     }
 
+    // Zero-Sum Validation: Reject if amount exceeds source pocket balance
+    if (topUpSource === "owner_profit" || topUpSource === "branch_profit") {
+      if (amount > labaBersihMurni) {
+        toast.error(
+          `Nominal (${formatRupiah(amount)}) melebihi sisa Laba Murni Owner yang tersedia (${formatRupiah(labaBersihMurni)})!`,
+        );
+        return;
+      }
+    } else if (topUpSource === "emergency_fund") {
+      if (amount > totalOpSavings) {
+        toast.error(
+          `Nominal (${formatRupiah(amount)}) melebihi sisa Dana Darurat/Operasional yang tersedia (${formatRupiah(totalOpSavings)})!`,
+        );
+        return;
+      }
+    }
+
     setTopUpLoading(true);
     try {
+      let updatedSpent = { ...spentAmounts };
+      if (topUpSource === "owner_profit" || topUpSource === "branch_profit") {
+        updatedSpent["__owner_profit__"] = (updatedSpent["__owner_profit__"] || 0) + amount;
+      } else if (topUpSource === "emergency_fund") {
+        updatedSpent["__emergency_fund__"] = (updatedSpent["__emergency_fund__"] || 0) + amount;
+      }
+
       const updatedManual = {
         ...manualAdded,
         [topUpItem.item.id]: (manualAdded[topUpItem.item.id] || 0) + amount,
@@ -977,9 +1001,17 @@ export function MoneyAllocationPage({
 
       const updatedHistory = [newHistoryItem, ...history];
 
+      setSpentAmounts(updatedSpent);
       setManualAdded(updatedManual);
       setHistory(updatedHistory);
-      await persistSettings(packConfigs, spentAmounts, updatedManual, opPockets, updatedHistory);
+      await persistSettings(
+        packConfigs,
+        updatedSpent,
+        updatedManual,
+        opPockets,
+        updatedHistory,
+        salaryPaid,
+      );
 
       setTopUpModalOpen(false);
       setTopUpItem(null);
@@ -1188,6 +1220,7 @@ export function MoneyAllocationPage({
               {operationalDaysWithSales > 0
                 ? `${operationalDaysWithSales} hari penjualan aktif (Kios/Listrik/Parkir)`
                 : "Rp 0 jika belum ada hari penjualan aktif"}
+              {emergencyFundTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(emergencyFundTransferDeduction)}`}
             </p>
           </div>
 
@@ -1224,6 +1257,7 @@ export function MoneyAllocationPage({
             </p>
             <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
               Bersih setelah BOM, OP, Gaji &amp; Kas Keluar Kasir
+              {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
             </p>
           </div>
         </div>
@@ -2431,11 +2465,21 @@ export function MoneyAllocationPage({
                 onChange={(e) => setTopUpSource(e.target.value as any)}
                 className="w-full rounded-xl border border-input bg-background p-2.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
               >
-                <option value="owner_capital">Uang Pribadi / Suntikan Modal Owner</option>
-                <option value="branch_profit">Ambil dari Kantong Profit Owner Cabang Ini (branch_profit)</option>
-                <option value="owner_profit">Ambil dari Saldo Profit Pemilik</option>
-                <option value="emergency_fund">Ambil dari Dana Darurat Cabang Ini</option>
+                <option value="owner_capital">Uang Pribadi / Suntikan Modal Owner (Injeksi Baru)</option>
+                <option value="branch_profit">Ambil dari Kantong Profit Owner Cabang Ini (Tersedia: {formatRupiah(labaBersihMurni)})</option>
+                <option value="owner_profit">Ambil dari Saldo Profit Pemilik (Tersedia: {formatRupiah(labaBersihMurni)})</option>
+                <option value="emergency_fund">Ambil dari Dana Darurat Cabang Ini (Tersedia: {formatRupiah(totalOpSavings)})</option>
               </select>
+              {(topUpSource === "branch_profit" || topUpSource === "owner_profit") && (
+                <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                  ⚠️ Pengalihan internal: Saldo Profit Owner akan otomatis berkurang {formatRupiah(topUpAmount)}.
+                </p>
+              )}
+              {topUpSource === "emergency_fund" && (
+                <p className="text-[10px] text-blue-600 dark:text-blue-400 mt-1">
+                  ⚠️ Pengalihan internal: Saldo Celengan Operasional akan otomatis berkurang {formatRupiah(topUpAmount)}.
+                </p>
+              )}
             </div>
 
             <div>

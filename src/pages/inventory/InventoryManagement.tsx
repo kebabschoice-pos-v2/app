@@ -38,6 +38,8 @@ import {
   recordStockAdjustment,
   getStockMovements,
   getSuppliers,
+  loadBranchMoneyLedger,
+  saveBranchMoneyLedger,
   type InventoryItemDetail,
   type StockMovementRecord,
   type SupplierItem,
@@ -443,58 +445,40 @@ export function InventoryManagement() {
       // Deduct from Tabungan Bahan Baku (Money Allocation) for that branch
       if (totalCost > 0 && targetItem) {
         try {
-          const raw = localStorage.getItem("kebabschoicepos_money_allocation");
-          const settings = raw ? JSON.parse(raw) : {};
-          if (!settings.spent_amounts) settings.spent_amounts = {};
-          settings.spent_amounts[stockInItemId] =
-            (settings.spent_amounts[stockInItemId] || 0) + totalCost;
+          const targetOutletId = targetItem.outlet_id || null;
+          const currentLedger = await loadBranchMoneyLedger(targetOutletId);
+          const updatedSpent = { ...(currentLedger.spent_amounts || {}) };
+          updatedSpent[stockInItemId] = (updatedSpent[stockInItemId] || 0) + totalCost;
 
-          if (!settings.history) settings.history = [];
-          settings.history.unshift({
+          const updatedHistory = [...(currentLedger.history || [])];
+          updatedHistory.unshift({
             id: `spend-${Date.now()}`,
             date: new Date().toISOString(),
-            type: "spend",
+            timestamp: new Date().toISOString(),
+            type: "belanja_bahan",
             item_id: stockInItemId,
             item_name: targetItem.name,
-            outlet_id: targetItem.outlet_id || null,
+            outlet_id: targetOutletId,
             amount: totalCost,
             packs: Number(stockInQty),
+            title: `Restock ${targetItem.name}`,
             note:
               stockInNotes ||
               `Restock ${stockInQty} ${targetItem.unit} @ Rp ${actualUnitCost.toLocaleString("id-ID")}`,
           });
 
-          localStorage.setItem("kebabschoicepos_money_allocation", JSON.stringify(settings));
-
-          // Also sync to branch-specific storage if applicable
-          if (targetItem.outlet_id) {
-            const branchKey = `kebabschoicepos_money_allocation_${targetItem.outlet_id}`;
-            const branchRaw = localStorage.getItem(branchKey);
-            const branchSettings = branchRaw ? JSON.parse(branchRaw) : {};
-            if (!branchSettings.spent_amounts) branchSettings.spent_amounts = {};
-            branchSettings.spent_amounts[stockInItemId] =
-              (branchSettings.spent_amounts[stockInItemId] || 0) + totalCost;
-            if (!branchSettings.history) branchSettings.history = [];
-            branchSettings.history.unshift({
-              id: `spend-${Date.now()}`,
-              date: new Date().toISOString(),
-              type: "spend",
-              item_id: stockInItemId,
-              item_name: targetItem.name,
-              outlet_id: targetItem.outlet_id,
-              amount: totalCost,
-              packs: Number(stockInQty),
-              note:
-                stockInNotes ||
-                `Restock ${stockInQty} ${targetItem.unit} @ Rp ${actualUnitCost.toLocaleString("id-ID")}`,
-            });
-            localStorage.setItem(branchKey, JSON.stringify(branchSettings));
-          }
+          await saveBranchMoneyLedger(targetOutletId, {
+            spent_amounts: updatedSpent,
+            history: updatedHistory,
+          });
 
           if (typeof window !== "undefined") {
             window.dispatchEvent(new CustomEvent("money_allocation:updated"));
+            window.dispatchEvent(new CustomEvent("inventory:updated"));
           }
-        } catch {}
+        } catch (ledgerErr) {
+          console.warn("[InventoryManagement] Error syncing branch money ledger on restock:", ledgerErr);
+        }
       }
 
       // If owner explicitly checked "Update juga Harga Patokan HPP dengan harga ini"

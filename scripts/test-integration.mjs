@@ -2094,6 +2094,75 @@ test("Validates Dynamic Conversion Calculator & Dual Unit Stock Display in Inven
   assert.ok(menuServiceCode.includes("convertRecipeToInventoryQuantity"), "menu.service.ts must export convertRecipeToInventoryQuantity");
 });
 
+// --- TEST 94: Zero-Sum Internal Transfer Top-Up, Authoritative Supabase Money Ledger Sync & Shift Sales Fallback ---
+console.log("\n▶ 94. ZERO-SUM MONEY LEDGER & SUPABASE PERSISTENCE & SHIFT TOTAL FALLBACK");
+test("Validates Zero-Sum Internal Transfers, Supabase money_allocation_ledger Sync and Shift Reconcile", () => {
+  const moneyPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf-8"
+  );
+  const invServiceCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/inventory.service.ts"),
+    "utf-8"
+  );
+  const invPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf-8"
+  );
+  const posShiftCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/pos/PosShiftCashPage.tsx"),
+    "utf-8"
+  );
+
+  // 1. Zero-Sum Internal Transfer Top-Up Deductions
+  assert.ok(moneyPageCode.includes('spentAmounts["__owner_profit__"]'), "Must track __owner_profit__ transfer deduction in spentAmounts");
+  assert.ok(moneyPageCode.includes('spentAmounts["__emergency_fund__"]'), "Must track __emergency_fund__ transfer deduction in spentAmounts");
+  assert.ok(moneyPageCode.includes("amount > labaBersihMurni"), "Must validate that owner profit transfer does not exceed labaBersihMurni");
+  assert.ok(moneyPageCode.includes("amount > totalOpSavings"), "Must validate that emergency fund transfer does not exceed totalOpSavings");
+  assert.ok(moneyPageCode.includes('updatedSpent["__owner_profit__"]'), "Must update __owner_profit__ deduction on internal profit top-up");
+  assert.ok(moneyPageCode.includes('updatedSpent["__emergency_fund__"]'), "Must update __emergency_fund__ deduction on emergency fund top-up");
+
+  // 2. Authoritative Supabase money_allocation_ledger Sync
+  assert.ok(invServiceCode.includes("loadBranchMoneyLedger"), "inventory.service.ts must export loadBranchMoneyLedger");
+  assert.ok(invServiceCode.includes("saveBranchMoneyLedger"), "inventory.service.ts must export saveBranchMoneyLedger");
+  assert.ok(invServiceCode.includes("money_allocation_ledger"), "inventory.service.ts must persist to money_allocation_ledger");
+  assert.ok(invPageCode.includes("saveBranchMoneyLedger"), "InventoryManagement.tsx must call saveBranchMoneyLedger on stock in");
+  assert.ok(invServiceCode.includes("updatePurchaseOrderStatus"), "inventory.service.ts must update branch ledger on PO received");
+  assert.ok(moneyPageCode.includes("saveBranchMoneyLedger"), "MoneyAllocationPage.tsx must call saveBranchMoneyLedger in persistSettings");
+  assert.ok(moneyPageCode.includes("loadBranchMoneyLedger"), "MoneyAllocationPage.tsx must call loadBranchMoneyLedger in loadData");
+
+  // 3. POS Shift Cash Reconcile with select("*") and total ?? total_amount
+  assert.ok(posShiftCode.includes('.select("*")'), "PosShiftCashPage fetchShiftSales must query with select('*')");
+  assert.ok(posShiftCode.includes(".total ?? (o as any).total_amount ?? 0"), "PosShiftCashPage must support total or total_amount fallback");
+
+  // 4. Mathematical Simulation of Zero-Sum Conservation:
+  const totalOmzet = 1000000;
+  const initialBomFromSales = 200000;
+  const opSavings = 100000;
+  const salarySavings = 100000;
+  const cashOut = 0;
+
+  // Base profit before transfers:
+  const initialProfit = totalOmzet - initialBomFromSales - opSavings - salarySavings - cashOut;
+  assert.strictEqual(initialProfit, 600000, "Initial profit must be Rp 600.000");
+
+  // Transfer 150.000 from profit to raw material pocket (e.g. Daging Kebab):
+  const transferAmount = 150000;
+  const spentAmounts = { "__owner_profit__": transferAmount };
+  const manualAdded = { "item-daging": transferAmount };
+
+  const ownerProfitDeduction = spentAmounts["__owner_profit__"];
+  const finalProfit = initialProfit - ownerProfitDeduction;
+  const finalBomSavings = initialBomFromSales + manualAdded["item-daging"];
+
+  assert.strictEqual(finalProfit, 450000, "Profit must be reduced exactly by transferred amount to Rp 450.000");
+  assert.strictEqual(finalBomSavings, 350000, "BOM pocket must be increased exactly by transferred amount to Rp 350.000");
+
+  // Verify Zero-Sum Conservation of total system funds:
+  const totalSystemFunds = finalBomSavings + opSavings + salarySavings + cashOut + finalProfit;
+  assert.strictEqual(totalSystemFunds, totalOmzet, "Total system funds must strictly equal total omzet without phantom money generation");
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

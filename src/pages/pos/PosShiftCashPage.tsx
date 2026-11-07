@@ -385,7 +385,7 @@ export function PosShiftCashPage() {
       try {
         let q = supabase
           .from("sales_orders")
-          .select("id, total, payment_method, status, created_at, outlet_id")
+          .select("*")
           .in("status" as any, ["paid", "completed"])
           .gte("created_at", activeShift.startTime);
 
@@ -402,7 +402,7 @@ export function PosShiftCashPage() {
 
         (orders || []).forEach((o: any) => {
           count++;
-          const tot = Number(o.total) || 0;
+          const tot = Number((o as any).total ?? (o as any).total_amount ?? 0);
           const method = String(o.payment_method || "cash").toLowerCase();
           if (method === "cash" || method === "tunai") {
             cashSum += tot;

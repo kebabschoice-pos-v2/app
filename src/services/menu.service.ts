@@ -121,6 +121,10 @@ export function convertRecipeToInventoryQuantity(
       normalizedRecipeQty = recipeQty * 1000;
     } else if ((rUnit === "liter" || rUnit === "l") && (yUnit === "ml" || yUnit === "mililiter" || !yUnit)) {
       normalizedRecipeQty = recipeQty * 1000;
+    } else if ((rUnit === "gram" || rUnit === "g") && (yUnit === "kg" || yUnit === "kilogram")) {
+      normalizedRecipeQty = recipeQty / 1000;
+    } else if ((rUnit === "ml" || rUnit === "mililiter") && (yUnit === "liter" || yUnit === "l")) {
+      normalizedRecipeQty = recipeQty / 1000;
     }
 
     return normalizedRecipeQty / yieldCapacity;

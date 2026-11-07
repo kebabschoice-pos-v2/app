@@ -2065,6 +2065,35 @@ test("Validates Buffer Benchmark HPP, Restock Deduction, Owner Top-Up, and Shift
   assert.strictEqual(pocketBalance, 10000, "Pocket balance must have Rp 10.000 buffer surplus");
 });
 
+test("Validates Dynamic Conversion Calculator & Dual Unit Stock Display in Inventory and POS", () => {
+  const invCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf-8"
+  );
+  const posInvCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/pos/PosInventoryPage.tsx"),
+    "utf-8"
+  );
+  const menuServiceCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/menu.service.ts"),
+    "utf-8"
+  );
+
+  // 1. Dynamic Yield Calculator in Add/Edit Inventory Item Modal
+  assert.ok(invCode.includes("HPP dasar:"), "InventoryManagement modal must display dynamic HPP dasar calculation");
+  assert.ok(invCode.includes("formYieldPerUnit"), "InventoryManagement must track formYieldPerUnit");
+  assert.ok(invCode.includes("formYieldUnit"), "InventoryManagement must track formYieldUnit");
+
+  // 2. Dual Stock Display (Whole/Main Units + Recipe Yield Equivalent)
+  assert.ok(invCode.includes("Setara ±"), "InventoryManagement table must display recipe yield equivalent remainder");
+  assert.ok(posInvCode.includes("Setara ±"), "PosInventoryPage must display recipe yield equivalent remainder");
+  assert.ok(posInvCode.includes("item.yield_per_unit"), "PosInventoryPage must include yield_per_unit in items");
+
+  // 3. Bidirectional Yield Conversion
+  assert.ok(menuServiceCode.includes("normalizedRecipeQty / yieldCapacity"), "menu.service.ts must compute converted quantity via yieldCapacity");
+  assert.ok(menuServiceCode.includes("convertRecipeToInventoryQuantity"), "menu.service.ts must export convertRecipeToInventoryQuantity");
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

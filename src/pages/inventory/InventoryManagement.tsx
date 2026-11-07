@@ -951,17 +951,29 @@ export function InventoryManagement() {
                             {formatRupiah(item.cost_price || 0)}
                           </td>
                           <td className="py-3.5 px-4 text-right">
-                            <span
-                              className={`font-black text-sm ${
-                                isOutOfStock
-                                  ? "text-rose-600"
-                                  : isLowStock
-                                    ? "text-amber-600"
-                                    : "text-foreground"
-                              }`}
-                            >
-                              {item.stock} {item.unit}
-                            </span>
+                            <div>
+                              <span
+                                className={`font-black text-sm ${
+                                  isOutOfStock
+                                    ? "text-rose-600"
+                                    : isLowStock
+                                      ? "text-amber-600"
+                                      : "text-foreground"
+                                }`}
+                              >
+                                {Number(item.stock % 1 === 0 ? item.stock : item.stock.toFixed(2)).toLocaleString("id-ID")}{" "}
+                                <span className="text-xs font-semibold text-muted-foreground">{item.unit}</span>
+                              </span>
+                              {Number(item.yield_per_unit) > 0 && item.stock > 0 && (
+                                <p className="text-[10.5px] font-medium text-muted-foreground mt-0.5">
+                                  Setara ±{" "}
+                                  <strong className="text-foreground">
+                                    {Math.round(item.stock * Number(item.yield_per_unit)).toLocaleString("id-ID")}{" "}
+                                    {item.yield_unit || "gram"}
+                                  </strong>
+                                </p>
+                              )}
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 text-right text-muted-foreground">
                             {item.minimum_stock} {item.unit}
@@ -1503,9 +1515,19 @@ export function InventoryManagement() {
                     </div>
                   </div>
                   {Number(formYieldPerUnit) > 0 && (
-                    <p className="text-[10px] text-muted-foreground font-medium">
-                      💡 1 {formUnit} = <span className="font-bold text-primary">{formYieldPerUnit} {formYieldUnit}</span>. Saat menu terjual di POS, stok {formUnit} akan terpotong secara proporsional.
-                    </p>
+                    <div className="rounded-lg bg-background/80 p-2 border border-primary/20 space-y-1">
+                      <p className="text-[11px] text-foreground font-semibold">
+                        💡 1 {formUnit} = <span className="font-bold text-primary">{formYieldPerUnit} {formYieldUnit}</span>
+                        {formCostPrice > 0 && (
+                          <span>
+                            {" "}→ HPP dasar: <strong className="text-emerald-600 dark:text-emerald-400">Rp {(formCostPrice / (Number(formYieldPerUnit) || 1)).toLocaleString("id-ID", { maximumFractionDigits: 2 })}</strong> per {formYieldUnit}
+                          </span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        Saat menu kebab terjual di POS kasir, stok {formUnit} akan berkurang otomatis sesuai takaran resep ({formYieldUnit}).
+                      </p>
+                    </div>
                   )}
                 </div>
               </div>

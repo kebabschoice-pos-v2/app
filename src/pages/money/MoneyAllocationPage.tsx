@@ -1435,7 +1435,12 @@ export function MoneyAllocationPage({
                       )}
                       <div className="flex items-center justify-between text-[9px] text-muted-foreground pt-1 border-t border-amber-500/10">
                         <span>
-                          Keluar: <strong>{pocket.usedQty} {pocket.item.unit}</strong>
+                          Keluar: <strong>{Number(pocket.usedQty % 1 === 0 ? pocket.usedQty : pocket.usedQty.toFixed(2)).toLocaleString("id-ID")} {pocket.item.unit}</strong>
+                          {Number(pocket.item.yield_per_unit) > 0 && (
+                            <span className="text-[8.5px] opacity-80 block">
+                              (± {Math.round(pocket.usedQty * Number(pocket.item.yield_per_unit)).toLocaleString("id-ID")} {pocket.item.yield_unit || "gram"})
+                            </span>
+                          )}
                         </span>
                         <span>
                           Patokan: <strong>{formatRupiah(pocket.unit_cost)} / {pocket.item.unit}</strong>

@@ -28,6 +28,8 @@ interface OutletInventoryItem {
   stock: number;
   minimum_stock: number;
   status: "aman" | "menipis" | "kritis";
+  yield_per_unit?: number | null;
+  yield_unit?: string | null;
 }
 
 interface StockRequest {
@@ -110,6 +112,8 @@ export function PosInventoryPage() {
           stock,
           minimum_stock: min,
           status,
+          yield_per_unit: (row as any).yield_per_unit,
+          yield_unit: (row as any).yield_unit,
         };
       });
       setItems(mapped);
@@ -285,10 +289,23 @@ export function PosInventoryPage() {
                     <td className="py-3.5 font-bold text-foreground">{item.name}</td>
                     <td className="py-3.5 text-muted-foreground">{item.category}</td>
                     <td className="py-3.5 text-right font-black text-sm text-foreground">
-                      {item.stock.toLocaleString("id-ID")}{" "}
-                      <span className="text-[10px] font-normal text-muted-foreground">
-                        {item.unit}
-                      </span>
+                      <div>
+                        <span>
+                          {Number(item.stock % 1 === 0 ? item.stock : item.stock.toFixed(2)).toLocaleString("id-ID")}{" "}
+                          <span className="text-[10px] font-normal text-muted-foreground">
+                            {item.unit}
+                          </span>
+                        </span>
+                        {Number(item.yield_per_unit) > 0 && item.stock > 0 && (
+                          <p className="text-[10px] font-medium text-muted-foreground mt-0.5">
+                            Setara ±{" "}
+                            <strong className="text-foreground">
+                              {Math.round(item.stock * Number(item.yield_per_unit)).toLocaleString("id-ID")}{" "}
+                              {item.yield_unit || "gram"}
+                            </strong>
+                          </p>
+                        )}
+                      </div>
                     </td>
                     <td className="py-3.5 text-right text-muted-foreground font-medium">
                       {item.minimum_stock.toLocaleString("id-ID")} {item.unit}

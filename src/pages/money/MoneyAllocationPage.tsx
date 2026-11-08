@@ -1414,6 +1414,12 @@ export function MoneyAllocationPage({
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
+                      {pocket.item.stock <= (pocket.item.minimum_stock ?? 5) && (
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[9.5px] font-black text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                          <AlertCircle className="size-3" />
+                          ⚠️ PERLU RESTOCK
+                        </span>
+                      )}
                       <Badge variant="secondary" className="text-[10px] font-bold">
                         Stok: {pocket.item.stock} {pocket.item.unit}
                       </Badge>
@@ -1446,6 +1452,15 @@ export function MoneyAllocationPage({
                     <p className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
                       {formatRupiah(pocket.accumulated_balance)}
                     </p>
+
+                    {pocket.item.stock <= (pocket.item.minimum_stock ?? 5) && (
+                      <div className="text-[10.5px] font-bold text-amber-800 dark:text-amber-300 bg-amber-500/15 rounded-lg p-2 border border-amber-500/25">
+                        Saldo Celengan Bahan Ini: {formatRupiah(pocket.accumulated_balance)}{" "}
+                        {pocket.canBuyPacks > 0
+                          ? `(Cukup untuk beli ${pocket.canBuyPacks} ${pocket.item.unit || "Pak"})`
+                          : `(Belum cukup 1 Pak)`}
+                      </div>
+                    )}
 
                     {/* Transparent Formula Breakdown */}
                     <div className="pt-2 border-t border-amber-500/20 space-y-1 text-[10px]">
@@ -1508,7 +1523,7 @@ export function MoneyAllocationPage({
                     }}
                   >
                     <ShoppingCart className="size-3.5" />
-                    Belanja / Potong Saldo
+                    🛒 Langsung Restock dari Celengan
                   </Button>
                 </div>
               </div>

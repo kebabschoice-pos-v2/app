@@ -49,6 +49,7 @@ import {
   type OutletMemberSummary,
 } from "@/services/outlet.service";
 import { isOutletDeviceAccount } from "@/services/staff.service";
+import { cloneMasterInventoryToOutlet } from "@/services/inventory.service";
 
 export interface OutletManagementProps {
   role?: string;
@@ -88,6 +89,7 @@ export function OutletManagement({
     status: "active",
     manager_user_id: "",
   });
+  const [cloneMasterInventory, setCloneMasterInventory] = useState(true);
 
   // Modal 2: Detail Modal
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -171,6 +173,7 @@ export function OutletManagement({
       return;
     }
     setEditingId(null);
+    setCloneMasterInventory(true);
     setForm({
       outlet_name: "",
       code: "",
@@ -223,7 +226,23 @@ export function OutletManagement({
         await updateOutlet(editingId, form);
         toast.success("Informasi cabang outlet berhasil diperbarui");
       } else {
-        await createOutlet(form);
+        const createdOutlet = await createOutlet(form);
+        if (cloneMasterInventory && createdOutlet?.id) {
+          try {
+            const cloneRes = await cloneMasterInventoryToOutlet(
+              createdOutlet.id,
+              null,
+              createdOutlet.business_id,
+            );
+            if (cloneRes.clonedCount > 0) {
+              toast.info(
+                `Berhasil menyalin ${cloneRes.clonedCount} master bahan baku ke cabang "${createdOutlet.name || form.outlet_name}" (stok awal = 0).`,
+              );
+            }
+          } catch (cloneErr) {
+            console.warn("[OutletManagement] Clone inventory warning:", cloneErr);
+          }
+        }
         toast.success("Cabang outlet baru berhasil ditambahkan");
       }
       handleCloseModal();
@@ -1375,6 +1394,27 @@ export function OutletManagement({
                   <option value="inactive">Non-aktif (Cabang Ditutup Sementara)</option>
                 </select>
               </div>
+
+              {/* Auto-Clone Master Inventory Checkbox (Only on Create New Branch) */}
+              {!editingId && (
+                <div className="flex items-start gap-2.5 rounded-xl border border-primary/20 bg-primary/5 p-3">
+                  <input
+                    type="checkbox"
+                    id="clone_master_inventory"
+                    checked={cloneMasterInventory}
+                    onChange={(e) => setCloneMasterInventory(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary focus:ring-primary cursor-pointer"
+                  />
+                  <label htmlFor="clone_master_inventory" className="text-xs cursor-pointer select-none">
+                    <span className="font-bold text-foreground block">
+                      {"Salin Master Bahan Baku & Pengaturan Konversi dari Cabang Utama (Stok Awal = 0)"}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground block mt-0.5">
+                      Otomatis menduplikasi master bahan baku (lengkap dengan kapasitas konversi yield dan patokan harga buffer) sehingga resep menu langsung terhubung tanpa perlu ketik ulang.
+                    </span>
+                  </label>
+                </div>
+              )}
 
               {/* Form Action Buttons */}
               <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">

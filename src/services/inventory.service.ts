@@ -716,6 +716,94 @@ export async function createInventoryItem(
 }
 
 /**
+ * 3b. CLONE / SYNC MASTER INVENTORY TO OUTLET
+ * Duplicates master inventory items from source outlet (or default main/HQ) to a target outlet.
+ * Preserves name, category, unit, cost_price / cost_per_unit, yield_per_unit, yield_unit, minimum_stock,
+ * but initializes stock: 0.
+ * Skips items that already exist in the target outlet (by name comparison).
+ */
+export async function cloneMasterInventoryToOutlet(
+  targetOutletId: string,
+  sourceOutletId?: string | null,
+  businessId?: string,
+): Promise<{ clonedCount: number; skippedCount: number }> {
+  if (!targetOutletId) {
+    throw new Error("Target outlet ID wajib disertakan untuk clone master inventory");
+  }
+
+  const bid = await resolveActiveBusinessId(businessId);
+  const allItems = await getInventoryItems(bid);
+
+  // 1. Identify source candidates
+  let sourceCandidates: InventoryItemDetail[] = [];
+  if (sourceOutletId && sourceOutletId !== "all") {
+    sourceCandidates = allItems.filter((i) => i.outlet_id === sourceOutletId);
+  } else {
+    // Default to items from HQ (outlet_id null or other outlets) or distinct items by name
+    const distinctMap = new Map<string, InventoryItemDetail>();
+    for (const item of allItems) {
+      if (item.outlet_id !== targetOutletId) {
+        const key = item.name.trim().toLowerCase();
+        if (!distinctMap.has(key)) {
+          distinctMap.set(key, item);
+        }
+      }
+    }
+    sourceCandidates = Array.from(distinctMap.values());
+  }
+
+  // 2. Identify target existing item names to prevent duplicates
+  const targetExistingNames = new Set(
+    allItems
+      .filter((i) => i.outlet_id === targetOutletId)
+      .map((i) => i.name.trim().toLowerCase()),
+  );
+
+  let clonedCount = 0;
+  let skippedCount = 0;
+
+  for (const src of sourceCandidates) {
+    const key = src.name.trim().toLowerCase();
+    if (targetExistingNames.has(key)) {
+      skippedCount++;
+      continue;
+    }
+
+    try {
+      await createInventoryItem(
+        {
+          name: src.name.trim(),
+          category: src.category || "Bahan Baku",
+          unit: src.unit || "pcs",
+          stock: 0, // Initial stock is 0 for newly cloned branch!
+          minimum_stock: src.minimum_stock ?? 5,
+          cost_price: src.cost_price || 0,
+          outlet_id: targetOutletId,
+          yield_per_unit:
+            src.yield_per_unit !== undefined && src.yield_per_unit !== null
+              ? Number(src.yield_per_unit)
+              : null,
+          yield_unit: src.yield_unit || null,
+          supplier_id: src.supplier_id || null,
+        },
+        bid,
+      );
+      targetExistingNames.add(key);
+      clonedCount++;
+    } catch (err) {
+      console.warn(`[cloneMasterInventoryToOutlet] Failed to clone ${src.name}:`, err);
+    }
+  }
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("inventory:updated"));
+    window.dispatchEvent(new CustomEvent("pos:menu-updated"));
+  }
+
+  return { clonedCount, skippedCount };
+}
+
+/**
  * 4. UPDATE INVENTORY ITEM
  */
 export async function updateInventoryItem(

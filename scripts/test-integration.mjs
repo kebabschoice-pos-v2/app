@@ -2163,9 +2163,115 @@ test("Validates Zero-Sum Internal Transfers, Supabase money_allocation_ledger Sy
   assert.strictEqual(totalSystemFunds, totalOmzet, "Total system funds must strictly equal total omzet without phantom money generation");
 });
 
+// --- TEST 95: Multi-Branch Operations (Master Inventory Cloning, Cashier Branch Lock, & Smart Restock Indicator) ---
+console.log("\n▶ 95. MULTI-BRANCH AUTO-CLONE INVENTORY, CASHIER ROLE LOCK & SMART RESTOCK INDICATOR");
+test("Validates Master Inventory Cloning, Cashier Outlet Enforcement, and Smart Restock Readiness", () => {
+  const invServiceCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/inventory.service.ts"),
+    "utf-8"
+  );
+  const outletPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/OutletManagement.tsx"),
+    "utf-8"
+  );
+  const invPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf-8"
+  );
+  const moneyPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf-8"
+  );
+  const posAppCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf-8"
+  );
+
+  // 1. cloneMasterInventoryToOutlet in inventory.service.ts
+  assert.ok(
+    invServiceCode.includes("cloneMasterInventoryToOutlet"),
+    "inventory.service.ts must export cloneMasterInventoryToOutlet"
+  );
+  assert.ok(
+    invServiceCode.includes("stock: 0"),
+    "cloneMasterInventoryToOutlet must strictly initialize stock: 0"
+  );
+  assert.ok(
+    invServiceCode.includes("src.yield_per_unit"),
+    "cloneMasterInventoryToOutlet must preserve yield_per_unit conversion settings"
+  );
+  assert.ok(
+    invServiceCode.includes("src.yield_unit"),
+    "cloneMasterInventoryToOutlet must preserve yield_unit conversion settings"
+  );
+
+  // 2. Auto-clone option in OutletManagement.tsx
+  assert.ok(
+    outletPageCode.includes("cloneMasterInventoryToOutlet"),
+    "OutletManagement.tsx must import and call cloneMasterInventoryToOutlet"
+  );
+  assert.ok(
+    outletPageCode.includes("Salin Master Bahan Baku & Pengaturan Konversi dari Cabang Utama (Stok Awal = 0)"),
+    "OutletManagement modal must render the master inventory clone checkbox"
+  );
+
+  // 3. Sync / Clone Master modal & action in InventoryManagement.tsx
+  assert.ok(
+    invPageCode.includes("🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain"),
+    "InventoryManagement must provide '🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain' button"
+  );
+  assert.ok(
+    invPageCode.includes("handleExecuteCloneMaster"),
+    "InventoryManagement must provide handleExecuteCloneMaster handler"
+  );
+
+  // 4. Smart Restock Readiness in InventoryManagement.tsx
+  assert.ok(
+    invPageCode.includes("⚠️ PERLU RESTOCK"),
+    "InventoryManagement must show '⚠️ PERLU RESTOCK' badge when stock is below or equal to minimum"
+  );
+  assert.ok(
+    invPageCode.includes("Saldo Celengan Bahan Ini:"),
+    "InventoryManagement must display live 'Saldo Celengan Bahan Ini' buying capacity"
+  );
+  assert.ok(
+    invPageCode.includes("🛒 Langsung Restock dari Celengan"),
+    "InventoryManagement must display '🛒 Langsung Restock dari Celengan' shortcut button"
+  );
+
+  // 5. Smart Restock Readiness in MoneyAllocationPage.tsx
+  assert.ok(
+    moneyPageCode.includes("⚠️ PERLU RESTOCK"),
+    "MoneyAllocationPage BOM cards must show '⚠️ PERLU RESTOCK' badge when stock is critical"
+  );
+  assert.ok(
+    moneyPageCode.includes("Saldo Celengan Bahan Ini:"),
+    "MoneyAllocationPage BOM cards must show 'Saldo Celengan Bahan Ini' banner with unit capacity"
+  );
+  assert.ok(
+    moneyPageCode.includes("🛒 Langsung Restock dari Celengan"),
+    "MoneyAllocationPage BOM cards must display '🛒 Langsung Restock dari Celengan' button"
+  );
+
+  // 6. Cashier Outlet Role-Based Lock in KebabsChoicePOSApp.tsx
+  assert.ok(
+    posAppCode.includes('["owner", "admin", "hq"].includes(normalizedRole)'),
+    "KebabsChoicePOSApp must permit outlet switching only for owner, admin, or hq roles"
+  );
+  assert.ok(
+    posAppCode.includes("📍 Cabang Aktif:"),
+    "KebabsChoicePOSApp must render locked '📍 Cabang Aktif:' badge for cashier / staff"
+  );
+  assert.ok(
+    posAppCode.includes("Terkunci"),
+    "KebabsChoicePOSApp must render 'Terkunci' lock indicator for cashier / staff"
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");
+
 
 
 

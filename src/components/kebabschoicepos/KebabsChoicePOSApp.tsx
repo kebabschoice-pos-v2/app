@@ -3299,7 +3299,7 @@ function PosPage({
 }) {
   const { t } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
-  const isOwner = ["owner", "admin"].includes(normalizedRole);
+  const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
   const activeOutlets = snapshot.outlets?.filter((o) => o.active !== false) || [];
   // prettier-ignore
@@ -5241,7 +5241,7 @@ function PosPage({
                   ) : (
                     <div className="flex items-center gap-1.5 font-black text-foreground">
                       <span>
-                        📍{" "}
+                        📍 Cabang Aktif:{" "}
                         {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
                           activeOutlets[0]?.name ||
                           "Outlet Utama"}
@@ -7159,7 +7159,7 @@ function OrdersPage({
 }) {
   const { t } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
-  const isOwner = ["owner", "admin"].includes(normalizedRole);
+  const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
   const activeOutlets = snapshot.outlets?.filter((o) => o.active !== false) || [];
   const assignedOutletId =

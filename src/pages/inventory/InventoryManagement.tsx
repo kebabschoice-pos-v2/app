@@ -23,6 +23,8 @@ import {
   FileSpreadsheet,
   X,
   Truck,
+  Copy,
+  ShoppingCart,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,6 +42,7 @@ import {
   getSuppliers,
   loadBranchMoneyLedger,
   saveBranchMoneyLedger,
+  cloneMasterInventoryToOutlet,
   type InventoryItemDetail,
   type StockMovementRecord,
   type SupplierItem,
@@ -140,22 +143,33 @@ export function InventoryManagement() {
   const [adjReason, setAdjReason] = useState("Selisih Perhitungan Fisik");
   const [adjNotes, setAdjNotes] = useState("");
 
+  // Modal State: Clone / Sync Master Inventory
+  const [cloneModalOpen, setCloneModalOpen] = useState(false);
+  const [cloneSourceOutletId, setCloneSourceOutletId] = useState<string>("all");
+  const [cloneTargetOutletId, setCloneTargetOutletId] = useState<string>("");
+  const [cloningLoading, setCloningLoading] = useState(false);
+  const [branchLedger, setBranchLedger] = useState<any>(null);
+
   async function loadData() {
     setLoading(true);
     try {
       syncMenuRecipesWithInventory().catch(() => {});
-      const [itms, supps, movs, mets, outls] = await Promise.all([
+      const activeBranchId =
+        selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
+      const [itms, supps, movs, mets, outls, bLedger] = await Promise.all([
         getInventoryItems(),
         getSuppliers(),
         getStockMovements(),
         getInventoryDashboardMetrics(),
         getOutletList().catch(() => [] as OutletItem[]),
+        loadBranchMoneyLedger(activeBranchId).catch(() => null),
       ]);
       setItems(itms);
       setSuppliers(supps);
       setMovements(movs);
       setMetrics(mets);
       setOutlets(outls);
+      setBranchLedger(bLedger);
     } catch (err: any) {
       console.error("[InventoryManagement] loadData error:", err);
       toast.error("Gagal memuat data inventori", {
@@ -163,6 +177,62 @@ export function InventoryManagement() {
       });
     } finally {
       setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    const activeBranchId =
+      selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
+    loadBranchMoneyLedger(activeBranchId).then((l) => setBranchLedger(l)).catch(() => {});
+  }, [selectedOutlet]);
+
+  // Helper to compute item pocket balance and canBuy units
+  const getItemPocketInfo = (item: InventoryItemDetail) => {
+    const itemMovs = movements.filter((m) => {
+      if (m.inventory_item_id !== item.id) return false;
+      const mType = (m.movement_type as string) || (m as any).type || "";
+      return mType === "pos_sale" || mType === "stock_out";
+    });
+    const usedQty = itemMovs.reduce((sum, m) => sum + Math.abs(Number(m.quantity) || 0), 0);
+    const costUnit = Number(item.cost_price) > 0 ? Number(item.cost_price) : 0;
+    const totalEarned = Math.round(usedQty * costUnit);
+    const spent = Number(branchLedger?.spent_amounts?.[item.id] || 0);
+    const added = Number(branchLedger?.manual_added?.[item.id] || 0);
+    const balance = Math.max(0, totalEarned - spent + added);
+    const canBuyUnits = costUnit > 0 ? Math.floor(balance / costUnit) : 0;
+    return { balance, canBuyUnits, costUnit };
+  };
+
+  async function handleExecuteCloneMaster() {
+    if (!cloneTargetOutletId) {
+      toast.error("Pilih cabang tujuan yang akan menerima master bahan baku");
+      return;
+    }
+    setCloningLoading(true);
+    try {
+      const targetName =
+        outlets.find((o) => o.id === cloneTargetOutletId)?.outlet_name ||
+        outlets.find((o) => o.id === cloneTargetOutletId)?.name ||
+        "Cabang";
+      const res = await cloneMasterInventoryToOutlet(cloneTargetOutletId, cloneSourceOutletId);
+      if (res.clonedCount > 0) {
+        toast.success(
+          `Berhasil menyalin ${res.clonedCount} master bahan baku ke cabang "${targetName}" (stok awal = 0).`,
+        );
+      } else if (res.skippedCount > 0) {
+        toast.info(
+          `Semua master bahan baku sudah ada di cabang "${targetName}" (${res.skippedCount} dilewati).`,
+        );
+      } else {
+        toast.warning("Tidak ada bahan baku yang dapat disalin.");
+      }
+      setCloneModalOpen(false);
+      await loadData();
+    } catch (err: any) {
+      console.error("[handleExecuteCloneMaster] Error:", err);
+      toast.error(err.message || "Gagal menyalin master bahan baku");
+    } finally {
+      setCloningLoading(false);
     }
   }
 
@@ -839,6 +909,23 @@ export function InventoryManagement() {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => {
+                  setCloneTargetOutletId(
+                    selectedOutlet !== "all" && selectedOutlet !== "central"
+                      ? selectedOutlet
+                      : outlets[0]?.id || "",
+                  );
+                  setCloneModalOpen(true);
+                }}
+                className="rounded-2xl gap-1.5 text-primary border-primary/30 hover:bg-primary/10 font-bold"
+                title="Sinkronkan / Salin Master Bahan dari Cabang Lain"
+              >
+                <Copy className="size-4" />
+                <span>🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => handleOpenStockIn()}
                 className="rounded-2xl gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
               >
@@ -888,14 +975,43 @@ export function InventoryManagement() {
                         <Boxes className="mx-auto size-8 text-muted-foreground/40 mb-2" />
                         <p className="font-bold">Tidak ada bahan baku ditemukan</p>
                         <p className="text-xs mt-1">
-                          Tambahkan bahan baku baru atau sesuaikan filter Anda.
+                          Tambahkan bahan baku baru atau salin master bahan dari cabang lain.
                         </p>
+                        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => handleOpenAddItem()}
+                            className="rounded-xl font-bold text-xs gap-1.5 shadow-brand"
+                          >
+                            <Plus className="size-3.5" />
+                            + Tambah Bahan Baru
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              setCloneTargetOutletId(
+                                selectedOutlet !== "all" && selectedOutlet !== "central"
+                                  ? selectedOutlet
+                                  : outlets[0]?.id || "",
+                              );
+                              setCloneModalOpen(true);
+                            }}
+                            className="rounded-xl font-bold text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
+                          >
+                            <Copy className="size-3.5" />
+                            🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain
+                          </Button>
+                        </div>
                       </td>
                     </tr>
                   ) : (
                     filteredItems.map((item) => {
                       const isOutOfStock = item.stock <= 0;
                       const isLowStock = !isOutOfStock && item.stock <= item.minimum_stock;
+                      const isCritical = isOutOfStock || isLowStock;
+                      const pocketInfo = getItemPocketInfo(item);
+
                       return (
                         <tr
                           key={item.id}
@@ -963,16 +1079,26 @@ export function InventoryManagement() {
                             {item.minimum_stock} {item.unit}
                           </td>
                           <td className="py-3.5 px-4 text-center">
-                            {isOutOfStock ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/15 border border-rose-500/30 px-2.5 py-0.5 text-[11px] font-bold text-rose-600">
-                                <XCircle className="size-3" />
-                                Habis
-                              </span>
-                            ) : isLowStock ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400">
-                                <AlertTriangle className="size-3" />
-                                Menipis
-                              </span>
+                            {isCritical ? (
+                              <div className="flex flex-col items-center gap-1">
+                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                                  <AlertTriangle className="size-3" />
+                                  ⚠️ PERLU RESTOCK
+                                </span>
+                                <span className="text-[10px] text-muted-foreground font-medium text-center leading-tight">
+                                  Saldo Celengan Bahan Ini:{" "}
+                                  <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+                                    {formatRupiah(pocketInfo.balance)}
+                                  </strong>
+                                  {pocketInfo.canBuyUnits > 0 ? (
+                                    <span className="text-foreground font-bold block">
+                                      (Cukup untuk beli {pocketInfo.canBuyUnits} {item.unit})
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground block">(Belum cukup 1 {item.unit})</span>
+                                  )}
+                                </span>
+                              </div>
                             ) : (
                               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600">
                                 <CheckCircle2 className="size-3" />
@@ -985,6 +1111,19 @@ export function InventoryManagement() {
                           </td>
                           <td className="py-3.5 px-4 text-right">
                             <div className="flex items-center justify-end gap-1">
+                              {isCritical && (
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleOpenStockIn(item.id)}
+                                  className="h-8 rounded-xl text-xs gap-1 font-bold border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 mr-1 shadow-xs"
+                                  title="Langsung Restock dari Celengan"
+                                >
+                                  <ShoppingCart className="size-3.5 text-amber-600" />
+                                  <span className="hidden xl:inline">🛒 Langsung Restock dari Celengan</span>
+                                  <span className="xl:hidden">Restock</span>
+                                </Button>
+                              )}
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
@@ -2030,6 +2169,122 @@ export function InventoryManagement() {
                 </Button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* 9. Modal: SINKRONKAN / SALIN MASTER BAHAN BAKU ANTAR CABANG */}
+      {cloneModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
+          <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
+            <div className="flex items-center justify-between pb-4 border-b border-border">
+              <div className="flex items-center gap-3">
+                <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                  <Copy className="size-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-black text-foreground">
+                    Sinkronkan / Salin Master Bahan Baku
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Duplikasi master bahan dan konversi resep ke cabang baru tanpa perlu ketik ulang.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCloneModalOpen(false)}
+                className="rounded-full p-2 text-muted-foreground hover:bg-secondary"
+              >
+                <X className="size-4" />
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-xs space-y-2">
+                <p className="font-bold text-foreground">
+                  💡 Cara Kerja Sinkronisasi Master Bahan:
+                </p>
+                <ul className="list-disc pl-4 space-y-1 text-muted-foreground text-[11px]">
+                  <li>
+                    Sistem menduplikasi seluruh nama bahan, SKU, kategori, satuan, patokan harga modal (HPP buffer), batas minimum stok, dan pengaturan kapasitas konversi (yield) ke cabang tujuan.
+                  </li>
+                  <li>
+                    <strong>Stok awal otomatis diset ke 0</strong>, sehingga cabang tujuan siap mencatat stok fisik nyata melalui menu Restock / Pembelian.
+                  </li>
+                  <li>
+                    Bahan baku yang sudah ada di cabang tujuan tidak akan diduplikasi ulang (aman dari duplikasi ganda).
+                  </li>
+                </ul>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-muted-foreground block mb-1">
+                  1. Pilih Sumber Master Bahan:
+                </label>
+                <select
+                  value={cloneSourceOutletId}
+                  onChange={(e) => setCloneSourceOutletId(e.target.value)}
+                  className="w-full rounded-2xl border border-input bg-background p-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  <option value="all">Semua Master Bahan / Gudang Utama (HQ)</option>
+                  {outlets.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      📍 Cabang: {o.name || o.outlet_name} ({items.filter((i) => i.outlet_id === o.id).length} bahan)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-muted-foreground block mb-1">
+                  2. Pilih Cabang Tujuan (Yang Menerima Master Bahan) *:
+                </label>
+                <select
+                  value={cloneTargetOutletId}
+                  onChange={(e) => setCloneTargetOutletId(e.target.value)}
+                  className="w-full rounded-2xl border border-input bg-background p-3 text-xs sm:text-sm font-bold text-primary focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  required
+                >
+                  <option value="">Pilih cabang tujuan...</option>
+                  {outlets.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      📍 {o.name || o.outlet_name} (Saat ini: {items.filter((i) => i.outlet_id === o.id).length} bahan)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-4 border-t border-border">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCloneModalOpen(false)}
+                  disabled={cloningLoading}
+                  className="rounded-2xl"
+                >
+                  Batal
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleExecuteCloneMaster}
+                  disabled={cloningLoading || !cloneTargetOutletId}
+                  className="rounded-2xl font-bold shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground gap-2"
+                >
+                  {cloningLoading ? (
+                    <>
+                      <RefreshCw className="size-4 animate-spin" />
+                      <span>Menyalin Bahan...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="size-4" />
+                      <span>Salin &amp; Sinkronkan Sekarang</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       )}

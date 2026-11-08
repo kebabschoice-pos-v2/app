@@ -408,16 +408,20 @@ function productFromRow(
 function customerFromRow(row: {
   id: string;
   name: string;
+  phone?: string | null;
   visits: number;
   total_spend: number;
+  points?: number;
   favorite_product: string | null;
   ai_insight: string | null;
 }): Customer {
   return {
     id: row.id,
     name: row.name,
+    phone: row.phone || null,
     visits: Number(row.visits),
     total_spend: toNumber(row.total_spend),
+    points: Number(row.points) || Math.floor(toNumber(row.total_spend) / 10000),
     favorite_product: row.favorite_product,
     ai_insight: row.ai_insight,
   };
@@ -680,7 +684,7 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
       .order("created_at", { ascending: true }),
     supabase
       .from("customers")
-      .select("id, name, visits, total_spend, favorite_product, ai_insight")
+      .select("id, name, phone, visits, total_spend, favorite_product, ai_insight")
       .in("business_id", allUserBusinessIds)
       .order("total_spend", { ascending: false }),
     supabase
@@ -2378,9 +2382,15 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
           <p className="text-sm font-bold text-muted-foreground">
             {t("dashboard.stock_health_score", "Stock Health Score")}
           </p>
-          <p className="mt-3 text-5xl font-black tracking-normal">{metrics.avgHealth}%</p>
-          <Progress className="mt-5 h-3" value={metrics.avgHealth} />
-          <p className="mt-4 text-sm leading-6 text-muted-foreground">{stockHealthMessage}</p>
+          <p className="mt-3 text-3xl sm:text-5xl font-black tracking-normal">
+            {snapshot.inventory.length === 0 ? "0% (Belum Ada Bahan)" : `${metrics.avgHealth}%`}
+          </p>
+          <Progress className="mt-5 h-3" value={snapshot.inventory.length === 0 ? 0 : metrics.avgHealth} />
+          <p className="mt-4 text-sm leading-6 text-muted-foreground">
+            {snapshot.inventory.length === 0
+              ? "Belum ada bahan baku tercatat di Inventory HQ."
+              : stockHealthMessage}
+          </p>
         </div>
       </section>
 
@@ -3735,6 +3745,38 @@ function PosPage({
     return afterDiscount + serviceChargeAmount + taxAmount;
   }, [afterDiscount, serviceChargeAmount, taxAmount, taxSettings.taxMode]);
 
+  // Fast 1-click Add to Cart (when product has no required variants)
+  const handleFastAddToCart = (product: Product) => {
+    const hasRequiredVariants = (product.variant_groups || []).some(
+      (g) => g.is_required !== false && g.options && g.options.length > 0,
+    );
+
+    if (hasRequiredVariants) {
+      handleOpenCustomize(product);
+      return;
+    }
+
+    const effectivePrice = product.promo_price && product.promo_price < product.price ? product.promo_price : product.price;
+    const cartItemId = `${product.id}-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`;
+    const newItem: CartItem = {
+      ...product,
+      cart_item_id: cartItemId,
+      quantity: 1,
+      base_price: product.price,
+      unit_price: effectivePrice,
+      price: effectivePrice,
+      selected_variant: null,
+      selected_variant_groups: [],
+      selected_modifiers: [],
+      selected_addons: [],
+    };
+
+    setCart((current) => [...current, newItem]);
+    toast.success(`${product.name} (+1) ditambahkan ke keranjang`, {
+      description: formatRupiah(effectivePrice),
+    });
+  };
+
   // Open Customization Modal
   const handleOpenCustomize = (product: Product) => {
     setCustomizingProduct(product);
@@ -4645,18 +4687,30 @@ function PosPage({
         }
       }
 
-      // Customer CRM Update: visits, total spend, and favorite product
+      // Customer CRM Update: visits, total spend, points, and favorite product
       if (selectedCustomerId) {
         try {
           const currentCust = snapshot.customers.find((c) => c.id === selectedCustomerId);
           const topItemName = cart[0]?.name || null;
+          const pointsEarned = Math.max(1, Math.floor(total / 10000));
+          const newPoints = (currentCust?.points || 0) + pointsEarned;
+          const newSpend = (currentCust?.total_spend || 0) + total;
+          const newVisits = (currentCust?.visits || 0) + 1;
+
+          if (currentCust) {
+            currentCust.visits = newVisits;
+            currentCust.total_spend = newSpend;
+            currentCust.points = newPoints;
+            currentCust.favorite_product = topItemName || currentCust.favorite_product;
+          }
+
           await supabase
             .from("customers")
             .update({
-              visits: (currentCust?.visits || 0) + 1,
-              total_spend: (currentCust?.total_spend || 0) + total,
+              visits: newVisits,
+              total_spend: newSpend,
               favorite_product: topItemName || currentCust?.favorite_product,
-              ai_insight: `Pelanggan aktif: Transaksi terakhir ${formatRupiah(total)} pada ${new Date().toLocaleDateString("id-ID")}`,
+              ai_insight: `Loyalty Member: +${pointsEarned} Poin (Total: ${newPoints} Poin). Transaksi ${formatRupiah(total)} pada ${new Date().toLocaleDateString("id-ID")}`,
             })
             .eq("id", selectedCustomerId);
         } catch (custErr) {
@@ -5488,7 +5542,7 @@ function PosPage({
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.03 }}
-                onClick={() => handleOpenCustomize(product)}
+                onClick={() => handleFastAddToCart(product)}
                 className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all"
               >
                 <div className="relative mb-4 flex aspect-[4/3] items-end overflow-hidden rounded-[1.25rem] bg-primary p-4 text-primary-foreground">
@@ -5535,18 +5589,35 @@ function PosPage({
                     )}
                     <p className="text-xs text-muted-foreground">Stok {product.stock}</p>
                   </div>
-                  <Button
-                    size="sm"
-                    className="rounded-xl gap-1 font-bold text-xs"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenCustomize(product);
-                    }}
-                    aria-label={`Pilih ${product.name}`}
-                  >
-                    <Plus className="size-3.5" />
-                    Pilih
-                  </Button>
+                  <div className="flex items-center gap-1.5">
+                    {((product.variant_groups && product.variant_groups.length > 0) ||
+                      (product.modifiers && product.modifiers.length > 0)) && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="rounded-xl px-2 h-8 text-[10px] font-bold text-muted-foreground hover:text-foreground"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleOpenCustomize(product);
+                        }}
+                        title="Atur Varian, Level Pedas, dan Topping"
+                      >
+                        Varian
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      className="rounded-xl gap-1 font-bold text-xs shadow-xs"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleFastAddToCart(product);
+                      }}
+                      aria-label={`Tambah ${product.name}`}
+                    >
+                      <Plus className="size-3.5" />
+                      +1
+                    </Button>
+                  </div>
                 </div>
                 {product.ai_badge && (
                   <p className="mt-3 rounded-full bg-ai-soft px-3 py-1 text-xs font-bold text-ai">
@@ -5702,7 +5773,7 @@ function PosPage({
             </button>
           </div>
 
-          {/* Member CRM Dropdown */}
+          {/* Member CRM Dropdown with Points Display */}
           {customerMode === "member" && (
             <div className="space-y-2 pt-1 animate-in fade-in duration-200">
               <select
@@ -5711,27 +5782,41 @@ function PosPage({
                 className="w-full rounded-xl border border-border bg-card px-2.5 py-2 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
               >
                 <option value="">-- Pilih Pelanggan CRM Terdaftar --</option>
-                {snapshot.customers.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    ⭐ {c.name} ({c.visits}x kunjungan · {formatRupiah(c.total_spend)})
-                  </option>
-                ))}
+                {snapshot.customers.map((c) => {
+                  const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
+                  return (
+                    <option key={c.id} value={c.id}>
+                      ⭐ {c.name} ({pts} Poin · {c.visits}x · {formatRupiah(c.total_spend)})
+                    </option>
+                  );
+                })}
               </select>
 
               {selectedCustomerId &&
                 (() => {
                   const cust = snapshot.customers.find((c) => c.id === selectedCustomerId);
                   if (!cust) return null;
+                  const pts = cust.points ?? Math.floor((cust.total_spend || 0) / 10000);
                   return (
-                    <div className="text-[11px] text-muted-foreground bg-primary/5 rounded-xl p-2 border border-primary/10">
+                    <div className="text-[11px] text-muted-foreground bg-primary/5 rounded-xl p-2.5 border border-primary/15 space-y-1">
                       <div className="flex items-center justify-between">
                         <span className="font-bold text-primary">{cust.name}</span>
-                        <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-black">
-                          {cust.visits} Order
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[10px] bg-amber-500/20 text-amber-600 dark:text-amber-400 px-2 py-0.5 rounded-full font-black flex items-center gap-1">
+                            ⭐ {pts} Poin
+                          </span>
+                          <span className="text-[10px] bg-primary/15 text-primary px-1.5 py-0.5 rounded-full font-black">
+                            {cust.visits} Order
+                          </span>
+                        </div>
                       </div>
+                      {cust.phone && (
+                        <p className="text-[10px] text-muted-foreground">
+                          WA/HP: <span className="font-mono text-foreground">{cust.phone}</span>
+                        </p>
+                      )}
                       {cust.favorite_product && (
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                        <p className="text-[10px] text-muted-foreground">
                           Favorit:{" "}
                           <span className="font-semibold text-foreground">
                             {cust.favorite_product}
@@ -5741,6 +5826,17 @@ function PosPage({
                     </div>
                   );
                 })()}
+
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setCustomerMode("new")}
+                className="w-full h-7 rounded-xl text-[10px] font-bold border-dashed border-primary/40 text-primary hover:bg-primary/10 gap-1"
+              >
+                <UserRound className="size-3" />
+                + Daftar Member Cepat (10 Detik)
+              </Button>
             </div>
           )}
 
@@ -7083,7 +7179,11 @@ function AnalyticsPage({ snapshot }: { snapshot: Snapshot }) {
                 </defs>
                 <CartesianGrid stroke="var(--color-border)" vertical={false} />
                 <XAxis dataKey="day" stroke="var(--color-muted-foreground)" />
-                <YAxis stroke="var(--color-muted-foreground)" />
+                <YAxis
+                  stroke="var(--color-muted-foreground)"
+                  domain={[0, "auto"]}
+                  tickFormatter={(val) => `Rp ${(val / 1000).toLocaleString("id-ID")}k`}
+                />
                 <ChartTooltip
                   contentStyle={{
                     background: "var(--color-card)",
@@ -7112,15 +7212,16 @@ function AnalyticsPage({ snapshot }: { snapshot: Snapshot }) {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dynamicProductPerformance} layout="vertical">
+                <BarChart data={dynamicProductPerformance} layout="vertical" margin={{ left: 10, right: 10 }}>
                   <CartesianGrid stroke="var(--color-border)" horizontal={false} />
                   <XAxis type="number" hide />
                   <YAxis
                     dataKey="name"
                     type="category"
-                    width={92}
+                    width={140}
                     stroke="var(--color-muted-foreground)"
                     tickLine={false}
+                    fontSize={11}
                   />
                   <ChartTooltip
                     contentStyle={{
@@ -8981,11 +9082,20 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   }, []);
 
   useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 1500);
+
     refresh()
       .catch((error) => {
         console.warn("[Dashboard] Initial refresh warning:", error);
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        clearTimeout(safetyTimer);
+        setLoading(false);
+      });
+
+    return () => clearTimeout(safetyTimer);
   }, []);
 
   useEffect(() => {

@@ -609,10 +609,11 @@ export function OutletManagement({
     });
   }, [items, search, filterStatus, isManager, managerOutletId]);
 
-  const totalCount = items.length;
-  const activeCount = items.filter((i) => i.status === "active").length;
+  const effectiveOutlets = items.length > 0 ? items : (snapshot?.outlets || []);
+  const totalCount = effectiveOutlets.length;
+  const activeCount = effectiveOutlets.filter((i: any) => i.status === "active" || i.active !== false).length;
   const inactiveCount = totalCount - activeCount;
-  const totalAssignedStaff = items.reduce((acc, curr) => acc + (curr.staff_count || 0), 0);
+  const totalAssignedStaff = effectiveOutlets.reduce((acc: number, curr: any) => acc + (curr.staff_count || 0), 0);
 
   // Helper: Get real human staff assigned to this outlet from availableStaff & settings.outlet_staff_roster
   function getAssignedEmployeesForOutlet(outlet: OutletItem): Array<{ name: string; role: string; email?: string }> {
@@ -663,7 +664,7 @@ export function OutletManagement({
           </div>
           {!isCashier && (
             <Button onClick={handleOpenCreate} className="rounded-2xl font-bold shadow-brand gap-2">
-              <Plus className="size-4" />+ Tambah Outlet Baru
+              <Plus className="size-4" />Tambah Outlet Baru
             </Button>
           )}
         </div>

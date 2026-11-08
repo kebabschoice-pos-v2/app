@@ -77,6 +77,7 @@ import {
   type InventoryIngredient,
   type MenuItemInput,
 } from "@/services/menu.service";
+import { getManagerPermissions, type ManagerPermissions } from "@/services/manager-permissions.service";
 import { cn } from "@/lib/utils";
 
 interface IndonesianPriceInputProps {
@@ -172,6 +173,8 @@ export function MenuManagement() {
   const [search, setSearch] = useState("");
   const [selectedCategoryFilter, setSelectedCategoryFilter] = useState<string>("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "inactive">("all");
+  const [userRole, setUserRole] = useState<string>("owner");
+  const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions | null>(null);
   const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
 
   // Modal 1: Add / Edit Menu Item (Redesigned to 3 main tabs: info, pricing, variants_recipe)
@@ -347,6 +350,15 @@ export function MenuManagement() {
   async function loadData() {
     try {
       setLoading(true);
+      if (typeof window !== "undefined") {
+        try {
+          const role = localStorage.getItem("kebabschoicepos_user_role") || "owner";
+          setUserRole(role);
+          const perms = await getManagerPermissions();
+          setManagerPermissions(perms);
+        } catch {}
+      }
+
       syncMenuRecipesWithInventory().catch(() => {});
       const [fetchedCategories, fetchedOutlets, fetchedIngredients, fetchedItems] =
         await Promise.all([
@@ -2316,12 +2328,24 @@ export function MenuManagement() {
                         </div>
                         <IndonesianPriceInput
                           value={costPrice}
-                          onChange={(val) => setCostPrice(val || 0)}
+                          onChange={(val) => {
+                            if (userRole === "manager" && managerPermissions?.can_edit_menu_recipes === false) {
+                              toast.error("Akses ubah HPP menu dinonaktifkan untuk Manager oleh Owner");
+                              return;
+                            }
+                            setCostPrice(val || 0);
+                          }}
+                          disabled={userRole === "manager" && managerPermissions?.can_edit_menu_recipes === false}
                           placeholder="Contoh: 18.000"
                           className="rounded-xl text-lg font-bold"
                         />
                         <p className="text-[11px] text-muted-foreground flex items-center justify-between">
-                          <span>Format: {formatIDR(costPrice)}</span>
+                          <span>
+                            Format: {formatIDR(costPrice)}
+                            {userRole === "manager" && managerPermissions?.can_edit_menu_recipes === false && (
+                              <span className="ml-1 text-amber-600 font-bold">(Terkunci oleh Owner)</span>
+                            )}
+                          </span>
                           {recipeItems.length > 0 && (
                             <span className="text-purple-600 dark:text-purple-400 font-semibold">
                               {recipeItems.length} bahan baku terhubung

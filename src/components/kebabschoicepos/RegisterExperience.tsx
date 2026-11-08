@@ -14,12 +14,26 @@ export function RegisterExperience() {
   const [businessName, setBusinessName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [authCode, setAuthCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
+
+  const EXPECTED_AUTH_CODE =
+    (typeof import.meta !== "undefined" && import.meta.env?.VITE_OWNER_REGISTRATION_CODE) ||
+    "KEBABSCHOICE-OWNER-VIP";
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setMessage("");
+
+    const trimmedAuthCode = authCode.trim().toUpperCase();
+    if (!trimmedAuthCode || trimmedAuthCode !== EXPECTED_AUTH_CODE) {
+      const err = "Kode Otorisasi Internal Owner tidak valid! Pendaftaran hanya untuk pemegang hak akses resmi KebabsChoice.";
+      setMessage(err);
+      toast.error(err);
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -137,6 +151,19 @@ export function RegisterExperience() {
             onChange={(e) => setEmail(e.target.value)}
             type="email"
             autoComplete="email"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="flex items-center justify-between text-xs font-bold text-foreground">
+            <span>Kode Otorisasi Internal Owner</span>
+            <span className="text-[10px] text-amber-600 font-normal">Wajib untuk internal</span>
+          </Label>
+          <Input
+            value={authCode}
+            onChange={(e) => setAuthCode(e.target.value)}
+            placeholder="Masukkan kode master owner (contoh: KEBABSCHOICE-OWNER-VIP)"
+            className="font-mono uppercase tracking-wider text-xs border-amber-500/40 focus:border-amber-500"
+            required
           />
         </div>
         <div className="space-y-2">

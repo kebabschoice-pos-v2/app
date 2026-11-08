@@ -344,7 +344,11 @@ export function InsightAnalyticsPage() {
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                 <XAxis dataKey="day" fontSize={11} />
-                <YAxis fontSize={11} tickFormatter={(val) => `Rp ${val / 1000000}M`} />
+                <YAxis
+                  fontSize={11}
+                  domain={[0, "auto"]}
+                  tickFormatter={(val) => `Rp ${(val / 1000).toLocaleString("id-ID")}k`}
+                />
                 <ChartTooltip
                   formatter={(val: any, name: string) => [
                     val ? formatRupiah(Number(val)) : "Belum Berjalan",

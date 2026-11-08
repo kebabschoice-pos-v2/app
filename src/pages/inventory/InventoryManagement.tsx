@@ -25,6 +25,9 @@ import {
   Truck,
   Copy,
   ShoppingCart,
+  Calendar,
+  Activity,
+  Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,19 +52,40 @@ import {
 } from "@/services/inventory.service";
 import { syncMenuRecipesWithInventory } from "@/services/menu.service";
 import { getOutletList, type OutletItem } from "@/services/outlet.service";
+import {
+  formatNumberWithDots,
+  parseNumberFromDots,
+  stripLeadingZeros,
+  sanitizeQuantityInput,
+} from "@/lib/input-formatters";
 
 const COMMON_UNITS = [
-  "gram",
-  "kg",
-  "ml",
-  "liter",
   "pcs",
-  "lembar",
   "pack",
+  "dus",
+  "pouch",
   "botol",
+  "kg",
+  "liter",
+  "gram",
+  "ml",
+  "lembar",
   "porsi",
-  "bungkus",
 ];
+
+const UNIT_LABELS: Record<string, string> = {
+  pcs: "pcs (Pcs / Tiang)",
+  pack: "pack (Pack / Bungkus)",
+  dus: "dus (Dus / Karton)",
+  pouch: "pouch (Pouch / Kantong)",
+  botol: "botol (Botol / Jerigen)",
+  kg: "kg (Kilogram)",
+  liter: "liter (Liter)",
+  gram: "gram (Gram)",
+  ml: "ml (Mililiter)",
+  lembar: "lembar (Lembar)",
+  porsi: "porsi (Porsi)",
+};
 
 const COMMON_CATEGORIES = [
   "Daging & Unggas",
@@ -270,28 +294,138 @@ export function InventoryManagement() {
     });
   }, [items, search, selectedCategory, selectedStatus, selectedOutlet]);
 
-  // Categories list derived from items
+  // Real-Time Daily Stock Usage & Waste Breakdown
+  const [mutationPeriod, setMutationPeriod] = useState<"today" | "7days" | "all">("today");
+
+  const dailyMutationsBreakdown = useMemo(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+    const relevantMovements = movements.filter((m) => {
+      // Filter by outlet
+      if (selectedOutlet !== "all" && selectedOutlet !== "central") {
+        if (m.outlet_id && m.outlet_id !== selectedOutlet) return false;
+      }
+
+      // Filter by period
+      if (mutationPeriod === "today") {
+        const mDate = (m.created_at || "").slice(0, 10);
+        return mDate === todayStr;
+      } else if (mutationPeriod === "7days") {
+        const mTime = new Date(m.created_at || 0).getTime();
+        return mTime >= sevenDaysAgo.getTime();
+      }
+      return true; // all
+    });
+
+    // Group by inventory_item_id or item_name
+    type ItemMutationSummary = {
+      itemId: string;
+      itemName: string;
+      unit: string;
+      yield_per_unit?: number | null;
+      yield_unit?: string | null;
+      posSaleQty: number; // in primary unit
+      wasteQty: number; // in primary unit
+      stockInQty: number; // in primary unit
+      wasteNotes: string[];
+    };
+
+    const map = new Map<string, ItemMutationSummary>();
+
+    for (const m of relevantMovements) {
+      const itm = items.find((i) => i.id === m.inventory_item_id);
+      const itemId = m.inventory_item_id || itm?.id || m.item_name || "unknown";
+      const itemName = m.item_name || itm?.name || "Bahan Baku";
+      const unit = itm?.unit || "unit";
+      const yield_per_unit = itm?.yield_per_unit;
+      const yield_unit = itm?.yield_unit;
+
+      if (!map.has(itemId)) {
+        map.set(itemId, {
+          itemId,
+          itemName,
+          unit,
+          yield_per_unit,
+          yield_unit,
+          posSaleQty: 0,
+          wasteQty: 0,
+          stockInQty: 0,
+          wasteNotes: [],
+        });
+      }
+
+      const entry = map.get(itemId)!;
+      const mType = (m.movement_type as string) || (m as any).type || "";
+      const qty = Math.abs(Number(m.quantity) || 0);
+
+      if (mType === "pos_sale" || mType === "stock_out") {
+        entry.posSaleQty += qty;
+      } else if (mType === "waste") {
+        entry.wasteQty += qty;
+        if (m.notes) entry.wasteNotes.push(m.notes);
+      } else if (mType === "stock_in") {
+        entry.stockInQty += qty;
+      }
+    }
+
+    return Array.from(map.values()).filter(
+      (entry) => entry.posSaleQty > 0 || entry.wasteQty > 0 || entry.stockInQty > 0,
+    );
+  }, [movements, items, selectedOutlet, mutationPeriod]);
+
+  // Dynamic Categories state with local persistence
+  const [customCategories, setCustomCategories] = useState<string[]>(() => {
+    try {
+      const stored = localStorage.getItem("kebabschoicepos_inventory_categories");
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [isAddingCategory, setIsAddingCategory] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+
+  const handleAddCategory = () => {
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (!customCategories.includes(trimmed)) {
+      const updated = [...customCategories, trimmed];
+      setCustomCategories(updated);
+      try {
+        localStorage.setItem("kebabschoicepos_inventory_categories", JSON.stringify(updated));
+      } catch {}
+    }
+    setFormCategory(trimmed);
+    setNewCategoryName("");
+    setIsAddingCategory(false);
+    toast.success(`Kategori "${trimmed}" berhasil ditambahkan`);
+  };
+
+  // Categories list derived from items and custom categories
   const allCategories = useMemo(() => {
-    const cats = new Set<string>(COMMON_CATEGORIES);
+    const cats = new Set<string>([...COMMON_CATEGORIES, ...customCategories]);
     items.forEach((i) => {
       if (i.category) cats.add(i.category);
     });
     return Array.from(cats);
-  }, [items]);
+  }, [items, customCategories]);
 
   // Modal Handlers: Item Add / Edit
   function handleOpenAddItem() {
     setEditingItem(null);
     setFormName("");
-    setFormCategory(COMMON_CATEGORIES[0] ?? "Daging");
-    setFormUnit("gram");
+    setFormCategory(COMMON_CATEGORIES[0] ?? "Daging & Unggas");
+    setFormUnit("pcs"); // Default to pcs per instructions!
     setFormCostPrice(0);
     setFormStock(0);
     setFormMinStock(10);
     setFormSupplierId("");
     setFormOutletId("");
-    setFormPackSize(20);
-    setFormPackPrice(20000);
+    setFormPackSize(1);
+    setFormPackPrice(0);
     setFormYieldPerUnit(undefined);
     setFormYieldUnit("gram");
     setItemModalOpen(true);
@@ -300,8 +434,8 @@ export function InventoryManagement() {
   function handleOpenEditItem(item: InventoryItemDetail) {
     setEditingItem(item);
     setFormName(item.name);
-    setFormCategory(item.category || COMMON_CATEGORIES[0] || "Daging");
-    setFormUnit(item.unit || "gram");
+    setFormCategory(item.category || COMMON_CATEGORIES[0] || "Daging & Unggas");
+    setFormUnit(item.unit || "pcs");
     setFormCostPrice(item.cost_price || 0);
     setFormStock(item.stock || 0);
     setFormMinStock(item.minimum_stock || 10);
@@ -309,22 +443,8 @@ export function InventoryManagement() {
     setFormOutletId(item.outlet_id || "");
     setFormYieldPerUnit(item.yield_per_unit ?? undefined);
     setFormYieldUnit(item.yield_unit || (item.unit === "pcs" || item.unit === "pack" ? "gram" : item.unit || "gram"));
-
-    // Load pack config from localStorage if available
-    let initialPackSize = item.unit === "gram" ? 2000 : 20;
-    let initialPackPrice = item.cost_price > 0 ? item.cost_price * initialPackSize : (item.unit === "gram" ? 100000 : 20000);
-    try {
-      const raw = localStorage.getItem("kebabschoicepos_money_allocation");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (parsed.pack_configs && parsed.pack_configs[item.id]) {
-          initialPackSize = Number(parsed.pack_configs[item.id].pack_size) || initialPackSize;
-          initialPackPrice = Number(parsed.pack_configs[item.id].pack_price) || initialPackPrice;
-        }
-      }
-    } catch {}
-    setFormPackSize(initialPackSize);
-    setFormPackPrice(initialPackPrice);
+    setFormPackSize(1);
+    setFormPackPrice(item.cost_price || 0);
 
     setItemModalOpen(true);
   }
@@ -344,14 +464,14 @@ export function InventoryManagement() {
         outlet_name: chosenOutlet ? (chosenOutlet.name || chosenOutlet.outlet_name) : null,
       };
 
-      const calculatedUnitCost =
-        formPackPrice > 0 && formPackSize > 0
-          ? Math.round(formPackPrice / formPackSize)
-          : Number(formCostPrice) || 0;
+      const finalCost = Number(formCostPrice) || 0;
+      const isDirectUnit = formUnit === "gram" || formUnit === "ml";
+      const finalYield = isDirectUnit ? 1 : (Number(formYieldPerUnit) || 1);
+      const finalYieldUnit = isDirectUnit ? formUnit : (formYieldUnit || "gram");
 
       const yieldPayload = {
-        yield_per_unit: formYieldPerUnit ? Number(formYieldPerUnit) : (formUnit === "pack" || formUnit === "pcs" ? Number(formPackSize) : null),
-        yield_unit: formYieldUnit || (formUnit === "pack" || formUnit === "pcs" ? "gram" : formUnit),
+        yield_per_unit: finalYield,
+        yield_unit: finalYieldUnit,
       };
 
       let savedItemId = editingItem?.id;
@@ -361,7 +481,7 @@ export function InventoryManagement() {
           name: formName.trim(),
           category: formCategory,
           unit: formUnit,
-          cost_price: calculatedUnitCost,
+          cost_price: finalCost,
           stock: Number(formStock) || 0,
           minimum_stock: Number(formMinStock) || 0,
           supplier_id: formSupplierId || null,
@@ -374,7 +494,7 @@ export function InventoryManagement() {
           name: formName.trim(),
           category: formCategory,
           unit: formUnit,
-          cost_price: calculatedUnitCost,
+          cost_price: finalCost,
           stock: Number(formStock) || 0,
           minimum_stock: Number(formMinStock) || 0,
           supplier_id: formSupplierId || null,
@@ -386,14 +506,14 @@ export function InventoryManagement() {
       }
 
       // Sync pack config to money_allocation settings
-      if (savedItemId && (formPackSize > 0 || formPackPrice > 0)) {
+      if (savedItemId && finalCost > 0) {
         try {
           const raw = localStorage.getItem("kebabschoicepos_money_allocation");
           const settings = raw ? JSON.parse(raw) : {};
           if (!settings.pack_configs) settings.pack_configs = {};
           settings.pack_configs[savedItemId] = {
-            pack_size: Number(formPackSize) || 1,
-            pack_price: Number(formPackPrice) || 0,
+            pack_size: 1,
+            pack_price: finalCost,
           };
           localStorage.setItem("kebabschoicepos_money_allocation", JSON.stringify(settings));
 
@@ -746,6 +866,153 @@ export function InventoryManagement() {
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">Perlu segera restock</p>
         </div>
+      </div>
+
+      {/* 2B. PANEL: Ringkasan Pemakaian, Restock & Kerusakan (Waste) Bahan Hari Ini (Real-Time per Cabang) */}
+      <div className="rounded-[1.75rem] border border-border bg-card/85 p-5 shadow-soft backdrop-blur-md space-y-3">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Activity className="size-4" />
+            </div>
+            <div>
+              <h2 className="text-sm font-black text-foreground flex items-center gap-2">
+                <span>Ringkasan Mutasi Bahan Baku</span>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                  {mutationPeriod === "today" ? "Hari Ini" : mutationPeriod === "7days" ? "7 Hari Terakhir" : "Semua Waktu"}
+                </span>
+              </h2>
+              <p className="text-[11px] text-muted-foreground">
+                Pantau langsung terpakai penjualan POS, restock masuk, dan kerusakan/waste fisik bahan per cabang.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 self-start sm:self-auto rounded-xl bg-secondary/80 p-1 text-[11px] font-bold">
+            <button
+              type="button"
+              onClick={() => setMutationPeriod("today")}
+              className={`px-3 py-1 rounded-lg transition-all ${
+                mutationPeriod === "today"
+                  ? "bg-background text-foreground shadow-xs font-black"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Hari Ini
+            </button>
+            <button
+              type="button"
+              onClick={() => setMutationPeriod("7days")}
+              className={`px-3 py-1 rounded-lg transition-all ${
+                mutationPeriod === "7days"
+                  ? "bg-background text-foreground shadow-xs font-black"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              7 Hari
+            </button>
+            <button
+              type="button"
+              onClick={() => setMutationPeriod("all")}
+              className={`px-3 py-1 rounded-lg transition-all ${
+                mutationPeriod === "all"
+                  ? "bg-background text-foreground shadow-xs font-black"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              Semua
+            </button>
+          </div>
+        </div>
+
+        {dailyMutationsBreakdown.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-border/80 bg-muted/20 p-5 text-center text-xs text-muted-foreground">
+            Belum ada mutasi bahan baku (penjualan, restock, atau waste) pada periode ini untuk cabang yang dipilih.
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {dailyMutationsBreakdown.map((item) => {
+              const hasYield = item.yield_per_unit && item.yield_per_unit > 0;
+              const posSaleYield = hasYield ? item.posSaleQty * (item.yield_per_unit || 1) : 0;
+              const wasteYield = hasYield ? item.wasteQty * (item.yield_per_unit || 1) : 0;
+
+              return (
+                <div
+                  key={item.itemId}
+                  className="rounded-2xl border border-border bg-background/80 p-3.5 shadow-xs space-y-2 hover:border-primary/40 transition-all"
+                >
+                  <div className="flex items-start justify-between gap-2 border-b border-border/60 pb-2">
+                    <div>
+                      <h4 className="font-black text-xs text-foreground">{item.itemName}</h4>
+                      <span className="text-[10px] text-muted-foreground">
+                        Satuan Utama: <span className="font-bold text-foreground">{item.unit}</span>
+                        {hasYield && ` (1 ${item.unit} = ${item.yield_per_unit} ${item.yield_unit || "unit"})`}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs">
+                    {/* Terpakai Penjualan */}
+                    {item.posSaleQty > 0 && (
+                      <div className="flex items-center justify-between text-muted-foreground bg-primary/5 rounded-xl px-2.5 py-1.5">
+                        <span className="flex items-center gap-1 font-semibold text-foreground text-[11px]">
+                          <ShoppingCart className="size-3 text-primary" />
+                          Terpakai POS:
+                        </span>
+                        <span className="font-mono font-bold text-primary text-[11px]">
+                          -{item.posSaleQty.toFixed(2)} {item.unit}
+                          {hasYield && (
+                            <span className="text-[10px] text-muted-foreground ml-1">
+                              (-{posSaleYield.toLocaleString("id-ID")} {item.yield_unit})
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Masuk Restock */}
+                    {item.stockInQty > 0 && (
+                      <div className="flex items-center justify-between text-muted-foreground bg-emerald-500/10 rounded-xl px-2.5 py-1.5">
+                        <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 text-[11px]">
+                          <ArrowDownLeft className="size-3 text-emerald-600" />
+                          Masuk Restock:
+                        </span>
+                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-[11px]">
+                          +{item.stockInQty.toFixed(2)} {item.unit}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Rusak / Terbuang (Waste) */}
+                    {item.wasteQty > 0 && (
+                      <div className="space-y-1 bg-rose-500/10 rounded-xl px-2.5 py-1.5 border border-rose-500/20">
+                        <div className="flex items-center justify-between">
+                          <span className="flex items-center gap-1 font-bold text-rose-700 dark:text-rose-300 text-[11px]">
+                            <Trash2 className="size-3 text-rose-600" />
+                            Rusak / Waste:
+                          </span>
+                          <span className="font-mono font-black text-rose-600 dark:text-rose-400 text-[11px]">
+                            -{item.wasteQty.toFixed(2)} {item.unit}
+                            {hasYield && (
+                              <span className="text-[10px] ml-1">
+                                (-{wasteYield.toLocaleString("id-ID")} {item.yield_unit})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {item.wasteNotes.length > 0 && (
+                          <p className="text-[9px] text-rose-700/80 dark:text-rose-300/80 truncate">
+                            Catatan: {item.wasteNotes.join(", ")}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Low Stock Alert Visual Banner */}
@@ -1505,178 +1772,185 @@ export function InventoryManagement() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground">Kategori</label>
-                  <select
-                    value={formCategory}
-                    onChange={(e) => setFormCategory(e.target.value)}
-                    aria-label="Kategori bahan baku form"
-                    className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {allCategories.map((c) => (
-                      <option key={c} value={c}>
-                        {c}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-muted-foreground">Kategori</label>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingCategory((v) => !v)}
+                      className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                    >
+                      + Tambah Kategori
+                    </button>
+                  </div>
+                  {isAddingCategory ? (
+                    <div className="flex items-center gap-1.5 mt-1">
+                      <Input
+                        placeholder="Nama Kategori Baru"
+                        value={newCategoryName}
+                        onChange={(e) => setNewCategoryName(e.target.value)}
+                        className="h-9 rounded-xl text-xs"
+                      />
+                      <Button
+                        type="button"
+                        size="sm"
+                        onClick={handleAddCategory}
+                        className="h-9 rounded-xl text-xs font-bold px-3"
+                      >
+                        Simpan
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setIsAddingCategory(false)}
+                        className="h-9 rounded-xl text-xs px-2"
+                      >
+                        Batal
+                      </Button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formCategory}
+                      onChange={(e) => setFormCategory(e.target.value)}
+                      aria-label="Kategori bahan baku form"
+                      className="w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    >
+                      {allCategories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground">Satuan Ukur</label>
+                  <label className="text-xs font-bold text-muted-foreground block mb-1">Satuan Ukur / Beli Fisik</label>
                   <select
                     value={formUnit}
-                    onChange={(e) => setFormUnit(e.target.value)}
+                    onChange={(e) => {
+                      const newU = e.target.value;
+                      setFormUnit(newU);
+                      if (newU === "gram" || newU === "ml") {
+                        setFormYieldUnit(newU);
+                        setFormYieldPerUnit(1);
+                      }
+                    }}
                     aria-label="Satuan ukur bahan baku form"
-                    className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    className="w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     {COMMON_UNITS.map((u) => (
                       <option key={u} value={u}>
-                        {u}
+                        {UNIT_LABELS[u] || u}
                       </option>
                     ))}
                   </select>
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 space-y-2">
+              {/* SATU KOTAK BERSIH: Konversi & Harga Patokan */}
+              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-primary flex items-center gap-1.5">
-                    <Boxes className="size-3.5" /> Konfigurasi Kemasan Grosir / Pak (Celengan Tabungan Belanja)
+                    <Boxes className="size-4" /> Harga Beli Patokan &amp; Konversi Resep ({formUnit})
                   </span>
-                  <span className="text-[10px] text-muted-foreground">Otomatisasi HQ</span>
+                  <span className="text-[10px] bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
+                    Standar POS F&amp;B
+                  </span>
                 </div>
-                <div className="grid grid-cols-2 gap-3">
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-[11px] font-bold text-muted-foreground">
-                      Isi per 1 Pak/Kemasan
-                    </label>
-                    <div className="relative mt-1">
-                      <Input
-                        type="number"
-                        min="1"
-                        placeholder="Contoh: 20"
-                        value={formPackSize || ""}
-                        onChange={(e) => {
-                          const val = Number(e.target.value);
-                          setFormPackSize(val);
-                          if (val > 0 && formPackPrice > 0) {
-                            setFormCostPrice(Math.round(formPackPrice / val));
-                          }
-                        }}
-                        className="rounded-xl pr-12 text-xs font-semibold"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-muted-foreground">
-                        {formUnit || "unit"}
-                      </span>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-[11px] font-bold text-muted-foreground">
-                      Harga Beli per 1 Pak (Rp)
+                    <label className="text-[11px] font-bold text-foreground">
+                      Harga Beli / Patokan Tabungan per 1 {formUnit} (Rp) *
                     </label>
                     <Input
-                      type="number"
-                      min="0"
-                      placeholder="Contoh: 80000"
-                      value={formPackPrice || ""}
-                      onChange={(e) => {
-                        const val = Number(e.target.value);
-                        setFormPackPrice(val);
-                        if (formPackSize > 0 && val > 0) {
-                          setFormCostPrice(Math.round(val / formPackSize));
-                        }
-                      }}
-                      className="mt-1 rounded-xl text-xs font-semibold"
+                      type="text"
+                      placeholder="Contoh: 120.000"
+                      value={formatNumberWithDots(formCostPrice)}
+                      onChange={(e) => setFormCostPrice(parseNumberFromDots(e.target.value))}
+                      className="mt-1 rounded-xl text-xs font-bold bg-background"
                     />
                   </div>
-                </div>
-                {formPackSize > 0 && formPackPrice > 0 && (
-                  <p className="text-[11px] text-primary/80 font-medium">
-                    💡 HPP Satuan dihitung otomatis: <span className="font-bold">Rp {Math.round(formPackPrice / formPackSize).toLocaleString("id-ID")}</span> per {formUnit}
-                  </p>
-                )}
 
-                {/* Konversi Satuan & Yield Capacity (Pack/Pcs ke Gram/Porsi) */}
-                <div className="rounded-xl border border-dashed border-primary/30 bg-primary/5 p-3 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-foreground">
-                      ⚖️ Konversi Takaran Resep (Yield per Satuan)
-                    </label>
-                    <span className="text-[10px] text-muted-foreground">Opsional untuk Pack/Pcs/Tiang</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  {formUnit !== "gram" && formUnit !== "ml" ? (
                     <div>
-                      <label className="text-[10px] font-semibold text-muted-foreground">
-                        Kapasitas per 1 {formUnit}
-                      </label>
-                      <Input
-                        type="number"
-                        min="0"
-                        placeholder="Contoh: 2200"
-                        value={formYieldPerUnit || ""}
-                        onChange={(e) => setFormYieldPerUnit(e.target.value ? Number(e.target.value) : undefined)}
-                        className="mt-1 rounded-xl text-xs font-semibold"
-                      />
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[11px] font-bold text-foreground">
+                            Isi / Kapasitas per 1 {formUnit}
+                          </label>
+                          <Input
+                            type="text"
+                            placeholder="Contoh: 2000"
+                            value={formYieldPerUnit !== undefined ? stripLeadingZeros(formYieldPerUnit) : ""}
+                            onChange={(e) => {
+                              const s = stripLeadingZeros(e.target.value);
+                              setFormYieldPerUnit(s ? Number(s) : undefined);
+                            }}
+                            className="mt-1 rounded-xl text-xs font-semibold bg-background"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[11px] font-bold text-foreground">
+                            Satuan Takaran Resep
+                          </label>
+                          <select
+                            value={formYieldUnit}
+                            onChange={(e) => setFormYieldUnit(e.target.value)}
+                            className="mt-1 w-full rounded-xl border border-input bg-background p-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                          >
+                            <option value="gram">gram</option>
+                            <option value="ml">ml</option>
+                            <option value="lembar">lembar</option>
+                            <option value="porsi">porsi</option>
+                            <option value="pcs">pcs</option>
+                          </select>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-[10px] font-semibold text-muted-foreground">
-                        Satuan Resep (Yield Unit)
-                      </label>
-                      <select
-                        value={formYieldUnit}
-                        onChange={(e) => setFormYieldUnit(e.target.value)}
-                        className="mt-1 w-full rounded-xl border border-input bg-background p-2 text-xs font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                      >
-                        <option value="gram">gram</option>
-                        <option value="kg">kg</option>
-                        <option value="ml">ml</option>
-                        <option value="liter">liter</option>
-                        <option value="lembar">lembar</option>
-                        <option value="porsi">porsi</option>
-                        <option value="pcs">pcs</option>
-                      </select>
-                    </div>
-                  </div>
-                  {Number(formYieldPerUnit) > 0 && (
-                    <div className="rounded-lg bg-background/80 p-2 border border-primary/20 space-y-1">
-                      <p className="text-[11px] text-foreground font-semibold">
-                        💡 1 {formUnit} = <span className="font-bold text-primary">{formYieldPerUnit} {formYieldUnit}</span>
-                        {formCostPrice > 0 && (
-                          <span>
-                            {" "}→ HPP dasar: <strong className="text-emerald-600 dark:text-emerald-400">Rp {(formCostPrice / (Number(formYieldPerUnit) || 1)).toLocaleString("id-ID", { maximumFractionDigits: 2 })}</strong> per {formYieldUnit}
-                          </span>
-                        )}
-                      </p>
-                      <p className="text-[10px] text-muted-foreground">
-                        Saat menu kebab terjual di POS kasir, stok {formUnit} akan berkurang otomatis sesuai takaran resep ({formYieldUnit}).
+                  ) : (
+                    <div className="flex flex-col justify-center rounded-xl bg-background/60 p-2.5 border border-primary/10">
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        Satuan Dasar Resep
+                      </span>
+                      <p className="text-xs font-bold text-primary mt-0.5">
+                        1 {formUnit} = 1 {formUnit} (Takaran Langsung)
                       </p>
                     </div>
                   )}
                 </div>
+
+                {/* Ringkasan HPP Otomatis */}
+                <div className="rounded-xl bg-background/80 p-2.5 border border-primary/20">
+                  <p className="text-xs text-foreground font-semibold">
+                    💡 Harga Patokan: <span className="font-bold text-primary">{formatRupiah(formCostPrice || 0)}</span> / {formUnit}
+                    {Number(formYieldPerUnit) > 0 && formUnit !== "gram" && formUnit !== "ml" && (
+                      <span>
+                        {" "}| HPP dasar:{" "}
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {formatRupiah(Math.round((formCostPrice || 0) / (Number(formYieldPerUnit) || 1)))}
+                        </strong>{" "}
+                        / {formYieldUnit}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    Saat menu kebab terjual di POS kasir, stok {formUnit} akan berkurang otomatis sesuai takaran resep ({formYieldUnit}).
+                  </p>
+                </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-muted-foreground">
-                    Harga Modal Satuan (Rp)
-                  </label>
-                  <Input
-                    type="number"
-                    min="0"
-                    value={formCostPrice}
-                    onChange={(e) => setFormCostPrice(Number(e.target.value))}
-                    className="mt-1 rounded-2xl"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-muted-foreground">
                     {editingItem ? "Stok Sekarang" : "Stok Awal"}
                   </label>
                   <Input
-                    type="number"
-                    min="0"
-                    value={formStock}
-                    onChange={(e) => setFormStock(Number(e.target.value))}
+                    type="text"
+                    value={stripLeadingZeros(formStock)}
+                    onChange={(e) => setFormStock(sanitizeQuantityInput(e.target.value))}
                     className="mt-1 rounded-2xl font-bold"
                   />
                 </div>
@@ -1685,10 +1959,9 @@ export function InventoryManagement() {
                     Min. Stok (Alert)
                   </label>
                   <Input
-                    type="number"
-                    min="0"
-                    value={formMinStock}
-                    onChange={(e) => setFormMinStock(Number(e.target.value))}
+                    type="text"
+                    value={stripLeadingZeros(formMinStock)}
+                    onChange={(e) => setFormMinStock(sanitizeQuantityInput(e.target.value))}
                     className="mt-1 rounded-2xl"
                   />
                 </div>

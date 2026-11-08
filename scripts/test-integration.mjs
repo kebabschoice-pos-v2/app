@@ -2268,9 +2268,91 @@ test("Validates Master Inventory Cloning, Cashier Outlet Enforcement, and Smart 
   );
 });
 
+test("TEST 96: Private POS Security Lock, Manager Permissions, 2-Mode Customer POS, and Stock/Waste Breakdowns", () => {
+  const robotsTxt = fs.readFileSync(path.join(process.cwd(), "public/robots.txt"), "utf-8");
+  const rootRouteCode = fs.readFileSync(path.join(process.cwd(), "src/routes/__root.tsx"), "utf-8");
+  const landingPageCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/LandingPage.tsx"), "utf-8");
+  const registerExpCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/RegisterExperience.tsx"), "utf-8");
+  const staffMgmtCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/StaffManagement.tsx"), "utf-8");
+  const securityPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/account/SecuritySettingsPage.tsx"), "utf-8");
+  const moneyPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"), "utf-8");
+  const menuPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/MenuManagement.tsx"), "utf-8");
+  const wastePageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/inventory/WastePage.tsx"), "utf-8");
+  const invPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"), "utf-8");
+  const posInvPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/pos/PosInventoryPage.tsx"), "utf-8");
+  const posAppCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"), "utf-8");
+
+  // 1. Private Internal POS Security & Robots No-Index
+  assert.ok(
+    robotsTxt.includes("User-agent: *") && robotsTxt.includes("Disallow: /"),
+    "public/robots.txt must block all search engine web crawlers with Disallow: /"
+  );
+  assert.ok(
+    rootRouteCode.includes('name: "robots"') && rootRouteCode.includes("noindex, nofollow"),
+    "src/routes/__root.tsx must inject noindex, nofollow robots meta tag"
+  );
+  assert.ok(
+    landingPageCode.includes("KEBABSCHOICE-OWNER-VIP") || landingPageCode.includes("Setup / Aktivasi Owner Internal"),
+    "LandingPage.tsx must secure owner registration as internal activation"
+  );
+  assert.ok(
+    registerExpCode.includes("KEBABSCHOICE-OWNER-VIP"),
+    "RegisterExperience.tsx must validate internal owner authorization code"
+  );
+
+  // 2. Manager Permissions Control Panel & Enforcement
+  assert.ok(
+    staffMgmtCode.includes("Hak Akses Manager") && staffMgmtCode.includes("can_view_owner_net_profit"),
+    "StaffManagement.tsx must include Manager Permissions panel with all permission toggles"
+  );
+  assert.ok(
+    securityPageCode.includes("Hak Akses Manager") || securityPageCode.includes("can_view_owner_net_profit"),
+    "SecuritySettingsPage.tsx must embed manager permission controls"
+  );
+  assert.ok(
+    moneyPageCode.includes("can_view_owner_net_profit"),
+    "MoneyAllocationPage.tsx must respect can_view_owner_net_profit manager permission"
+  );
+  assert.ok(
+    menuPageCode.includes("can_edit_menu_recipes"),
+    "MenuManagement.tsx must respect can_edit_menu_recipes manager permission for HPP editing"
+  );
+
+  // 3. POS 2-Mode Customer Selection & Fast Order
+  assert.ok(
+    posAppCode.includes("handleFastAddToCart"),
+    "KebabsChoicePOSApp.tsx must support 1-click fast add to cart for products without required variants"
+  );
+  assert.ok(
+    posAppCode.includes("Pelanggan Umum") || posAppCode.includes("⭐"),
+    "KebabsChoicePOSApp.tsx must support 2-mode customer selection with loyalty points"
+  );
+  assert.ok(
+    posAppCode.includes("Daftar Member Cepat"),
+    "KebabsChoicePOSApp.tsx must include quick member registration in cart"
+  );
+
+  // 4. Waste Breakdown & Dynamic Fractional Stock Deduction
+  assert.ok(
+    wastePageCode.includes("wasteUnitMode") && wastePageCode.includes("yield_per_unit"),
+    "WastePage.tsx must allow toggling unit mode and calculating fractional primary stock deduction"
+  );
+
+  // 5. Daily Stock Usage & Mutation Summary Panels
+  assert.ok(
+    invPageCode.includes("Ringkasan Mutasi Bahan Baku"),
+    "InventoryManagement.tsx must render Ringkasan Mutasi Bahan Baku panel"
+  );
+  assert.ok(
+    posInvPageCode.includes("Ringkasan Mutasi Hari Ini"),
+    "PosInventoryPage.tsx must render daily mutation summary for cashier"
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");
+
 
 
 

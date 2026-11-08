@@ -10,6 +10,10 @@ import {
   Layers,
   Store,
   RefreshCw,
+  Activity,
+  ShoppingCart,
+  Trash2,
+  ArrowDownLeft,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,7 +22,11 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
-import { getInventoryItems } from "@/services/inventory.service";
+import {
+  getInventoryItems,
+  getStockMovements,
+  type StockMovementRecord,
+} from "@/services/inventory.service";
 
 interface OutletInventoryItem {
   id: string;
@@ -117,12 +125,64 @@ export function PosInventoryPage() {
         };
       });
       setItems(mapped);
+
+      // 3. Fetch movements for branch daily mutations summary
+      const movs = await getStockMovements().catch(() => [] as StockMovementRecord[]);
+      setMovements(movs);
     } catch (e) {
       console.error("Failed to load inventory:", e);
     } finally {
       setLoading(false);
     }
   }
+
+  const [movements, setMovements] = useState<StockMovementRecord[]>([]);
+
+  // Daily mutations summary for POS
+  const todayMutations = useMemo(() => {
+    const now = new Date();
+    const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+    const todayMovs = movements.filter((m) => {
+      const mDate = (m.created_at || "").slice(0, 10);
+      return mDate === todayStr;
+    });
+
+    const map = new Map<string, {
+      itemName: string;
+      unit: string;
+      yield_per_unit?: number | null;
+      yield_unit?: string | null;
+      posSale: number;
+      waste: number;
+      stockIn: number;
+    }>();
+
+    for (const m of todayMovs) {
+      const itm = items.find((i) => i.id === m.inventory_item_id);
+      const name = m.item_name || itm?.name || "Bahan Baku";
+      const unit = itm?.unit || "unit";
+      if (!map.has(name)) {
+        map.set(name, {
+          itemName: name,
+          unit,
+          yield_per_unit: itm?.yield_per_unit,
+          yield_unit: itm?.yield_unit,
+          posSale: 0,
+          waste: 0,
+          stockIn: 0,
+        });
+      }
+      const entry = map.get(name)!;
+      const mType = (m.movement_type as string) || (m as any).type || "";
+      const qty = Math.abs(Number(m.quantity) || 0);
+      if (mType === "pos_sale" || mType === "stock_out") entry.posSale += qty;
+      else if (mType === "waste") entry.waste += qty;
+      else if (mType === "stock_in") entry.stockIn += qty;
+    }
+
+    return Array.from(map.values()).filter((e) => e.posSale > 0 || e.waste > 0 || e.stockIn > 0);
+  }, [movements, items]);
 
   // Categories
   const categories = useMemo(() => {
@@ -217,6 +277,44 @@ export function PosInventoryPage() {
           </Button>
         </div>
       </div>
+
+      {/* Ringkasan Mutasi Hari Ini di POS Cabang */}
+      {todayMutations.length > 0 && (
+        <div className="rounded-[1.5rem] border border-border bg-card/85 p-4 shadow-soft space-y-2.5">
+          <div className="flex items-center gap-2 text-xs font-black text-foreground">
+            <Activity className="size-3.5 text-primary" />
+            <span>📊 Ringkasan Mutasi Bahan Hari Ini (Cabang {outletName})</span>
+          </div>
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {todayMutations.map((m, idx) => {
+              const hasYield = m.yield_per_unit && m.yield_per_unit > 0;
+              return (
+                <div key={idx} className="rounded-xl border border-border bg-background/80 p-2.5 text-xs space-y-1">
+                  <p className="font-bold text-foreground truncate">{m.itemName}</p>
+                  <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                    {m.posSale > 0 && (
+                      <span className="text-primary font-bold">
+                        Terjual: -{m.posSale.toFixed(2)} {m.unit}
+                        {hasYield && ` (-${(m.posSale * m.yield_per_unit!).toLocaleString("id-ID")} ${m.yield_unit})`}
+                      </span>
+                    )}
+                    {m.stockIn > 0 && (
+                      <span className="text-emerald-600 font-bold">
+                        +Restock: {m.stockIn.toFixed(2)} {m.unit}
+                      </span>
+                    )}
+                    {m.waste > 0 && (
+                      <span className="text-rose-600 font-bold">
+                        Rusak: -{m.waste.toFixed(2)} {m.unit}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">

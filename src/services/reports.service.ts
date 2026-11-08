@@ -76,7 +76,7 @@ export interface AiRecommendation {
   actionHref?: string;
 }
 
-export type DateRangePreset = "today" | "last_7_days" | "this_month" | "custom";
+export type DateRangePreset = "today" | "last_7_days" | "this_month" | "all" | "custom";
 
 export interface AnalyticsFilter {
   dateRange?: DateRangePreset;
@@ -124,6 +124,10 @@ export function isDateWithinFilter(
 
   const now = new Date();
   const range = filter.dateRange || (filter.startDate || filter.endDate ? "custom" : undefined);
+
+  if (range === "all") {
+    return true;
+  }
 
   if (range === "today") {
     const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);

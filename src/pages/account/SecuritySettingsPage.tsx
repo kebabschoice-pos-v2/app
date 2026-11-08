@@ -1,14 +1,22 @@
 import { useState, useEffect } from "react";
-import { ShieldCheck, Smartphone, Lock, AlertTriangle, Check } from "lucide-react";
+import { ShieldCheck, Smartphone, Lock, AlertTriangle, Check, SlidersHorizontal, Store, CheckCircle2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { setOutletSupervisorPin } from "@/services/supervisor.service";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  getManagerPermissions,
+  saveManagerPermissions,
+  type ManagerPermissions,
+  DEFAULT_MANAGER_PERMISSIONS,
+} from "@/services/manager-permissions.service";
 
 export function SecuritySettingsPage() {
   const [twoFactor, setTwoFactor] = useState(false);
   const [sessionTimeout, setSessionTimeout] = useState("60");
+  const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions>(DEFAULT_MANAGER_PERMISSIONS);
+  const [savingPerms, setSavingPerms] = useState(false);
   const [managerPin, setManagerPin] = useState(() => {
     if (typeof window !== "undefined") {
       return localStorage.getItem("kebabschoicepos_supervisor_pin") || "123456";
@@ -22,6 +30,7 @@ export function SecuritySettingsPage() {
       const savedPin = localStorage.getItem("kebabschoicepos_supervisor_pin");
       if (savedPin) setManagerPin(savedPin);
     }
+    getManagerPermissions().then((p) => setManagerPermissions(p)).catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -29,6 +38,8 @@ export function SecuritySettingsPage() {
     try {
       const cleanPin = managerPin.trim();
       localStorage.setItem("kebabschoicepos_supervisor_pin", cleanPin);
+
+      await saveManagerPermissions(managerPermissions);
 
       // Also persist to current user's outlets
       const { data: outlets } = await supabase.from("outlets").select("id").limit(10);
@@ -38,7 +49,7 @@ export function SecuritySettingsPage() {
         }
       }
 
-      toast.success("Pengaturan Keamanan & PIN Supervisor berhasil disimpan");
+      toast.success("Pengaturan Keamanan & Hak Akses Manager berhasil disimpan");
     } catch (e: any) {
       console.warn("[SecuritySettings] Warning saving PIN:", e);
       toast.success("Pengaturan Keamanan berhasil disimpan");
@@ -110,6 +121,104 @@ export function SecuritySettingsPage() {
               value={managerPin}
               onChange={(e) => setManagerPin(e.target.value)}
             />
+          </div>
+        </div>
+
+        {/* Panel Kontrol Hak Akses Role Manager */}
+        <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <SlidersHorizontal className="size-5 text-primary" />
+              <div>
+                <h2 className="text-base font-bold">🎛️ Hak Akses Role Manager (Bisa Di-ON/OFF-kan)</h2>
+                <p className="text-xs text-muted-foreground">
+                  Kontrol otorisasi fitur untuk akun Manager cabang secara terpusat.
+                </p>
+              </div>
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary">
+              HQ Security
+            </span>
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2 pt-2">
+            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-foreground">Akses Stok &amp; Bahan Baku</p>
+                <p className="text-[10px] text-muted-foreground">can_manage_inventory</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={managerPermissions.can_manage_inventory}
+                onChange={(e) => setManagerPermissions((p) => ({ ...p, can_manage_inventory: e.target.checked }))}
+                className="size-4 accent-primary rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-foreground">Atur Shift &amp; Jadwal</p>
+                <p className="text-[10px] text-muted-foreground">can_manage_staff_shift</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={managerPermissions.can_manage_staff_shift}
+                onChange={(e) => setManagerPermissions((p) => ({ ...p, can_manage_staff_shift: e.target.checked }))}
+                className="size-4 accent-primary rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-foreground">Lihat Laporan Penjualan</p>
+                <p className="text-[10px] text-muted-foreground">can_view_branch_reports</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={managerPermissions.can_view_branch_reports}
+                onChange={(e) => setManagerPermissions((p) => ({ ...p, can_view_branch_reports: e.target.checked }))}
+                className="size-4 accent-primary rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-foreground">Cairkan Tabungan Bahan</p>
+                <p className="text-[10px] text-muted-foreground">can_spend_ingredient_pockets</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={managerPermissions.can_spend_ingredient_pockets}
+                onChange={(e) => setManagerPermissions((p) => ({ ...p, can_spend_ingredient_pockets: e.target.checked }))}
+                className="size-4 accent-primary rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-foreground">Edit Resep &amp; HPP Menu</p>
+                <p className="text-[10px] text-muted-foreground">can_edit_menu_recipes (Sensitif)</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={managerPermissions.can_edit_menu_recipes}
+                onChange={(e) => setManagerPermissions((p) => ({ ...p, can_edit_menu_recipes: e.target.checked }))}
+                className="size-4 accent-primary rounded cursor-pointer"
+              />
+            </div>
+
+            <div className="rounded-xl border border-border bg-secondary/30 p-3.5 flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-foreground">Lihat Sisa Laba Murni Owner</p>
+                <p className="text-[10px] text-muted-foreground">can_view_owner_net_profit (Rahasia)</p>
+              </div>
+              <input
+                type="checkbox"
+                checked={managerPermissions.can_view_owner_net_profit}
+                onChange={(e) => setManagerPermissions((p) => ({ ...p, can_view_owner_net_profit: e.target.checked }))}
+                className="size-4 accent-primary rounded cursor-pointer"
+              />
+            </div>
           </div>
         </div>
 

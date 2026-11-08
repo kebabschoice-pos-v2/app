@@ -152,8 +152,10 @@ export type Product = {
 export type Customer = {
   id: string;
   name: string;
+  phone?: string | null;
   visits: number;
   total_spend: number;
+  points?: number;
   favorite_product: string | null;
   ai_insight: string | null;
 };
@@ -547,7 +549,7 @@ export const calculateSnapshotMetrics = (snapshot: Snapshot) => {
             0,
           ) / snapshot.inventory.length,
         )
-      : 85;
+      : 0;
 
   // Margin and Profit calculation with safe fallbacks (cost = 0 if unavailable)
   let totalProductCost = 0;

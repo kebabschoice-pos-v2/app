@@ -41,6 +41,7 @@ export function WastePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [wasteQty, setWasteQty] = useState<number>(1);
+  const [wasteUnitMode, setWasteUnitMode] = useState<"primary" | "recipe">("primary");
   const [wasteReason, setWasteReason] = useState<string>("Expired");
   const [wasteNotes, setWasteNotes] = useState("");
 
@@ -65,10 +66,18 @@ export function WastePage() {
     return items.find((i) => i.id === selectedItemId);
   }, [items, selectedItemId]);
 
+  const effectivePrimaryQty = useMemo(() => {
+    const raw = Number(wasteQty) || 0;
+    if (wasteUnitMode === "recipe" && selectedItemDetail?.yield_per_unit && selectedItemDetail.yield_per_unit > 0) {
+      return raw / selectedItemDetail.yield_per_unit;
+    }
+    return raw;
+  }, [wasteQty, wasteUnitMode, selectedItemDetail]);
+
   const estimatedLoss = useMemo(() => {
     if (!selectedItemDetail) return 0;
-    return (Number(wasteQty) || 0) * (selectedItemDetail.cost_price || 0);
-  }, [selectedItemDetail, wasteQty]);
+    return Math.round(effectivePrimaryQty * (selectedItemDetail.cost_price || 0));
+  }, [selectedItemDetail, effectivePrimaryQty]);
 
   // Metrics
   const totalLoss = useMemo(() => {
@@ -124,12 +133,17 @@ export function WastePage() {
 
     setSubmitting(true);
     try {
+      const detailedNote =
+        wasteUnitMode === "recipe" && selectedItemDetail?.yield_unit
+          ? `${wasteQty} ${selectedItemDetail.yield_unit} (${effectivePrimaryQty.toFixed(4)} ${selectedItemDetail.unit})${wasteNotes ? ` • ${wasteNotes}` : ""}`
+          : wasteNotes;
+
       await recordWaste({
         inventory_item_id: selectedItemId,
-        quantity: Number(wasteQty),
+        quantity: Number(effectivePrimaryQty),
         reason: wasteReason as any,
         cost_loss: estimatedLoss,
-        notes: wasteNotes,
+        notes: detailedNote,
       });
 
       toast.success("Barang terbuang berhasil dicatat & stok dikurangi");
@@ -359,14 +373,52 @@ export function WastePage() {
                 </select>
               </div>
 
+              {/* Satuan Terbuang Mode Toggle (Satuan Utama vs Satuan Eceran Resep) */}
+              {selectedItemDetail?.yield_per_unit && selectedItemDetail.yield_per_unit > 1 && (
+                <div className="rounded-2xl border border-border/80 bg-muted/30 p-2.5 space-y-1.5">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">
+                    Pilihan Satuan Barang Rusak/Waste:
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setWasteUnitMode("primary")}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all ${
+                        wasteUnitMode === "primary"
+                          ? "bg-rose-600 text-white shadow-xs"
+                          : "bg-background text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Satuan Utama ({selectedItemDetail.unit})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setWasteUnitMode("recipe")}
+                      className={`py-1.5 px-2 rounded-xl text-xs font-bold transition-all ${
+                        wasteUnitMode === "recipe"
+                          ? "bg-rose-600 text-white shadow-xs"
+                          : "bg-background text-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Eceran Resep ({selectedItemDetail.yield_unit || "unit"})
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground">
+                    💡 1 {selectedItemDetail.unit} = {selectedItemDetail.yield_per_unit} {selectedItemDetail.yield_unit || "unit"}.
+                    {wasteUnitMode === "recipe" && ` (${wasteQty} ${selectedItemDetail.yield_unit || "unit"} = -${effectivePrimaryQty.toFixed(4)} ${selectedItemDetail.unit} stok utama)`}
+                  </p>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-muted-foreground">
-                    Jumlah Terbuang *
+                    Jumlah Terbuang ({wasteUnitMode === "recipe" && selectedItemDetail?.yield_unit ? selectedItemDetail.yield_unit : (selectedItemDetail?.unit || "Unit")}) *
                   </label>
                   <Input
                     type="number"
-                    min="1"
+                    step={wasteUnitMode === "recipe" ? "1" : "0.01"}
+                    min="0.001"
                     required
                     value={wasteQty}
                     onChange={(e) => setWasteQty(Number(e.target.value))}

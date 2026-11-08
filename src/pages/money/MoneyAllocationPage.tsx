@@ -32,7 +32,12 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { formatRupiah, type Snapshot } from "@/components/kebabschoicepos/data";
-import { getComprehensiveAnalytics, type BusinessAnalyticsSummary } from "@/services/reports.service";
+import {
+  getComprehensiveAnalytics,
+  type BusinessAnalyticsSummary,
+  type DateRangePreset,
+} from "@/services/reports.service";
+import { getManagerPermissions, type ManagerPermissions } from "@/services/manager-permissions.service";
 import {
   getInventoryItems,
   getStockMovements,
@@ -105,6 +110,9 @@ export function MoneyAllocationPage({
   onRefresh?: () => Promise<void> | void;
 }) {
   const [selectedOutletId, setSelectedOutletId] = useState<string>("all");
+  const [dateRange, setDateRange] = useState<DateRangePreset>("all");
+  const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions | null>(null);
+  const [userRole, setUserRole] = useState<string>("owner");
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState<BusinessAnalyticsSummary | null>(null);
 
@@ -222,11 +230,21 @@ export function MoneyAllocationPage({
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "");
 
-      // 1. Fetch Real Analytics
+      // 1. Fetch Manager Permissions & User Role
+      if (typeof window !== "undefined") {
+        try {
+          const role = localStorage.getItem("kebabschoicepos_user_role") || "owner";
+          setUserRole(role);
+          const perms = await getManagerPermissions(bId, selectedOutletId);
+          setManagerPermissions(perms);
+        } catch {}
+      }
+
+      // 2. Fetch Real Analytics using selected dateRange (default: "all")
       if (bId) {
         const res = await getComprehensiveAnalytics(bId, {
           outletId: selectedOutletId,
-          dateRange: "this_month",
+          dateRange: dateRange,
         }).catch(() => null);
         if (res) setAnalytics(res);
       }
@@ -477,7 +495,7 @@ export function MoneyAllocationPage({
     } finally {
       setLoading(false);
     }
-  }, [snapshot?.businessId, selectedOutletId]);
+  }, [snapshot?.businessId, selectedOutletId, dateRange]);
 
   useEffect(() => {
     loadData();
@@ -1134,7 +1152,23 @@ export function MoneyAllocationPage({
             </p>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Filter Periode Waktu */}
+            <div className="flex items-center gap-1.5 rounded-2xl border border-input bg-card px-3 py-1.5 shadow-xs">
+              <span className="text-[10px] font-bold text-muted-foreground uppercase">Periode:</span>
+              <select
+                aria-label="Pilih Periode Akumulasi"
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
+                className="bg-transparent text-xs font-bold focus:outline-none cursor-pointer"
+              >
+                <option value="all">Semua Waktu (Akumulasi Aktif)</option>
+                <option value="this_month">Bulan Ini</option>
+                <option value="last_7_days">7 Hari Terakhir</option>
+                <option value="today">Hari Ini</option>
+              </select>
+            </div>
+
             <div className="flex items-center gap-1.5 rounded-2xl border border-input bg-card px-3 py-1.5 shadow-xs">
               <Store className="size-3.5 text-muted-foreground" />
               <select
@@ -1242,24 +1276,43 @@ export function MoneyAllocationPage({
             </p>
           </div>
 
-          {/* Laba Bersih Murni Owner */}
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                5. Sisa Laba Murni Owner
-              </span>
-              <div className="size-7 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
-                <TrendingUp className="size-4" />
+          {/* Laba Bersih Murni Owner - Governed by Manager Permission Toggle */}
+          {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+                  5. Sisa Laba Murni Owner
+                </span>
+                <div className="size-7 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
+                  <TrendingUp className="size-4" />
+                </div>
               </div>
+              <p className="mt-2 text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+                {formatRupiah(labaBersihMurni)}
+              </p>
+              <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
+                Bersih setelah BOM, OP, Gaji &amp; Kas Keluar Kasir
+                {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
+              </p>
             </div>
-            <p className="mt-2 text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
-              {formatRupiah(labaBersihMurni)}
-            </p>
-            <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
-              Bersih setelah BOM, OP, Gaji &amp; Kas Keluar Kasir
-              {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
-            </p>
-          </div>
+          ) : (
+            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 shadow-xs flex flex-col justify-between opacity-70">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-muted-foreground">
+                  5. Laba Bersih Owner
+                </span>
+                <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full font-bold text-muted-foreground">
+                  Terkunci
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-bold text-muted-foreground">
+                🔒 Khusus Hak Akses Owner
+              </p>
+              <p className="mt-1 text-[10px] text-muted-foreground">
+                Akses laba murni dinonaktifkan untuk akun Manager oleh Owner
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Multi-Branch Comparison Cards (HQ Summary View - Strict Per-Branch Isolation) */}
@@ -1365,7 +1418,7 @@ export function MoneyAllocationPage({
               onClick={() => setIsAddingItemModal(true)}
             >
               <PackagePlus className="size-3.5" />
-              + Tambah Bahan Baku & Setting Kemasan
+              Tambah Bahan Baku & Setting Kemasan
             </Button>
             <Badge variant="outline" className="text-xs font-bold font-mono">
               Total Saldo BOM: {formatRupiah(totalBomSavings)}
@@ -1393,7 +1446,7 @@ export function MoneyAllocationPage({
               className="rounded-xl font-bold text-xs gap-1.5"
             >
               <Plus className="size-3.5" />
-              + Tambah Bahan Baku Sekarang
+              Tambah Bahan Baku Sekarang
             </Button>
           </div>
         ) : (

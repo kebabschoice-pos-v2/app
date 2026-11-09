@@ -79,6 +79,7 @@ import {
   PanelLeftOpen,
   Maximize2,
   Minimize2,
+  Monitor,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -1006,6 +1007,7 @@ function Header({
   onToggleTabletFocusMode,
   activeCashierName,
   onOpenCashierSwitchModal,
+  onOpenBranchPosSwitchModal,
 }: {
   snapshot: Snapshot;
   profile: UserProfile;
@@ -1019,6 +1021,7 @@ function Header({
   onToggleTabletFocusMode?: () => void;
   activeCashierName?: string;
   onOpenCashierSwitchModal?: () => void;
+  onOpenBranchPosSwitchModal?: () => void;
 }) {
   const { t, i18n } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
@@ -1151,6 +1154,20 @@ function Header({
           >
             <Palette className="size-3.5 text-primary" />
           </Button>
+
+{/* Masuk POS Quick Entry for Owner/HQ */}
+          {isHQ && onOpenBranchPosSwitchModal && (
+            <Button
+              variant="hero"
+              size="sm"
+              onClick={onOpenBranchPosSwitchModal}
+              className="h-9 px-3 rounded-2xl bg-primary text-primary-foreground font-black text-xs gap-1.5 shadow-brand hover:opacity-95 cursor-pointer shrink-0"
+              title="Masuk POS Kasir (Pilih Cabang Langsung Masuk)"
+            >
+              <Monitor className="size-4" />
+              <span className="hidden sm:inline">🖥️ Masuk POS</span>
+            </Button>
+          )}
 
           {/* Quick Language Switcher */}
           <Link
@@ -1318,6 +1335,7 @@ function Sidebar({
   onToggleCollapse,
   activeCashierName,
   onOpenCashierSwitchModal,
+  onOpenBranchPosSwitchModal,
 }: {
   active: NavKey;
   role: string;
@@ -1329,6 +1347,7 @@ function Sidebar({
   onToggleCollapse?: () => void;
   activeCashierName?: string;
   onOpenCashierSwitchModal?: () => void;
+  onOpenBranchPosSwitchModal?: () => void;
 }) {
   const { t } = useTranslation();
   const normalizedRole = (role || "").toLowerCase();
@@ -1780,6 +1799,28 @@ function Sidebar({
              HQ SYSTEM (Owner / Admin / Manager)
              ================================================== */
           <>
+            {/* QUICK ENTRY TO POS FOR OWNER */}
+            {onOpenBranchPosSwitchModal && (
+              <div className="mb-3 px-1">
+                <button
+                  type="button"
+                  onClick={onOpenBranchPosSwitchModal}
+                  className="w-full flex items-center justify-between gap-2.5 rounded-2xl p-3 bg-gradient-to-r from-primary to-primary/85 text-primary-foreground shadow-brand hover:opacity-95 transition-all text-left group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="size-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                      <Monitor className="size-4.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-black text-xs uppercase tracking-wider">🖥️ Masuk POS</p>
+                      <p className="text-[10px] opacity-90 truncate">Pilih Cabang &amp; Langsung Buka</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="size-4 opacity-75 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                </button>
+              </div>
+            )}
+
             {/* GROUP 1: RINGKASAN & LAPORAN */}
             {(!isManager || managerPermissions.includes("reports")) && (
               <AccordionGroup
@@ -8836,6 +8877,83 @@ function PageTitle({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
+
+function BranchPosSwitchModal({
+  isOpen,
+  onClose,
+  outlets,
+  onSelectBranch,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  outlets: OutletItem[];
+  onSelectBranch: (outlet: OutletItem) => void;
+}) {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
+      <div className="relative w-full max-w-md rounded-[2rem] border border-border bg-card p-6 shadow-float">
+        <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-brand">
+              <Monitor className="size-5" />
+            </div>
+            <div>
+              <h3 className="text-lg font-black">🖥️ Masuk POS Kasir</h3>
+              <p className="text-xs text-muted-foreground">Pilih cabang untuk langsung membuka terminal POS</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 text-muted-foreground hover:bg-secondary cursor-pointer"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+          {outlets.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border/80 p-6 text-center text-xs text-muted-foreground">
+              Belum ada cabang outlet yang terdaftar.
+            </div>
+          ) : (
+            outlets.map((out) => (
+              <button
+                key={out.id}
+                type="button"
+                onClick={() => onSelectBranch(out)}
+                className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-left group cursor-pointer"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-secondary group-hover:bg-primary/10 group-hover:text-primary transition-colors font-bold text-xs shrink-0">
+                    <Store className="size-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-black text-sm text-foreground truncate">{out.name || (out as any).outlet_name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{out.address || out.code || "Outlet Aktif"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5 text-xs font-bold text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span>Buka POS</span>
+                  <ChevronRight className="size-4" />
+                </div>
+              </button>
+            ))
+          )}
+        </div>
+
+        <div className="mt-5 pt-3 border-t border-border flex justify-end">
+          <Button variant="ghost" size="sm" onClick={onClose} className="rounded-xl text-xs font-bold">
+            Tutup
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
@@ -8975,6 +9093,18 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
 
   const [activeCashierName, setActiveCashierName] = useState<string>(getResolvedCashierName);
   const [isCashierSwitchModalOpen, setIsCashierSwitchModalOpen] = useState(false);
+  const [isBranchPosModalOpen, setIsBranchPosModalOpen] = useState(false);
+
+  const handleSelectBranchForPos = (out: OutletItem) => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("kebabschoicepos_selected_outlet_id", out.id);
+      localStorage.setItem("kebabschoicepos_active_outlet", JSON.stringify(out));
+      localStorage.setItem("kebabschoicepos_user_role", "owner");
+      window.dispatchEvent(new CustomEvent("outlet:changed", { detail: { outletId: out.id, outlet: out } }));
+    }
+    setIsBranchPosModalOpen(false);
+    navigate({ to: "/pos" });
+  };
 
   useEffect(() => {
     const handleCashierChange = (e: any) => {
@@ -9463,6 +9593,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
         onToggleTabletFocusMode={handleToggleTabletFocusMode}
         activeCashierName={activeCashierName}
         onOpenCashierSwitchModal={() => setIsCashierSwitchModalOpen(true)}
+        onOpenBranchPosSwitchModal={() => setIsBranchPosModalOpen(true)}
       />
       <div className="flex w-full min-w-0">
         <Sidebar
@@ -9476,6 +9607,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
           onToggleCollapse={handleToggleSidebar}
           activeCashierName={activeCashierName}
           onOpenCashierSwitchModal={() => setIsCashierSwitchModalOpen(true)}
+          onOpenBranchPosSwitchModal={() => setIsBranchPosModalOpen(true)}
         />
         <section
           className={cn(
@@ -9500,6 +9632,12 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
         outletId={snapshot.assignedOutletId || snapshot.outlets?.[0]?.id || undefined}
         currentCashierName={activeCashierName}
         onSelectCashier={handleSelectCashier}
+      />
+      <BranchPosSwitchModal
+        isOpen={isBranchPosModalOpen}
+        onClose={() => setIsBranchPosModalOpen(false)}
+        outlets={snapshot.outlets || []}
+        onSelectBranch={handleSelectBranchForPos}
       />
     </main>
   );

@@ -940,38 +940,36 @@ export function MenuManagement() {
   function calculateBOMCost() {
     let estimatedCost = 0;
     for (const r of recipeItems) {
-      if (r.cost_estimate && r.cost_estimate > 0) {
+      const matchedInv = inventoryIngredients.find((inv) => inv.id === r.inventory_item_id);
+      if (matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0) {
+        const invQty = convertRecipeToInventoryQuantity(
+          r.quantity || 1,
+          r.unit,
+          matchedInv.unit,
+          matchedInv.yield_per_unit,
+          matchedInv.yield_unit,
+        );
+        estimatedCost += invQty * matchedInv.cost_price;
+      } else if (r.cost_estimate && r.cost_estimate > 0) {
         estimatedCost += Number(r.cost_estimate);
       } else {
-        const matchedInv = inventoryIngredients.find((inv) => inv.id === r.inventory_item_id);
-        if (matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0) {
-          const invQty = convertRecipeToInventoryQuantity(
-            r.quantity || 1,
-            r.unit,
-            matchedInv.unit,
-            matchedInv.yield_per_unit,
-            matchedInv.yield_unit,
-          );
-          estimatedCost += invQty * matchedInv.cost_price;
+        const nameLower = (r.ingredient_name || "").toLowerCase();
+        if (nameLower.includes("daging") || nameLower.includes("beef")) {
+          estimatedCost += r.quantity * 80;
+        } else if (nameLower.includes("tortilla") || nameLower.includes("kulit")) {
+          estimatedCost += r.quantity * 2500;
+        } else if (nameLower.includes("keju") || nameLower.includes("cheese")) {
+          estimatedCost += r.quantity * 70;
+        } else if (
+          nameLower.includes("saus") ||
+          nameLower.includes("sauce") ||
+          nameLower.includes("mayo")
+        ) {
+          estimatedCost += r.quantity * 30;
+        } else if (nameLower.includes("sayur") || nameLower.includes("lettuce")) {
+          estimatedCost += r.quantity * 20;
         } else {
-          const nameLower = (r.ingredient_name || "").toLowerCase();
-          if (nameLower.includes("daging") || nameLower.includes("beef")) {
-            estimatedCost += r.quantity * 80;
-          } else if (nameLower.includes("tortilla") || nameLower.includes("kulit")) {
-            estimatedCost += r.quantity * 2500;
-          } else if (nameLower.includes("keju") || nameLower.includes("cheese")) {
-            estimatedCost += r.quantity * 70;
-          } else if (
-            nameLower.includes("saus") ||
-            nameLower.includes("sauce") ||
-            nameLower.includes("mayo")
-          ) {
-            estimatedCost += r.quantity * 30;
-          } else if (nameLower.includes("sayur") || nameLower.includes("lettuce")) {
-            estimatedCost += r.quantity * 20;
-          } else {
-            estimatedCost += r.quantity * 50;
-          }
+          estimatedCost += r.quantity * 50;
         }
       }
     }
@@ -3356,6 +3354,17 @@ export function MenuManagement() {
                                         const cur = updated[idx];
                                         if (cur) {
                                           cur.unit = e.target.value;
+                                          const matched = inventoryIngredients.find((inv) => inv.id === cur.inventory_item_id);
+                                          if (matched && matched.cost_price && matched.cost_price > 0) {
+                                            const invQty = convertRecipeToInventoryQuantity(
+                                              cur.quantity || 1,
+                                              cur.unit,
+                                              matched.unit,
+                                              matched.yield_per_unit,
+                                              matched.yield_unit,
+                                            );
+                                            cur.cost_estimate = Math.round(invQty * matched.cost_price);
+                                          }
                                           setRecipeItems(updated);
                                         }
                                       }}

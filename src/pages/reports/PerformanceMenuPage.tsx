@@ -44,7 +44,7 @@ export function PerformanceMenuPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedOutletId, setSelectedOutletId] = useState<string>("all");
-  const [dateRange, setDateRange] = useState<DateRangePreset>("this_month");
+  const [dateRange, setDateRange] = useState<DateRangePreset>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [outletsList, setOutletsList] = useState<{ id: string; name: string }[]>([]);

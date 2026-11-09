@@ -1,3 +1,11 @@
+
+function formatCompactRupiah(num: number): string {
+  if (!num || num === 0) return "Rp 0";
+  if (num >= 1000000000) return `Rp ${(num / 1000000000).toFixed(1).replace(/\.0$/, "")} M`;
+  if (num >= 1000000) return `Rp ${(num / 1000000).toFixed(1).replace(/\.0$/, "")} Jt`;
+  if (num >= 1000) return `Rp ${(num / 1000).toFixed(0)}rb`;
+  return `Rp ${num}`;
+}
 import { useState, useEffect, useCallback } from "react";
 import {
   Store,
@@ -48,7 +56,7 @@ export function PerformanceOutletPage() {
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState<BusinessAnalyticsSummary | null>(null);
   const [selectedOutletId, setSelectedOutletId] = useState<string>("all");
-  const [dateRange, setDateRange] = useState<DateRangePreset>("this_month");
+  const [dateRange, setDateRange] = useState<DateRangePreset>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [allOutletsList, setAllOutletsList] = useState<{ id: string; name: string }[]>([]);
@@ -153,7 +161,7 @@ export function PerformanceOutletPage() {
   // Chart data
   const chartData = outlets.map((o) => ({
     name: o.name.length > 14 ? o.name.substring(0, 14) + "..." : o.name,
-    Revenue: o.revenue / 1000000,
+    Revenue: o.revenue,
     Orders: o.ordersCount,
   }));
 
@@ -428,9 +436,9 @@ export function PerformanceOutletPage() {
               <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                 <XAxis dataKey="name" fontSize={11} />
-                <YAxis fontSize={11} tickFormatter={(val) => `Rp ${val}M`} />
+                <YAxis fontSize={11} domain={[0, "auto"]} allowDataOverflow={false} tickFormatter={(val) => formatCompactRupiah(Number(val))} />
                 <ChartTooltip
-                  formatter={(val: any) => [`${formatRupiah(Number(val) * 1000000)}`, "Omzet"]}
+                  formatter={(val: any) => [`${formatRupiah(Number(val))}`, "Omzet"]}
                 />
                 <Bar dataKey="Revenue" fill="var(--primary)" radius={[8, 8, 0, 0]} />
               </BarChart>

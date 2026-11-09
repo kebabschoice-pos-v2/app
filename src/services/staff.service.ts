@@ -260,7 +260,10 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
           ? settings.outlet_staff_roster
           : [];
         for (const emp of roster) {
-          const empId = emp.user_id || emp.id;
+          const empId =
+            emp.user_id ||
+            emp.id ||
+            `emp-${out.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
           if (empId && !mergedMap.has(empId) && !isOutletDeviceAccount(emp, outlets)) {
             mergedMap.set(empId, {
               id: empId,

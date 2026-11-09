@@ -730,7 +730,16 @@ export function MoneyAllocationPage({
   const ownerProfitTransferDeduction = Number(spentAmounts["__owner_profit__"] || 0);
   const emergencyFundTransferDeduction = Number(spentAmounts["__emergency_fund__"] || 0);
 
-  const totalOmzet = analytics?.totalRevenue ?? 0;
+  const salesOrdersSum = useMemo(() => {
+    return salesOrders.reduce((sum, ord) => {
+      if (selectedOutletId !== "all" && ord.outlet_id && ord.outlet_id !== selectedOutletId) {
+        return sum;
+      }
+      return sum + (Number(ord.total_amount || ord.total || ord.final_amount) || 0);
+    }, 0);
+  }, [salesOrders, selectedOutletId]);
+
+  const totalOmzet = (analytics?.totalRevenue && analytics.totalRevenue > 0) ? analytics.totalRevenue : salesOrdersSum;
   const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
   const rawTotalOpSavings = computedOpPockets.reduce((sum, op) => sum + op.accumulated_balance, 0);
   const totalOpSavings = Math.max(0, rawTotalOpSavings - emergencyFundTransferDeduction);
@@ -1564,7 +1573,7 @@ export function MoneyAllocationPage({
                     }}
                   >
                     <Plus className="size-3.5" />
-                    + Suntik Saldo
+                    Suntik Saldo
                   </Button>
                   <Button
                     size="sm"

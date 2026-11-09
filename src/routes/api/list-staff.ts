@@ -266,7 +266,10 @@ export const Route = createFileRoute("/api/list-staff")({
             const setObj = (out.settings && typeof out.settings === "object") ? (out.settings as any) : {};
             const roster: any[] = Array.isArray(setObj.outlet_staff_roster) ? setObj.outlet_staff_roster : [];
             for (const emp of roster) {
-              const empId = emp.user_id || emp.id;
+              const empId =
+                emp.user_id ||
+                emp.id ||
+                `emp-${out.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
               if (!empId) continue;
 
               const empName = emp.name || emp.full_name || "Karyawan Cabang";

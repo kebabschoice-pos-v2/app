@@ -223,6 +223,15 @@ export const Route = createFileRoute("/api/inventory")({
               const matchedSup = suppliers.find((s: any) => s.id === supplierId);
               const outletId = row.outlet_id || meta.outlet_id || null;
               const outletName = meta.outlet_name || null;
+              const yieldPerUnit =
+                typeof row.yield_per_unit === "number" && row.yield_per_unit > 0
+                  ? row.yield_per_unit
+                  : typeof meta.yield_per_unit === "number" && meta.yield_per_unit > 0
+                    ? meta.yield_per_unit
+                    : meta.yield_per_unit
+                      ? Number(meta.yield_per_unit) || null
+                      : null;
+              const yieldUnit = row.yield_unit || meta.yield_unit || null;
 
               let status: "aman" | "menipis" | "habis" = "aman";
               if (stockVal <= 0) {
@@ -247,6 +256,8 @@ export const Route = createFileRoute("/api/inventory")({
                 health_score: Number(row.health_score) || 100,
                 ai_alert: row.ai_alert || null,
                 updated_at: row.updated_at,
+                yield_per_unit: yieldPerUnit,
+                yield_unit: yieldUnit,
                 status,
               };
             });
@@ -398,6 +409,12 @@ export const Route = createFileRoute("/api/inventory")({
             if (itemData.cost_price !== undefined) insertPayload.cost_price = Number(itemData.cost_price) || 0;
             if (itemData.supplier_id) insertPayload.supplier_id = itemData.supplier_id;
             if (itemData.outlet_id) insertPayload.outlet_id = itemData.outlet_id;
+            if (itemData.yield_per_unit !== undefined && itemData.yield_per_unit !== null) {
+              insertPayload.yield_per_unit = Number(itemData.yield_per_unit) || null;
+            }
+            if (itemData.yield_unit !== undefined && itemData.yield_unit !== null) {
+              insertPayload.yield_unit = String(itemData.yield_unit).trim() || null;
+            }
 
             let inserted: any = null;
             const { data: res1, error: err1 } = await supabaseAdmin
@@ -412,6 +429,8 @@ export const Route = createFileRoute("/api/inventory")({
               delete insertPayload.cost_price;
               delete insertPayload.supplier_id;
               delete insertPayload.outlet_id;
+              delete insertPayload.yield_per_unit;
+              delete insertPayload.yield_unit;
               const { data: res2, error: err2 } = await supabaseAdmin
                 .from("inventory_items")
                 .insert(insertPayload as any)
@@ -427,14 +446,25 @@ export const Route = createFileRoute("/api/inventory")({
               inserted = res2;
             }
 
+            const yieldPerUnitVal =
+              itemData.yield_per_unit !== undefined && itemData.yield_per_unit !== null
+                ? Number(itemData.yield_per_unit) || null
+                : null;
+            const yieldUnitVal = itemData.yield_unit ? String(itemData.yield_unit).trim() : null;
+
             store.item_meta = store.item_meta || {};
             store.item_meta[inserted.id] = {
               cost_price: Number(itemData.cost_price) || 0,
               supplier_id: itemData.supplier_id || null,
               outlet_id: itemData.outlet_id || null,
               outlet_name: itemData.outlet_name || null,
+              yield_per_unit: yieldPerUnitVal,
+              yield_unit: yieldUnitVal,
             };
             await saveProcurementStore(allIds, store);
+
+            inserted.yield_per_unit = yieldPerUnitVal ?? inserted.yield_per_unit ?? null;
+            inserted.yield_unit = yieldUnitVal ?? inserted.yield_unit ?? null;
 
             return Response.json({ success: true, data: inserted });
           }
@@ -453,6 +483,12 @@ export const Route = createFileRoute("/api/inventory")({
             if (itemData.cost_price !== undefined) updatePayload.cost_price = Number(itemData.cost_price);
             if (itemData.supplier_id !== undefined) updatePayload.supplier_id = itemData.supplier_id;
             if (itemData.outlet_id !== undefined) updatePayload.outlet_id = itemData.outlet_id;
+            if (itemData.yield_per_unit !== undefined) {
+              updatePayload.yield_per_unit = itemData.yield_per_unit !== null ? Number(itemData.yield_per_unit) : null;
+            }
+            if (itemData.yield_unit !== undefined) {
+              updatePayload.yield_unit = itemData.yield_unit ? String(itemData.yield_unit).trim() : null;
+            }
 
             const { error: updErr } = await supabaseAdmin
               .from("inventory_items")
@@ -463,6 +499,8 @@ export const Route = createFileRoute("/api/inventory")({
               delete updatePayload.cost_price;
               delete updatePayload.supplier_id;
               delete updatePayload.outlet_id;
+              delete updatePayload.yield_per_unit;
+              delete updatePayload.yield_unit;
               await supabaseAdmin
                 .from("inventory_items")
                 .update(updatePayload as any)
@@ -476,6 +514,12 @@ export const Route = createFileRoute("/api/inventory")({
               ...(itemData.supplier_id !== undefined ? { supplier_id: itemData.supplier_id } : {}),
               ...(itemData.outlet_id !== undefined ? { outlet_id: itemData.outlet_id } : {}),
               ...(itemData.outlet_name !== undefined ? { outlet_name: itemData.outlet_name } : {}),
+              ...(itemData.yield_per_unit !== undefined
+                ? { yield_per_unit: itemData.yield_per_unit !== null ? Number(itemData.yield_per_unit) : null }
+                : {}),
+              ...(itemData.yield_unit !== undefined
+                ? { yield_unit: itemData.yield_unit ? String(itemData.yield_unit).trim() : null }
+                : {}),
             };
             await saveProcurementStore(allIds, store);
 

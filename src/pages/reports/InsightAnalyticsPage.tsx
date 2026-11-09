@@ -347,7 +347,13 @@ export function InsightAnalyticsPage() {
                 <YAxis
                   fontSize={11}
                   domain={[0, "auto"]}
-                  tickFormatter={(val) => `Rp ${(val / 1000).toLocaleString("id-ID")}k`}
+                  allowDataOverflow={false}
+                  tickFormatter={(val) => {
+                    const num = Number(val) || 0;
+                    if (num >= 1000000) return `Rp ${(num / 1000000).toFixed(1).replace(/\.0$/, "")} Jt`;
+                    if (num >= 1000) return `Rp ${(num / 1000).toFixed(0)}rb`;
+                    return `Rp ${num}`;
+                  }}
                 />
                 <ChartTooltip
                   formatter={(val: any, name: string) => [

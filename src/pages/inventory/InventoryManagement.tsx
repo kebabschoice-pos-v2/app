@@ -330,6 +330,8 @@ export function InventoryManagement() {
       posSaleQty: number; // in primary unit
       wasteQty: number; // in primary unit
       stockInQty: number; // in primary unit
+      transferQty: number; // in primary unit
+      opnameQty: number; // in primary unit
       wasteNotes: string[];
     };
 
@@ -353,6 +355,8 @@ export function InventoryManagement() {
           posSaleQty: 0,
           wasteQty: 0,
           stockInQty: 0,
+          transferQty: 0,
+          opnameQty: 0,
           wasteNotes: [],
         });
       }
@@ -368,6 +372,10 @@ export function InventoryManagement() {
         if (m.notes) entry.wasteNotes.push(m.notes);
       } else if (mType === "stock_in") {
         entry.stockInQty += qty;
+      } else if (mType.includes("transfer")) {
+        entry.transferQty += qty;
+      } else if (mType === "opname" || mType === "adjustment") {
+        entry.opnameQty += qty;
       }
     }
 
@@ -1251,7 +1259,7 @@ export function InventoryManagement() {
                             className="rounded-xl font-bold text-xs gap-1.5 shadow-brand"
                           >
                             <Plus className="size-3.5" />
-                            + Tambah Bahan Baru
+                            Tambah Bahan Baru
                           </Button>
                           <Button
                             size="sm"
@@ -1457,7 +1465,7 @@ export function InventoryManagement() {
               className="rounded-2xl gap-2 font-bold shadow-brand bg-emerald-600 hover:bg-emerald-700"
             >
               <ArrowDownLeft className="size-4" />
-              <span>+ Catat Stok Masuk</span>
+              <span>Catat Stok Masuk</span>
             </Button>
           </div>
 
@@ -1781,7 +1789,7 @@ export function InventoryManagement() {
                       onClick={() => setIsAddingCategory((v) => !v)}
                       className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
                     >
-                      + Tambah Kategori
+                      Tambah Kategori
                     </button>
                   </div>
                   {isAddingCategory ? (

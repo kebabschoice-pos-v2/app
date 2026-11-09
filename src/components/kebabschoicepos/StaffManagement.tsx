@@ -301,12 +301,84 @@ export function StaffManagement() {
         }
       }
 
+      // Extract all branch employees directly from uniqueOutlets.settings.outlet_staff_roster
+      for (const out of uniqueOutlets) {
+        const setObj = out.settings && typeof out.settings === "object" ? (out.settings as any) : {};
+        const roster: any[] = Array.isArray(setObj.outlet_staff_roster) ? setObj.outlet_staff_roster : [];
+        for (const emp of roster) {
+          const empId =
+            emp.user_id ||
+            emp.id ||
+            `emp-${out.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+          if (!seenStaff.has(empId) && !isOutletDeviceAccount(emp, uniqueOutlets)) {
+            seenStaff.add(empId);
+            uniqueStaff.push({
+              id: empId,
+              user_id: empId,
+              name: emp.name || emp.full_name || "Karyawan Cabang",
+              email: emp.email || "",
+              avatar_url: emp.avatar_url || null,
+              role: (emp.role as any) || "cashier",
+              outlet: out.name,
+              outlet_name: out.name,
+              outlet_id: out.id,
+              outlet_code: out.code || "",
+              created_at: emp.created_at || new Date().toISOString(),
+              status: emp.status || "active",
+              gender: emp.gender || "male",
+            });
+          }
+        }
+      }
+
+      const existingProfiles = profilesData.filter(
+        (p: StaffProfile) => !isOutletDeviceAccount(p, uniqueOutlets),
+      );
+      const profileMap = new Map(existingProfiles.map((p) => [p.user_id || p.id, p]));
+
+      const fullProfiles: StaffProfile[] = [...existingProfiles];
+      for (const st of uniqueStaff) {
+        const staffKey = st.user_id || st.id;
+        if (!profileMap.has(staffKey)) {
+          const synthProfile: StaffProfile = {
+            id: `prof-${staffKey}`,
+            user_id: staffKey,
+            full_name: st.name,
+            phone: "-",
+            address: "-",
+            avatar_url: st.avatar_url || null,
+            join_date: st.created_at,
+            job_title: st.role === "manager" ? "Manager Cabang" : "Kasir POS",
+            role: st.role,
+            gender: st.gender || "male",
+            employment_status: "Tetap",
+            base_salary: 2000000,
+            daily_allowance: 25000,
+            late_deduction: 20000,
+            absence_deduction: 80000,
+            default_shift: "Shift Pagi",
+            outlet_id: st.outlet_id || null,
+            outlet_name: st.outlet_name || st.outlet || undefined,
+            created_at: st.created_at,
+          };
+          fullProfiles.push(synthProfile);
+          profileMap.set(staffKey, synthProfile);
+        }
+      }
+
       setStaffList(uniqueStaff);
       setOutlets(uniqueOutlets);
-      setHrProfiles(profilesData.filter((p: StaffProfile) => !isOutletDeviceAccount(p, uniqueOutlets)));
+      setHrProfiles(fullProfiles);
       setAttendances(attData);
       setShifts(shiftData);
       setPayrolls(prData.filter((pr: StaffPayroll) => !isOutletDeviceAccount(pr, uniqueOutlets)));
+
+      if (uniqueOutlets.length > 0) {
+        setForm((prev) => ({
+          ...prev,
+          outlet_id: prev.outlet_id || uniqueOutlets[0]?.id || "",
+        }));
+      }
 
       try {
         const { data: authData } = await supabase.auth.getUser();
@@ -1987,11 +2059,15 @@ export function StaffManagement() {
                     onChange={(e) => setForm({ ...form, outlet_id: e.target.value })}
                     required
                   >
-                    {outlets.map((outlet, oIdx) => (
-                      <option key={`staff-outlet-${outlet.id || oIdx}-${oIdx}`} value={outlet.id}>
-                        {outlet.outlet_name || outlet.name} ({outlet.code || "NO CODE"})
-                      </option>
-                    ))}
+                    {outlets.length === 0 ? (
+                      <option value="" disabled>-- Belum ada cabang terdaftar --</option>
+                    ) : (
+                      outlets.map((outlet, oIdx) => (
+                        <option key={`staff-outlet-${outlet.id || oIdx}-${oIdx}`} value={outlet.id}>
+                          📍 {outlet.outlet_name || outlet.name} ({outlet.code || "CABANG"})
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
 

@@ -1026,7 +1026,21 @@ function Header({
   const { t, i18n } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isHQ = ["owner", "admin", "manager"].includes(normalizedRole);
+  const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
   const currentLang = (i18n.language || "id").slice(0, 2).toUpperCase();
+
+  const isPosPage = [
+    "pos",
+    "pos-orders",
+    "pos-receipt",
+    "pos-shift-cash",
+    "pos-inventory",
+    "pos-profile",
+    "pos-attendance-in",
+    "pos-attendance-out",
+    "pos-attendance-history",
+    "pos-attendance-shifts",
+  ].includes(active);
 
   return (
     <header
@@ -1155,8 +1169,35 @@ function Header({
             <Palette className="size-3.5 text-primary" />
           </Button>
 
-{/* Masuk POS Quick Entry for Owner/HQ */}
-          {isHQ && onOpenBranchPosSwitchModal && (
+          {/* Tombol Kembali ke HQ khusus untuk Akun Owner/HQ saat di layar POS */}
+          {isOwner && isPosPage && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <Link
+                to="/dashboard"
+                className="h-9 px-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-brand transition-all cursor-pointer"
+                title="Kembali ke Dashboard HQ"
+              >
+                <Building2 className="size-4 shrink-0" />
+                <span className="hidden sm:inline">🏢 Kembali ke Dashboard HQ</span>
+                <span className="sm:hidden font-bold">🏢 HQ</span>
+              </Link>
+              {onOpenBranchPosSwitchModal && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onOpenBranchPosSwitchModal}
+                  className="h-9 px-2.5 rounded-2xl border-border bg-card/70 hover:bg-secondary font-bold text-xs gap-1 cursor-pointer"
+                  title="Ganti Cabang POS"
+                >
+                  <Monitor className="size-3.5 text-primary" />
+                  <span className="hidden md:inline text-[11px]">Ganti Cabang</span>
+                </Button>
+              )}
+            </div>
+          )}
+
+          {/* Masuk POS Quick Entry for Owner/HQ saat di luar layar POS */}
+          {isOwner && !isPosPage && onOpenBranchPosSwitchModal && (
             <Button
               variant="hero"
               size="sm"
@@ -1352,6 +1393,7 @@ function Sidebar({
   const { t } = useTranslation();
   const normalizedRole = (role || "").toLowerCase();
   const isHQ = ["owner", "admin", "manager"].includes(normalizedRole);
+  const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
   const isCashier = normalizedRole === "cashier" || (!isHQ && normalizedRole === "staff");
   const isManager = normalizedRole === "manager";
 
@@ -1544,6 +1586,27 @@ function Sidebar({
              POS OUTLET SYSTEM (Strict Cashier / POS View)
              ================================================== */
           <>
+            {/* TOMBOL KEMBALI KE DASHBOARD HQ KHUSUS UNTUK AKUN OWNER */}
+            {isOwner && (
+              <div className="mb-3 px-1">
+                <Link
+                  to="/dashboard"
+                  className="w-full flex items-center justify-between gap-2.5 rounded-2xl p-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-brand hover:opacity-95 transition-all text-left group cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="size-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
+                      <Building2 className="size-4.5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-black text-xs uppercase tracking-wider">🏢 Kembali ke Dashboard HQ</p>
+                      <p className="text-[10px] opacity-90 truncate">Keluar Mode POS & Buka Panel HQ</p>
+                    </div>
+                  </div>
+                  <ChevronRight className="size-4 opacity-75 group-hover:translate-x-0.5 transition-transform shrink-0" />
+                </Link>
+              </div>
+            )}
+
             {/* POS Outlet & Cashier Live Banner */}
             <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 space-y-1.5 mb-2 shadow-xs">
               <div className="flex items-center gap-2">

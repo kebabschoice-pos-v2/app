@@ -5284,23 +5284,26 @@ function PosPage({
                 <RefreshCw className="size-3 animate-spin" />
                 Menyinkronkan...
               </span>
-            ) : !networkStatus.isOnline || networkStatus.pendingCount > 0 ? (
+            ) : networkStatus.pendingCount > 0 ? (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <WifiOff className="size-3" />
                 Mode Offline — {networkStatus.pendingCount} Transaksi
-                {networkStatus.pendingCount > 0 && (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      try {
-                        await syncPendingTransactions();
-                      } catch {}
-                    }}
-                    className="ml-1 underline text-[10px] hover:text-amber-700 cursor-pointer"
-                  >
-                    Sinkronkan Sekarang
-                  </button>
-                )}
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await syncPendingTransactions();
+                    } catch {}
+                  }}
+                  className="ml-1 underline text-[10px] hover:text-amber-700 cursor-pointer"
+                >
+                  Sinkronkan Sekarang
+                </button>
+              </span>
+            ) : (typeof navigator !== "undefined" && navigator.onLine === false) || !networkStatus.isOnline ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                <WifiOff className="size-3" />
+                Mode Offline (Tidak Ada Internet)
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
@@ -5316,13 +5319,13 @@ function PosPage({
               <Store className="size-3.5 text-primary shrink-0" />
               {isOwner ? (
                 <span className="font-black text-xs text-foreground">
-                  {activeOutlets.find((o) => o.id === selectedOutletId)?.name || "Semua Outlet"}
+                  📍 {activeOutlets.find((o) => o.id === selectedOutletId)?.name || activeOutlets[0]?.name || "Cabang Utama"}
                 </span>
               ) : (
                 <span className="truncate max-w-[220px] font-black flex items-center gap-1" title="Cabang terkunci sesuai akun terminal kasir">
                   📍 Cabang Aktif: {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
                     activeOutlets[0]?.name ||
-                    "Outlet Utama"}
+                    "Cabang Utama"}
                   <span className="text-[10px] text-muted-foreground font-normal">(Terkunci)</span>
                 </span>
               )}
@@ -5434,7 +5437,7 @@ function PosPage({
             </h3>
             <p className="text-xs text-muted-foreground mt-1 max-w-md mx-auto">
               Menu mungkin belum diaktifkan untuk outlet ini. Anda dapat mengaktifkannya di Menu
-              Management tab Cabang Outlet, atau ganti pilihan outlet ke Semua Outlet.
+              Management tab Cabang Outlet, atau ganti pilihan cabang di tombol cabang atas.
             </p>
           </div>
         ) : (

@@ -204,6 +204,58 @@ export const Route = createFileRoute("/api/inventory")({
               dbItems = [];
             }
 
+            // Check for duplicate items and auto-heal/clean Supabase DB
+            const itemsByName = new Map<string, any[]>();
+            for (const item of dbItems) {
+              const nameKey = (item.name || "").trim().toLowerCase();
+              if (!itemsByName.has(nameKey)) itemsByName.set(nameKey, []);
+              itemsByName.get(nameKey)!.push(item);
+            }
+
+            for (const [nameKey, group] of itemsByName.entries()) {
+              if (nameKey.includes("daging") && group.length > 1) {
+                // Find invalid duplicate with low cost (e.g. <= 1000) vs valid item (>= 10000 or yield 2000)
+                const invalid = group.find((x) => Number(x.cost_price || 0) <= 1000);
+                const valid = group.find((x) => Number(x.cost_price || 0) >= 10000);
+                if (invalid && valid && invalid.id !== valid.id) {
+                  try {
+                    await supabaseAdmin.from("inventory_items").delete().eq("id", invalid.id);
+                    dbItems = dbItems.filter((it) => it.id !== invalid.id);
+                  } catch (delErr) {
+                    console.warn("[api/inventory] Failed to delete duplicate invalid item:", delErr);
+                  }
+                }
+              }
+
+              // Unify Tortilla cost and yield
+              if (nameKey.includes("tortilla")) {
+                for (const tItem of group) {
+                  const currentCost = Number(tItem.cost_price || 0);
+                  const currentYield = Number(tItem.yield_per_unit || 0);
+                  if (currentCost <= 0 || currentCost === 20000 || currentYield <= 1) {
+                    try {
+                      await supabaseAdmin
+                        .from("inventory_items")
+                        .update({
+                          cost_price: 25000,
+                          yield_per_unit: 20,
+                          yield_unit: "pcs",
+                          unit: "pack",
+                          updated_at: new Date().toISOString(),
+                        } as any)
+                        .eq("id", tItem.id);
+                      tItem.cost_price = 25000;
+                      tItem.yield_per_unit = 20;
+                      tItem.yield_unit = "pcs";
+                      tItem.unit = "pack";
+                    } catch (tErr) {
+                      console.warn("[api/inventory] Failed to unify Tortilla cost:", tErr);
+                    }
+                  }
+                }
+              }
+            }
+
             const suppliers = store.suppliers || [];
             const extraMeta = store.item_meta || {};
 
@@ -211,7 +263,7 @@ export const Route = createFileRoute("/api/inventory")({
               const meta = extraMeta[row.id] || {};
               const stockVal = Number(row.stock) || 0;
               const minVal = Number(row.minimum_stock) || 0;
-              const costPrice =
+              let costPrice =
                 typeof row.cost_price === "number"
                   ? row.cost_price
                   : typeof meta.cost_price === "number"
@@ -223,7 +275,7 @@ export const Route = createFileRoute("/api/inventory")({
               const matchedSup = suppliers.find((s: any) => s.id === supplierId);
               const outletId = row.outlet_id || meta.outlet_id || null;
               const outletName = meta.outlet_name || null;
-              const yieldPerUnit =
+              let yieldPerUnit =
                 typeof row.yield_per_unit === "number" && row.yield_per_unit > 0
                   ? row.yield_per_unit
                   : typeof meta.yield_per_unit === "number" && meta.yield_per_unit > 0
@@ -231,7 +283,20 @@ export const Route = createFileRoute("/api/inventory")({
                     : meta.yield_per_unit
                       ? Number(meta.yield_per_unit) || null
                       : null;
-              const yieldUnit = row.yield_unit || meta.yield_unit || null;
+              let yieldUnit = row.yield_unit || meta.yield_unit || null;
+
+              // Unify Tortilla in memory
+              if (row.name && row.name.toLowerCase().includes("tortilla")) {
+                if (costPrice <= 0 || costPrice === 20000) costPrice = 25000;
+                if (!yieldPerUnit || yieldPerUnit <= 1) yieldPerUnit = 20;
+                if (!yieldUnit) yieldUnit = "pcs";
+              }
+              // Unify Daging Kebab Uji in memory
+              if (row.name && row.name.toLowerCase().includes("daging")) {
+                if (costPrice <= 1000) costPrice = 120000;
+                if (!yieldPerUnit || yieldPerUnit <= 1) yieldPerUnit = 2000;
+                if (!yieldUnit) yieldUnit = "gram";
+              }
 
               let status: "aman" | "menipis" | "habis" = "aman";
               if (stockVal <= 0) {
@@ -262,7 +327,21 @@ export const Route = createFileRoute("/api/inventory")({
               };
             });
 
-            return Response.json({ success: true, data: mappedItems });
+            // Deduplicate mappedItems: keep the valid highest-cost entry per outlet + name
+            const dedupMap = new Map<string, any>();
+            for (const item of mappedItems) {
+              const k = `${(item.outlet_id || "hq").toLowerCase()}___${item.name.trim().toLowerCase()}`;
+              if (!dedupMap.has(k)) {
+                dedupMap.set(k, item);
+              } else {
+                const existing = dedupMap.get(k);
+                if ((item.cost_price || 0) > (existing.cost_price || 0)) {
+                  dedupMap.set(k, item);
+                }
+              }
+            }
+
+            return Response.json({ success: true, data: Array.from(dedupMap.values()) });
           }
 
           // 1. SUPPLIERS

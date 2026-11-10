@@ -560,5 +560,8 @@ export function subscribeNetworkStatus(callback: (status: NetworkSyncStatus) => 
 }
 
 export function getNetworkStatus(): NetworkSyncStatus {
+  if (isClient()) {
+    currentNetworkStatus.isOnline = navigator.onLine !== false;
+  }
   return { ...currentNetworkStatus };
 }

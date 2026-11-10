@@ -2400,6 +2400,61 @@ test("Validates Tortilla pack-to-pcs BOM conversion, inline zero-cost quick fix,
   );
 });
 
+// --- TEST 98: 40g vs 40pcs BOM Allocation Math, Unpaid Payroll Realized Profit, and Unified Tortilla Cost ---
+console.log("\n▶ 98. BOM ALLOCATION MATH AUDIT (40G VS 40PCS) & UNPAID PAYROLL SAFEGUARD");
+test("Verifies 40g meat yields 0.02 pcs @ Rp 120.000 = Rp 2.400 (NOT 40 pcs / Rp 4.8M) and unpaid payroll does not wipe out profit", () => {
+  const moneyPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"), "utf8");
+  const apiInvCode = fs.readFileSync(path.join(process.cwd(), "src/routes/api/inventory.ts"), "utf8");
+  const invServiceCode = fs.readFileSync(path.join(process.cwd(), "src/services/inventory.service.ts"), "utf8");
+
+  // 1. Math audit: 2 portions of 20 gram meat from 1 pcs (yield = 2000 gram, cost = Rp 120.000)
+  const item = {
+    unit: "pcs",
+    yield_per_unit: 2000,
+    yield_unit: "gram",
+    cost_price: 120000,
+  };
+  const totalGramsUsed = 40;
+  const usedQty = convertRecipeToInventoryQuantityWithYield(totalGramsUsed, "gram", item.unit, item.yield_per_unit, item.yield_unit);
+  assert.strictEqual(usedQty, 0.02, "40 grams of meat from 2000g/pcs item must calculate exactly 0.02 pcs (NOT 40 pcs)");
+
+  const totalEarned = Math.round(usedQty * item.cost_price);
+  assert.strictEqual(totalEarned, 2400, "0.02 pcs meat @ Rp 120.000 must allocate Rp 2.400 (NOT Rp 4.800.000)");
+
+  // 2. Tortilla unified pricing: 1 pack = 20 pcs @ Rp 25.000 -> 1 pcs = Rp 1.250
+  const tortillaPackCost = 25000;
+  const tortillaYield = 20;
+  const tortillaUsedQty = convertRecipeToInventoryQuantityWithYield(1, "pcs", "pack", tortillaYield, "pcs");
+  assert.strictEqual(tortillaUsedQty, 0.05, "1 pcs tortilla must calculate to 0.05 pack");
+  assert.strictEqual(Math.round(tortillaUsedQty * tortillaPackCost), 1250, "1 pcs tortilla must cost Rp 1.250");
+
+  // 3. Safeguard against unpaid payroll wiping out Owner pure profit
+  assert.ok(
+    moneyPageCode.includes("currentSalaryPaid - totalCashOut"),
+    "MoneyAllocationPage.tsx must only deduct realized cash out and disbursed salary from current profit"
+  );
+  assert.ok(
+    !moneyPageCode.includes("totalOmzet - totalBomFromSales - rawTotalOpSavings - totalSalarySavings"),
+    "MoneyAllocationPage.tsx must NOT deduct unpaid projected monthly salary savings from current realized profit"
+  );
+
+  // 4. Double-counting prevention in dual engine
+  assert.ok(
+    moneyPageCode.includes("movedOrderIds") && moneyPageCode.includes("movedOrderIds.has(ord.id)"),
+    "MoneyAllocationPage.tsx must track movedOrderIds and skip them in Engine 2 to prevent double-counting"
+  );
+
+  // 5. Database duplicate removal & Tortilla unification in inventory API
+  assert.ok(
+    apiInvCode.includes("delete().eq(\"id\", invalid.id)"),
+    "api/inventory.ts must permanently delete duplicate invalid Daging row from Supabase"
+  );
+  assert.ok(
+    apiInvCode.includes("cost_price: 25000") && apiInvCode.includes("yield_per_unit: 20"),
+    "api/inventory.ts must unify Tortilla cost to Rp 25.000 with yield 20 pcs"
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

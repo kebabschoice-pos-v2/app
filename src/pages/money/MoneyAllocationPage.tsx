@@ -607,26 +607,67 @@ export function MoneyAllocationPage({
           mType === "refund_reversal"
         );
       });
+
+      // Collect order IDs already captured by physical stock movements to avoid double-counting in Engine 2
+      const movedOrderIds = new Set(
+        itemMovements
+          .map((m) => m.order_id || (m as any).reference_id)
+          .filter(Boolean),
+      );
+
       const movementUsedQty = Math.max(
         0,
         itemMovements.reduce((sum, m) => {
-          const q = Math.abs(Number(m.quantity) || 0);
+          const rawQ = Math.abs(Number(m.quantity) || 0);
+          if (rawQ === 0) return sum;
+
+          // Convert movement raw quantity to item's inventory unit (e.g. 40 gram -> 0.02 pcs if 1 pcs = 2000 gram)
+          let convertedQ = rawQ;
+          const mUnit = (m.unit || "").trim().toLowerCase();
+          const itemUnit = (item.unit || "").trim().toLowerCase();
+          const yieldUnit = (item.yield_unit || "").trim().toLowerCase();
+          const yieldPerUnit = Number(item.yield_per_unit) || 0;
+
+          if (yieldPerUnit > 0) {
+            if (mUnit && yieldUnit && mUnit === yieldUnit && itemUnit !== yieldUnit) {
+              convertedQ = rawQ / yieldPerUnit;
+            } else if (
+              rawQ >= yieldPerUnit / 10 &&
+              (mUnit === "gram" || mUnit === "gr" || yieldUnit === "gram" || yieldUnit === "gr") &&
+              (itemUnit === "pcs" || itemUnit === "pack" || itemUnit === "tiang")
+            ) {
+              convertedQ = rawQ / yieldPerUnit;
+            } else {
+              convertedQ = convertRecipeToInventoryQuantity(
+                rawQ,
+                mUnit || yieldUnit || itemUnit,
+                itemUnit,
+                yieldPerUnit,
+                yieldUnit,
+              );
+            }
+          }
+
           const mType = (m.movement_type as string) || (m as any).type || "";
           if (
             mType === "void_restore" ||
             mType === "void_reversal" ||
             mType === "refund_reversal"
           ) {
-            return sum - q;
+            return sum - convertedQ;
           }
-          return sum + q;
+          return sum + convertedQ;
         }, 0),
       );
 
-      // Engine 2: Fallback from valid non-void sales orders * menu_recipes
+      // Engine 2: Fallback from valid non-void sales orders * menu_recipes (skips orders already moved)
       let recipeBomUsedQty = 0;
       for (const ord of salesOrders) {
         if (selectedOutletId !== "all" && ord.outlet_id && ord.outlet_id !== selectedOutletId) {
+          continue;
+        }
+        // Avoid double-counting orders that already generated stock movements
+        if (ord.id && movedOrderIds.has(ord.id)) {
           continue;
         }
         if (Array.isArray(ord.items)) {
@@ -680,8 +721,8 @@ export function MoneyAllocationPage({
         }
       }
 
-      // Dual-Engine: Maximum of physical recorded movements or formula recipe calculation
-      const usedQty = Math.max(movementUsedQty, recipeBomUsedQty);
+      // Dual-Engine: Physical recorded movements + un-recorded retroactive orders
+      const usedQty = movementUsedQty + recipeBomUsedQty;
       const totalEarned = Math.round(usedQty * unit_cost);
       const spent = spentAmounts[item.id] || 0;
       const added = manualAdded[item.id] || 0;
@@ -794,7 +835,7 @@ export function MoneyAllocationPage({
 
   const baseProfit = Math.max(
     0,
-    totalOmzet - totalBomFromSales - rawTotalOpSavings - totalSalarySavings - totalCashOut,
+    totalOmzet - totalBomFromSales - currentSalaryPaid - totalCashOut - emergencyFundTransferDeduction,
   );
   const labaBersihMurni = Math.max(0, baseProfit - ownerProfitTransferDeduction);
 
@@ -1309,21 +1350,22 @@ export function MoneyAllocationPage({
             </p>
           </div>
 
-          {/* Celengan Gaji & Kas Keluar Kasir */}
+          {/* Kas Keluar & Realisasi Gaji Cair */}
           <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-purple-700 dark:text-purple-400">
-                4. Gaji &amp; Kas Keluar
+                4. Kas Keluar &amp; Gaji Cair
               </span>
               <div className="size-7 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
                 <Users className="size-4" />
               </div>
             </div>
             <p className="mt-2 text-2xl font-black font-mono text-purple-600 dark:text-purple-400">
-              {formatRupiah(totalSalarySavings + totalCashOut)}
+              {formatRupiah(currentSalaryPaid + totalCashOut)}
             </p>
             <p className="mt-1 text-[10px] text-purple-700/80 dark:text-purple-400/80">
-              Gaji: {formatRupiah(totalSalarySavings)} | Kasir: {formatRupiah(totalCashOut)}
+              Gaji Cair: {formatRupiah(currentSalaryPaid)} | Kasir: {formatRupiah(totalCashOut)}
+              {totalSalarySavings > 0 && ` | Alokasi Belum Cair: ${formatRupiah(totalSalarySavings)}`}
             </p>
           </div>
 
@@ -1342,7 +1384,7 @@ export function MoneyAllocationPage({
                 {formatRupiah(labaBersihMurni)}
               </p>
               <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
-                Bersih setelah BOM, OP, Gaji &amp; Kas Keluar Kasir
+                Laba Kas Bersih setelah BOM, Gaji Cair &amp; Kas Keluar Kasir
                 {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
               </p>
             </div>

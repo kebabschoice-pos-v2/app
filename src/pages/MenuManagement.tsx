@@ -585,9 +585,39 @@ export function MenuManagement() {
     );
     setAddons(item.addons && item.addons.length > 0 ? [...item.addons] : []);
 
-    // Set Recipe Items if existing
+    // Set Recipe Items if existing (auto-map to valid inventory items & real costs)
     const existingRec = item.recipe_items || (item.recipe?.items ? item.recipe.items : []);
-    setRecipeItems(existingRec.length > 0 ? [...existingRec] : []);
+    const fixedRec = existingRec.map((r: any) => {
+      const matched =
+        inventoryIngredients.find((inv) => inv.id === r.inventory_item_id) ||
+        inventoryIngredients.find(
+          (inv) =>
+            inv.name &&
+            r.ingredient_name &&
+            inv.name.toLowerCase().trim() === r.ingredient_name.toLowerCase().trim(),
+        );
+      if (matched) {
+        const invQty = convertRecipeToInventoryQuantity(
+          r.quantity || 1,
+          r.unit,
+          matched.unit,
+          matched.yield_per_unit,
+          matched.yield_unit,
+        );
+        const costEst =
+          matched.cost_price && matched.cost_price > 0
+            ? Math.round(invQty * matched.cost_price)
+            : r.cost_estimate || 0;
+        return {
+          ...r,
+          inventory_item_id: matched.id,
+          ingredient_name: matched.name,
+          cost_estimate: costEst > 0 ? costEst : r.cost_estimate,
+        };
+      }
+      return r;
+    });
+    setRecipeItems(fixedRec.length > 0 ? [...fixedRec] : []);
 
     // Merge outlet assignments with all active outlets
     const existingMap = new Map((item.outlet_assignments || []).map((oa) => [oa.outlet_id, oa]));
@@ -945,7 +975,14 @@ export function MenuManagement() {
   function recalcRecipeHPP(items: RecipeItem[], ingredients: InventoryIngredient[]): number {
     let estimatedCost = 0;
     for (const r of items) {
-      const matchedInv = ingredients.find((inv) => inv.id === r.inventory_item_id);
+      const matchedInv =
+        ingredients.find((inv) => inv.id === r.inventory_item_id) ||
+        ingredients.find(
+          (inv) =>
+            inv.name &&
+            r.ingredient_name &&
+            inv.name.toLowerCase().trim() === r.ingredient_name.toLowerCase().trim(),
+        );
       if (matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0) {
         const invQty = convertRecipeToInventoryQuantity(
           r.quantity || 1,
@@ -3270,9 +3307,14 @@ export function MenuManagement() {
                       ) : (
                         <div className="space-y-3">
                           {recipeItems.map((r, idx) => {
-                            const matchedInv = inventoryIngredients.find(
-                              (inv) => inv.id === r.inventory_item_id,
-                            );
+                            const matchedInv =
+                              inventoryIngredients.find((inv) => inv.id === r.inventory_item_id) ||
+                              inventoryIngredients.find(
+                                (inv) =>
+                                  inv.name &&
+                                  r.ingredient_name &&
+                                  inv.name.toLowerCase().trim() === r.ingredient_name.toLowerCase().trim(),
+                              );
 
                             return (
                               <div
@@ -3438,7 +3480,21 @@ export function MenuManagement() {
                                       <IndonesianPriceInput
                                         placeholder="0"
                                         prefix="Rp"
-                                        value={r.cost_estimate || 0}
+                                        value={
+                                          r.cost_estimate && r.cost_estimate > 0
+                                            ? r.cost_estimate
+                                            : matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0
+                                              ? Math.round(
+                                                  convertRecipeToInventoryQuantity(
+                                                    r.quantity || 1,
+                                                    r.unit,
+                                                    matchedInv.unit,
+                                                    matchedInv.yield_per_unit,
+                                                    matchedInv.yield_unit,
+                                                  ) * matchedInv.cost_price,
+                                                )
+                                              : 0
+                                        }
                                         onChange={(val) => {
                                           const updated = [...recipeItems];
                                           const cur = updated[idx];

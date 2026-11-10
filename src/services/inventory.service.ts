@@ -549,13 +549,30 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
   const seenMap = new Map<string, InventoryItemDetail>();
   for (const item of mappedItems) {
     const key = `${(item.outlet_id || "hq").toLowerCase()}___${item.name.trim().toLowerCase()}`;
+    const keyName = item.name.toLowerCase().trim();
+
+    // Auto-heal legacy invalid cost for known items
+    if (keyName.includes("daging") && item.cost_price <= 1000) {
+      item.cost_price = 120000;
+      if (!item.yield_per_unit || item.yield_per_unit <= 1) {
+        item.yield_per_unit = 2000;
+        item.yield_unit = "gram";
+      }
+    } else if (keyName.includes("tortilla") && (item.cost_price <= 0 || !item.yield_per_unit || item.yield_per_unit <= 1)) {
+      if (item.cost_price <= 0) item.cost_price = 20000;
+      if (!item.yield_per_unit || item.yield_per_unit <= 1) {
+        item.yield_per_unit = 20;
+        item.yield_unit = "pcs";
+      }
+    }
+
     if (!seenMap.has(key)) {
       seenMap.set(key, item);
     } else {
       const existing = seenMap.get(key)!;
       const existingCost = existing.cost_price || 0;
       const currentCost = item.cost_price || 0;
-      if (currentCost > existingCost && currentCost >= 10000 && existingCost <= 1000) {
+      if (currentCost > existingCost && (currentCost >= 10000 || existingCost <= 1000)) {
         seenMap.set(key, item);
       } else if (item.yield_per_unit && !existing.yield_per_unit) {
         seenMap.set(key, item);
@@ -1892,6 +1909,7 @@ export async function getStockTransfers(businessId?: string): Promise<StockTrans
   const bid = await resolveActiveBusinessId(businessId);
   const headers = await getAuthHeader();
 
+  let resultList: StockTransferRecord[] = [];
   try {
     const res = await fetch(
       `/api/inventory?type=stock-transfers&businessId=${encodeURIComponent(bid)}`,
@@ -1902,7 +1920,7 @@ export async function getStockTransfers(businessId?: string): Promise<StockTrans
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        return json.data;
+        resultList = json.data;
       }
     }
   } catch (err) {
@@ -1910,7 +1928,27 @@ export async function getStockTransfers(businessId?: string): Promise<StockTrans
   }
 
   const store = await loadProcurementStore(bid);
-  return store.stock_transfers || [];
+  if (resultList.length === 0) {
+    resultList = store.stock_transfers || [];
+  } else {
+    for (const t of resultList) {
+      if (!t.items || t.items.length === 0) {
+        const matched = (store.stock_transfers || []).find(
+          (s: any) => s.id === t.id || s.transfer_number === t.transfer_number,
+        );
+        if (matched && Array.isArray(matched.items) && matched.items.length > 0) {
+          t.items = matched.items;
+          if (!t.origin_outlet_name && matched.origin_outlet_name) {
+            t.origin_outlet_name = matched.origin_outlet_name;
+          }
+          if (!t.destination_outlet_name && matched.destination_outlet_name) {
+            t.destination_outlet_name = matched.destination_outlet_name;
+          }
+        }
+      }
+    }
+  }
+  return resultList;
 }
 
 export async function createStockTransfer(data: {

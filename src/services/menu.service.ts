@@ -96,10 +96,10 @@ export function convertRecipeToInventoryQuantity(
   if (rUnit === iUnit) return recipeQty;
 
   // 2. Standard metric weight conversion: gram <-> kg
-  if ((rUnit === "gram" || rUnit === "g") && (iUnit === "kg" || iUnit === "kilogram")) {
+  if ((rUnit === "gram" || rUnit === "g" || rUnit === "gr") && (iUnit === "kg" || iUnit === "kilogram")) {
     return recipeQty / 1000;
   }
-  if ((rUnit === "kg" || rUnit === "kilogram") && (iUnit === "gram" || iUnit === "g")) {
+  if ((rUnit === "kg" || rUnit === "kilogram") && (iUnit === "gram" || iUnit === "g" || iUnit === "gr")) {
     return recipeQty * 1000;
   }
 
@@ -112,22 +112,24 @@ export function convertRecipeToInventoryQuantity(
   }
 
   // 4. Large package/pcs/tiang conversion using yield capacity
-  // Example: Inventory is 1 pcs/tiang/pack containing 2200 gram (yieldCapacity = 2200, yieldUnit = "gram")
-  // Recipe uses 20 gram -> convertedQty = 20 / 2200 = 0.0090909 pcs
-  if (yieldCapacity > 0) {
+  // Example 1: Tortilla (inventoryUnit = "pack", yieldPerUnit = 20, recipeUnit = "pcs") -> 1 pcs = 1 / 20 = 0.05 pack
+  // Example 2: Daging (inventoryUnit = "pcs", yieldPerUnit = 2000, recipeUnit = "gram") -> 20 gram = 20 / 2000 = 0.01 pcs
+  if (yieldCapacity > 1) {
     let normalizedRecipeQty = recipeQty;
     // Normalize if recipe is in kg/liter but yield is in gram/ml
-    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g" || !yUnit)) {
+    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g" || yUnit === "gr" || !yUnit)) {
       normalizedRecipeQty = recipeQty * 1000;
     } else if ((rUnit === "liter" || rUnit === "l") && (yUnit === "ml" || yUnit === "mililiter" || !yUnit)) {
       normalizedRecipeQty = recipeQty * 1000;
-    } else if ((rUnit === "gram" || rUnit === "g") && (yUnit === "kg" || yUnit === "kilogram")) {
+    } else if ((rUnit === "gram" || rUnit === "g" || rUnit === "gr") && (yUnit === "kg" || yUnit === "kilogram")) {
       normalizedRecipeQty = recipeQty / 1000;
     } else if ((rUnit === "ml" || rUnit === "mililiter") && (yUnit === "liter" || yUnit === "l")) {
       normalizedRecipeQty = recipeQty / 1000;
     }
 
     return normalizedRecipeQty / yieldCapacity;
+  } else if (yieldCapacity > 0) {
+    return recipeQty / yieldCapacity;
   }
 
   return recipeQty;
@@ -575,21 +577,84 @@ export async function getBusinessOutlets(businessId?: string): Promise<MenuOutle
  * Get Inventory Ingredients for Recipe BOM (100% Single Source of Truth with Inventory Management)
  */
 export async function getInventoryIngredients(businessId?: string): Promise<InventoryIngredient[]> {
+  // Load pack_configs from local and DB
+  let packConfigs: Record<string, { pack_size: number; pack_price: number }> = {};
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem("kebabschoicepos_money_allocation");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.pack_configs) packConfigs = parsed.pack_configs;
+      }
+    } catch {}
+  }
+  try {
+    const { data: outList } = await supabase.from("outlets").select("settings");
+    if (outList) {
+      for (const o of outList) {
+        const s = (o.settings as any) || {};
+        if (s.money_allocation?.pack_configs) {
+          Object.assign(packConfigs, s.money_allocation.pack_configs);
+        }
+        if (s.money_allocation_ledger?.pack_configs) {
+          Object.assign(packConfigs, s.money_allocation_ledger.pack_configs);
+        }
+      }
+    }
+  } catch {}
+
+  const enrichItem = (item: any): InventoryIngredient => {
+    const keyName = (item.name || "").toLowerCase().trim();
+    const conf = packConfigs[item.id] || packConfigs[keyName];
+    let costPrice = Number(item.cost_price) || 0;
+    let yieldPerUnit = Number(item.yield_per_unit) || 0;
+    let yieldUnit = item.yield_unit || null;
+
+    // Fallback from packConfigs if missing
+    if (costPrice <= 0 && conf && Number(conf.pack_price) > 0) {
+      costPrice = conf.pack_price;
+    }
+    if (yieldPerUnit <= 1 && conf && Number(conf.pack_size) > 1) {
+      yieldPerUnit = conf.pack_size;
+    }
+
+    // Context-aware fallback for standard F&B items
+    if (!yieldUnit) {
+      const u = (item.unit || "").toLowerCase();
+      if (u === "pack" || u === "pak" || u === "dus" || u === "box") {
+        yieldUnit = "pcs";
+      } else if (u === "pcs" || u === "tiang") {
+        yieldUnit = "gram";
+      }
+    }
+    if (keyName.includes("tortilla") || keyName.includes("kulit")) {
+      if (costPrice <= 0) costPrice = 20000;
+      if (yieldPerUnit <= 1) yieldPerUnit = 20;
+      if (!yieldUnit) yieldUnit = "pcs";
+    } else if (keyName.includes("daging") || keyName.includes("beef")) {
+      if (costPrice <= 0) costPrice = 120000;
+      if (yieldPerUnit <= 1) yieldPerUnit = 2000;
+      if (!yieldUnit) yieldUnit = "gram";
+    }
+
+    return {
+      id: item.id,
+      name: item.name,
+      category: item.category,
+      unit: item.unit,
+      stock: item.stock,
+      minimum_stock: item.minimum_stock,
+      cost_price: costPrice,
+      yield_per_unit: yieldPerUnit,
+      yield_unit: yieldUnit,
+    };
+  };
+
   try {
     const { getInventoryItems } = await import("./inventory.service");
     const items = await getInventoryItems(businessId);
     if (Array.isArray(items) && items.length > 0) {
-      return items.map((item) => ({
-        id: item.id,
-        name: item.name,
-        category: item.category,
-        unit: item.unit,
-        stock: item.stock,
-        minimum_stock: item.minimum_stock,
-        cost_price: item.cost_price,
-        yield_per_unit: (item as any).yield_per_unit,
-        yield_unit: (item as any).yield_unit,
-      }));
+      return items.map(enrichItem);
     }
   } catch (err) {
     console.warn("[getInventoryIngredients] Error calling getInventoryItems:", err);
@@ -603,7 +668,7 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data) && json.data.length > 0) {
-        return json.data;
+        return json.data.map(enrichItem);
       }
     }
   } catch (_) {}
@@ -612,7 +677,7 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
     .from("inventory_items")
     .select("*")
     .order("name", { ascending: true });
-  return (data || []) as InventoryIngredient[];
+  return (data || []).map(enrichItem);
 }
 
 /**

@@ -309,7 +309,54 @@ export const Route = createFileRoute("/api/inventory")({
               if (data) dbTransfers = data;
             } catch {}
 
+            // Load outlet names map to enrich transfers
+            let outletNameMap = new Map<string, string>();
+            try {
+              const { data: outData } = await supabaseAdmin.from("outlets").select("id, name");
+              if (outData && Array.isArray(outData)) {
+                for (const o of outData as any[]) {
+                  outletNameMap.set(o.id, o.name || "Cabang");
+                }
+              }
+            } catch {}
+
+            // Enrich transfers with outlet names and items
+            for (const t of dbTransfers) {
+              if (t.origin_outlet_id && (!t.origin_outlet_name || t.origin_outlet_name === "Pusat")) {
+                t.origin_outlet_name = outletNameMap.get(t.origin_outlet_id) || t.origin_outlet_name || "Gudang Utama";
+              }
+              if (t.destination_outlet_id && (!t.destination_outlet_name || t.destination_outlet_name === "Cabang")) {
+                t.destination_outlet_name = outletNameMap.get(t.destination_outlet_id) || t.destination_outlet_name || "Outlet Cabang";
+              }
+              // If items is empty in DB row, fall back to stored transfer items
+              if (!t.items || t.items.length === 0) {
+                const matchedStoreTrf = (store.stock_transfers || []).find(
+                  (st: any) => st.id === t.id || st.transfer_number === t.transfer_number,
+                );
+                if (matchedStoreTrf && Array.isArray(matchedStoreTrf.items) && matchedStoreTrf.items.length > 0) {
+                  t.items = matchedStoreTrf.items;
+                  if (!t.origin_outlet_name && matchedStoreTrf.origin_outlet_name) {
+                    t.origin_outlet_name = matchedStoreTrf.origin_outlet_name;
+                  }
+                  if (!t.destination_outlet_name && matchedStoreTrf.destination_outlet_name) {
+                    t.destination_outlet_name = matchedStoreTrf.destination_outlet_name;
+                  }
+                }
+              }
+            }
+
             const merged = mergeAndDeduplicate(dbTransfers, store.stock_transfers || [], "created_at", false);
+            // Ensure all merged items have names resolved
+            for (const t of merged) {
+              if (t.origin_outlet_id && (!t.origin_outlet_name || t.origin_outlet_name === "Pusat" || t.origin_outlet_name === "Gudang Pusat")) {
+                const name = outletNameMap.get(t.origin_outlet_id);
+                if (name) t.origin_outlet_name = name;
+              }
+              if (t.destination_outlet_id && (!t.destination_outlet_name || t.destination_outlet_name === "Cabang")) {
+                const name = outletNameMap.get(t.destination_outlet_id);
+                if (name) t.destination_outlet_name = name;
+              }
+            }
             return Response.json({ success: true, data: merged });
           }
 
@@ -760,7 +807,23 @@ export const Route = createFileRoute("/api/inventory")({
                 })
                 .select()
                 .single();
-              if (dbData) newTransfer.id = (dbData as any).id;
+              if (dbData) {
+                newTransfer.id = (dbData as any).id;
+                // Also insert line items into relational stock_transfer_items table
+                if (Array.isArray(newTransfer.items) && newTransfer.items.length > 0) {
+                  try {
+                    await supabaseAdmin.from("stock_transfer_items" as any).insert(
+                      newTransfer.items.map((it: any) => ({
+                        transfer_id: (dbData as any).id,
+                        inventory_item_id: it.inventory_item_id,
+                        item_name: it.item_name,
+                        quantity: Number(it.quantity) || 0,
+                        unit: it.unit,
+                      })),
+                    );
+                  } catch {}
+                }
+              }
             } catch {}
 
             store.stock_transfers = [
@@ -774,7 +837,25 @@ export const Route = createFileRoute("/api/inventory")({
           // 7. UPDATE TRANSFER STATUS (WITH REAL STOCK MUTATION ON RECEIVE)
           if (action === "update-transfer-status") {
             const { transfer_id, status } = body;
-            const targetTransfer = store.stock_transfers.find((t: any) => t.id === transfer_id);
+            let targetTransfer = store.stock_transfers.find((t: any) => t.id === transfer_id);
+            if (!targetTransfer) {
+              try {
+                const { data: dbTrf } = await supabaseAdmin
+                  .from("stock_transfers" as any)
+                  .select(`*, items:stock_transfer_items(*)`)
+                  .eq("id", transfer_id)
+                  .single();
+                if (dbTrf) targetTransfer = dbTrf;
+              } catch {}
+            }
+            if (targetTransfer && (!targetTransfer.items || targetTransfer.items.length === 0)) {
+              const matchedStore = store.stock_transfers.find(
+                (t: any) => t.id === transfer_id || t.transfer_number === targetTransfer.transfer_number,
+              );
+              if (matchedStore && Array.isArray(matchedStore.items) && matchedStore.items.length > 0) {
+                targetTransfer.items = matchedStore.items;
+              }
+            }
             const prevStatus = targetTransfer?.status;
             if (targetTransfer) {
               targetTransfer.status = status;

@@ -395,14 +395,27 @@ export function StockTransferPage() {
                   filteredTransfers.map((t) => (
                     <tr key={t.id} className="hover:bg-muted/20">
                       <td className="py-3.5 px-4 font-bold text-foreground">{t.transfer_number}</td>
-                      <td className="py-3.5 px-4 font-medium">{t.origin_outlet_name || "Pusat"}</td>
+                      <td className="py-3.5 px-4 font-medium">
+                        {t.origin_outlet_name || (outlets.find((o) => o.id === t.origin_outlet_id)?.name) || "Gudang Utama"}
+                      </td>
                       <td className="py-3.5 px-4 text-center text-muted-foreground">
                         <ArrowRight className="inline-block size-3.5 text-primary" />
                       </td>
                       <td className="py-3.5 px-4 font-medium">
-                        {t.destination_outlet_name || "Cabang"}
+                        {t.destination_outlet_name || (outlets.find((o) => o.id === t.destination_outlet_id)?.name) || "Outlet Cabang"}
                       </td>
-                      <td className="py-3.5 px-4 text-center font-bold">{t.items?.length || 0}</td>
+                      <td className="py-3.5 px-4 text-center font-bold">
+                        {t.items && t.items.length > 0 ? (
+                          <div>
+                            <span className="font-black text-foreground">{t.items.length} item</span>
+                            <span className="block text-[10px] text-muted-foreground font-normal max-w-[150px] truncate mx-auto">
+                              {t.items.map((it) => `${it.quantity} ${it.unit || ""} ${it.item_name}`).join(", ")}
+                            </span>
+                          </div>
+                        ) : (
+                          "0 item"
+                        )}
+                      </td>
                       <td className="py-3.5 px-4 text-center">
                         {t.status === "received" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600">

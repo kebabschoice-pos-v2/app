@@ -250,16 +250,23 @@ export function MoneyAllocationPage({
       }
 
       // 2. Fetch Real Inventory Items & Movements
-      const [invItems, movements, hrProfiles] = await Promise.all([
+      let [invItems, movements, hrProfiles] = await Promise.all([
         getInventoryItems(bId || undefined).catch(() => [] as InventoryItemDetail[]),
         getStockMovements(bId || undefined).catch(() => [] as StockMovementRecord[]),
         getHRStaffProfiles().catch(() => [] as StaffProfile[]),
       ]);
 
-      const filteredInv =
+      if (invItems.length === 0) {
+        invItems = await getInventoryItems().catch(() => [] as InventoryItemDetail[]);
+      }
+
+      const branchItems =
         selectedOutletId === "all"
           ? invItems
           : invItems.filter((i) => !i.outlet_id || i.outlet_id === selectedOutletId);
+
+      // If branch has no specific items, fall back to all items so BOM repurchase pockets never disappear
+      const filteredInv = branchItems.length > 0 ? branchItems : invItems;
 
       setInventoryList(filteredInv);
       setStockMovements(movements);
@@ -626,22 +633,38 @@ export function MoneyAllocationPage({
           for (const line of ord.items) {
             const lineQty = Number(line.quantity) || 1;
             const lineNameClean = (line.name || "").toLowerCase().trim();
-            const recipe =
+            let recipe =
               line.recipe ||
               menuRecipes[line.id] ||
               menuRecipes[line.product_id] ||
               menuRecipes[line.name] ||
               (lineNameClean ? menuRecipes[lineNameClean] : null);
+
+            // Fuzzy/loose match if lineNameClean is e.g. "Original" or "Kebab Original"
+            if (!recipe && lineNameClean) {
+              for (const [recKey, recVal] of Object.entries(menuRecipes)) {
+                const kClean = recKey.toLowerCase().trim();
+                if (kClean && (lineNameClean.includes(kClean) || kClean.includes(lineNameClean))) {
+                  recipe = recVal;
+                  break;
+                }
+              }
+            }
+
             const recipeItems = (recipe && (recipe.items || recipe.recipe_items)) || [];
             if (Array.isArray(recipeItems) && recipeItems.length > 0) {
               for (const ing of recipeItems) {
                 const ingNameClean = (ing.ingredient_name || ing.name || "").toLowerCase().trim();
                 const itemNameClean = (item.name || "").toLowerCase().trim();
-                if (
+                const isMatch =
                   ing.inventory_item_id === item.id ||
                   ing.id === item.id ||
-                  (ingNameClean && itemNameClean && ingNameClean === itemNameClean)
-                ) {
+                  (ingNameClean && itemNameClean && (
+                    ingNameClean === itemNameClean ||
+                    ingNameClean.includes(itemNameClean) ||
+                    itemNameClean.includes(ingNameClean)
+                  ));
+                if (isMatch) {
                   const ingConverted = convertRecipeToInventoryQuantity(
                     Number(ing.quantity) || 1,
                     ing.unit || "gram",

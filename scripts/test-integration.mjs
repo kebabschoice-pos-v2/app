@@ -2349,6 +2349,57 @@ test("TEST 96: Private POS Security Lock, Manager Permissions, 2-Mode Customer P
   );
 });
 
+// --- TEST 97: Tortilla Pack-to-Pcs BOM Conversion, Zero-Cost Quick Fix, and KITAPOS Standard Transfer Integrity ---
+console.log("\n▶ 97. TORTILLA PACK-TO-PCS BOM CONVERSION & KITAPOS TRANSFER INTEGRITY");
+test("Validates Tortilla pack-to-pcs BOM conversion, inline zero-cost quick fix, and KITAPOS stock transfer details", () => {
+  const menuServiceCode = fs.readFileSync(path.join(process.cwd(), "src/services/menu.service.ts"), "utf8");
+  const menuMgmtCode = fs.readFileSync(path.join(process.cwd(), "src/pages/MenuManagement.tsx"), "utf8");
+  const transferPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/inventory/StockTransferPage.tsx"), "utf8");
+  const posAppCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"), "utf8");
+
+  // 1. Tortilla pack-to-pcs BOM conversion test:
+  // 1 pack Tortilla = 20 pcs @ Rp 20.000. When recipe needs 1 pcs:
+  // invQty = 1 / 20 = 0.05 pack. Cost = 0.05 * 20.000 = Rp 1.000 (NOT Rp 0!)
+  const tortillaInvQty = convertRecipeToInventoryQuantityWithYield(1, "pcs", "pack", 20, "pcs");
+  assert.strictEqual(tortillaInvQty, 0.05, "1 pcs Tortilla from 20 pcs/pack must equal 0.05 pack");
+  const tortillaPortionCost = Math.round(tortillaInvQty * 20000);
+  assert.strictEqual(tortillaPortionCost, 1000, "1 pcs Tortilla from Rp 20.000 pack must cost Rp 1.000 (not Rp 0)");
+
+  // 2. MenuManagement inline zero-cost quick fix
+  assert.ok(
+    menuMgmtCode.includes("handleQuickFixIngredient"),
+    "MenuManagement.tsx must implement handleQuickFixIngredient for inline zero-cost recovery"
+  );
+  assert.ok(
+    menuMgmtCode.includes("Simpan & Hitung"),
+    "MenuManagement.tsx must provide 'Simpan & Hitung' action button"
+  );
+  assert.ok(
+    menuMgmtCode.includes("recalcRecipeHPP"),
+    "MenuManagement.tsx must automatically recalculate HPP in real time"
+  );
+
+  // 3. Stock Transfer KITAPOS Standard outlet names & items breakdown
+  assert.ok(
+    transferPageCode.includes("t.origin_outlet_name") || transferPageCode.includes("origin_outlet_id"),
+    "StockTransferPage.tsx must display origin outlet names"
+  );
+  assert.ok(
+    transferPageCode.includes("t.destination_outlet_name") || transferPageCode.includes("destination_outlet_id"),
+    "StockTransferPage.tsx must display destination outlet names"
+  );
+  assert.ok(
+    transferPageCode.includes("t.items.map"),
+    "StockTransferPage.tsx must render item name, quantity, and unit details"
+  );
+
+  // 4. POS Cashier Status Bar Online Badge
+  assert.ok(
+    posAppCode.includes("🟢 Online & Sinkron"),
+    "KebabsChoicePOSApp.tsx must render '🟢 Online & Sinkron' badge when connected"
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

@@ -22,6 +22,7 @@ import {
   Check,
   PlusCircle,
   AlertTriangle,
+  AlertCircle,
   BookOpen,
   Wheat,
   Scale,
@@ -936,11 +937,15 @@ export function MenuManagement() {
     toast.success(`Template "${tpl.name}" berhasil ditambahkan ke daftar varian`);
   }
 
-  // BOM Recipe to HPP Calculation
-  function calculateBOMCost() {
+  // Quick Fix for 0 cost raw materials in BOM
+  const [quickFixCost, setQuickFixCost] = useState<Record<string, number>>({});
+  const [quickFixYield, setQuickFixYield] = useState<Record<string, number>>({});
+  const [quickFixLoading, setQuickFixLoading] = useState<Record<string, boolean>>({});
+
+  function recalcRecipeHPP(items: RecipeItem[], ingredients: InventoryIngredient[]): number {
     let estimatedCost = 0;
-    for (const r of recipeItems) {
-      const matchedInv = inventoryIngredients.find((inv) => inv.id === r.inventory_item_id);
+    for (const r of items) {
+      const matchedInv = ingredients.find((inv) => inv.id === r.inventory_item_id);
       if (matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0) {
         const invQty = convertRecipeToInventoryQuantity(
           r.quantity || 1,
@@ -955,26 +960,68 @@ export function MenuManagement() {
       } else {
         const nameLower = (r.ingredient_name || "").toLowerCase();
         if (nameLower.includes("daging") || nameLower.includes("beef")) {
-          estimatedCost += r.quantity * 80;
+          estimatedCost += (r.quantity || 1) * 80;
         } else if (nameLower.includes("tortilla") || nameLower.includes("kulit")) {
-          estimatedCost += r.quantity * 2500;
-        } else if (nameLower.includes("keju") || nameLower.includes("cheese")) {
-          estimatedCost += r.quantity * 70;
-        } else if (
-          nameLower.includes("saus") ||
-          nameLower.includes("sauce") ||
-          nameLower.includes("mayo")
-        ) {
-          estimatedCost += r.quantity * 30;
-        } else if (nameLower.includes("sayur") || nameLower.includes("lettuce")) {
-          estimatedCost += r.quantity * 20;
-        } else {
-          estimatedCost += r.quantity * 50;
+          estimatedCost += (r.quantity || 1) * 1000;
         }
       }
     }
+    return Math.round(estimatedCost);
+  }
 
-    const roundedHPP = Math.round(estimatedCost);
+  async function handleQuickFixIngredient(itemId: string, itemUnit: string, curRecipeUnit: string) {
+    const cost = quickFixCost[itemId] || 0;
+    const yieldCap = quickFixYield[itemId] || 1;
+    if (cost <= 0) {
+      toast.error("Masukkan harga beli bahan yang valid (> Rp 0)");
+      return;
+    }
+    setQuickFixLoading((prev) => ({ ...prev, [itemId]: true }));
+    try {
+      const { updateInventoryItem } = await import("@/services/inventory.service");
+      await updateInventoryItem(itemId, {
+        cost_price: cost,
+        yield_per_unit: yieldCap,
+        yield_unit: curRecipeUnit,
+      });
+
+      const updatedIngredients = inventoryIngredients.map((inv) =>
+        inv.id === itemId
+          ? { ...inv, cost_price: cost, yield_per_unit: yieldCap, yield_unit: curRecipeUnit }
+          : inv,
+      );
+      setInventoryIngredients(updatedIngredients);
+
+      const updatedRecipe = recipeItems.map((r) => {
+        if (r.inventory_item_id === itemId) {
+          const invQty = convertRecipeToInventoryQuantity(
+            r.quantity || 1,
+            r.unit,
+            itemUnit,
+            yieldCap,
+            curRecipeUnit,
+          );
+          return {
+            ...r,
+            cost_estimate: Math.round(invQty * cost),
+          };
+        }
+        return r;
+      });
+      setRecipeItems(updatedRecipe);
+      const newHpp = recalcRecipeHPP(updatedRecipe, updatedIngredients);
+      if (newHpp > 0) setCostPrice(newHpp);
+      toast.success(`Harga ${itemUnit} berhasil disimpan ke Inventory & Biaya Resep dihitung!`);
+    } catch (err: any) {
+      toast.error("Gagal menyimpan harga: " + (err.message || err));
+    } finally {
+      setQuickFixLoading((prev) => ({ ...prev, [itemId]: false }));
+    }
+  }
+
+  // BOM Recipe to HPP Calculation
+  function calculateBOMCost() {
+    const roundedHPP = recalcRecipeHPP(recipeItems, inventoryIngredients);
     setCostPrice(roundedHPP);
     toast.success(`HPP berhasil dihitung dari Resep BOM: ${formatIDR(roundedHPP)}`);
   }
@@ -3254,31 +3301,29 @@ export function MenuManagement() {
                                           if (matched) {
                                             cur.inventory_item_id = matched.id;
                                             cur.ingredient_name = matched.name;
-                                            let finalUnit = cur.unit;
-                                            if (matched.unit) {
-                                              const standardMatch = STANDARD_UNITS.find(
-                                                (u) =>
-                                                  u.value.toLowerCase() ===
-                                                  matched.unit.toLowerCase(),
-                                              );
-                                              if (standardMatch) {
-                                                finalUnit = standardMatch.value;
-                                                cur.unit = standardMatch.value;
-                                              }
-                                            }
+                                            // Auto-set recipe unit to matched.yield_unit (e.g. "pcs" for Tortilla, "gram" for Daging)
+                                            const targetUnit = matched.yield_unit || matched.unit || "gram";
+                                            cur.unit = targetUnit;
+                                            cur.quantity = cur.quantity || 1;
                                             if (matched.cost_price && matched.cost_price > 0) {
                                               const invQty = convertRecipeToInventoryQuantity(
-                                                cur.quantity || 1,
-                                                finalUnit,
+                                                cur.quantity,
+                                                cur.unit,
                                                 matched.unit,
+                                                matched.yield_per_unit,
+                                                matched.yield_unit,
                                               );
                                               cur.cost_estimate = Math.round(
                                                 invQty * matched.cost_price,
                                               );
+                                            } else {
+                                              cur.cost_estimate = 0;
                                             }
                                           }
                                         }
                                         setRecipeItems(updated);
+                                        const autoHpp = recalcRecipeHPP(updated, inventoryIngredients);
+                                        if (autoHpp > 0) setCostPrice(autoHpp);
                                       }}
                                       className="h-9 w-full rounded-xl border border-input bg-background px-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                     >
@@ -3320,7 +3365,24 @@ export function MenuManagement() {
                                           const cur = updated[idx];
                                           if (cur) {
                                             cur.quantity = Number(e.target.value) || 0;
+                                            const matched = inventoryIngredients.find(
+                                              (inv) => inv.id === cur.inventory_item_id,
+                                            );
+                                            if (matched && matched.cost_price && matched.cost_price > 0) {
+                                              const invQty = convertRecipeToInventoryQuantity(
+                                                cur.quantity,
+                                                cur.unit,
+                                                matched.unit,
+                                                matched.yield_per_unit,
+                                                matched.yield_unit,
+                                              );
+                                              cur.cost_estimate = Math.round(
+                                                invQty * matched.cost_price,
+                                              );
+                                            }
                                             setRecipeItems(updated);
+                                            const autoHpp = recalcRecipeHPP(updated, inventoryIngredients);
+                                            if (autoHpp > 0) setCostPrice(autoHpp);
                                           }
                                         }}
                                         className="w-16 rounded-xl text-xs font-bold h-9"
@@ -3347,6 +3409,8 @@ export function MenuManagement() {
                                             cur.cost_estimate = Math.round(invQty * matched.cost_price);
                                           }
                                           setRecipeItems(updated);
+                                          const autoHpp = recalcRecipeHPP(updated, inventoryIngredients);
+                                          if (autoHpp > 0) setCostPrice(autoHpp);
                                         }
                                       }}
                                       className="h-9 w-28 rounded-xl border border-input bg-background px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -3381,6 +3445,8 @@ export function MenuManagement() {
                                           if (cur) {
                                             cur.cost_estimate = val || 0;
                                             setRecipeItems(updated);
+                                            const autoHpp = recalcRecipeHPP(updated, inventoryIngredients);
+                                            if (autoHpp > 0) setCostPrice(autoHpp);
                                           }
                                         }}
                                         className="w-24 rounded-xl text-xs font-bold h-9"
@@ -3392,7 +3458,10 @@ export function MenuManagement() {
                                       variant="ghost"
                                       size="sm"
                                       onClick={() => {
-                                        setRecipeItems(recipeItems.filter((_, i) => i !== idx));
+                                        const updated = recipeItems.filter((_, i) => i !== idx);
+                                        setRecipeItems(updated);
+                                        const autoHpp = recalcRecipeHPP(updated, inventoryIngredients);
+                                        setCostPrice(autoHpp);
                                       }}
                                       className="h-9 w-9 p-0 text-destructive rounded-xl shrink-0"
                                     >
@@ -3400,6 +3469,60 @@ export function MenuManagement() {
                                     </Button>
                                   </div>
                                 </div>
+
+                                {/* Inline Quick Fix if Ingredient Cost is Rp 0 */}
+                                {matchedInv && (!matchedInv.cost_price || matchedInv.cost_price <= 0) && (
+                                  <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 p-2.5 text-xs text-amber-700 dark:text-amber-300">
+                                    <AlertCircle className="size-4 shrink-0 text-amber-600" />
+                                    <span className="font-semibold">
+                                      ⚠️ Harga beli 1 {matchedInv.unit} {matchedInv.name} belum diatur.
+                                    </span>
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span className="text-[11px] font-bold">Harga 1 {matchedInv.unit}: Rp</span>
+                                      <input
+                                        type="number"
+                                        placeholder="Contoh: 20000"
+                                        value={quickFixCost[matchedInv.id] || ""}
+                                        onChange={(e) =>
+                                          setQuickFixCost({
+                                            ...quickFixCost,
+                                            [matchedInv.id]: Number(e.target.value) || 0,
+                                          })
+                                        }
+                                        className="w-24 h-7 rounded-lg border border-input bg-background px-2 text-xs font-bold"
+                                      />
+                                      <span className="text-[11px] font-bold">Isi per 1 {matchedInv.unit}:</span>
+                                      <input
+                                        type="number"
+                                        placeholder="Contoh: 20"
+                                        value={quickFixYield[matchedInv.id] || ""}
+                                        onChange={(e) =>
+                                          setQuickFixYield({
+                                            ...quickFixYield,
+                                            [matchedInv.id]: Number(e.target.value) || 1,
+                                          })
+                                        }
+                                        className="w-16 h-7 rounded-lg border border-input bg-background px-2 text-xs font-bold"
+                                      />
+                                      <span className="text-[11px] font-bold">{r.unit || "pcs"}</span>
+                                      <Button
+                                        type="button"
+                                        size="sm"
+                                        disabled={quickFixLoading[matchedInv.id]}
+                                        onClick={() =>
+                                          handleQuickFixIngredient(
+                                            matchedInv.id,
+                                            matchedInv.unit,
+                                            r.unit || "pcs",
+                                          )
+                                        }
+                                        className="h-7 px-2.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white"
+                                      >
+                                        {quickFixLoading[matchedInv.id] ? "Menyimpan..." : "Simpan & Hitung"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {/* Manual ingredient name fallback input */}
                                 {!r.inventory_item_id && (

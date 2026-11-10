@@ -5305,7 +5305,7 @@ function PosPage({
             ) : (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                 <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                Online
+                🟢 Online & Sinkron
               </span>
             )}
 
@@ -5315,25 +5315,9 @@ function PosPage({
             <div className="flex items-center gap-1.5 font-bold text-foreground">
               <Store className="size-3.5 text-primary shrink-0" />
               {isOwner ? (
-                <select
-                  value={selectedOutletId}
-                  onChange={(e) => setSelectedOutletId(e.target.value)}
-                  className="bg-transparent font-black text-xs text-foreground focus:outline-none cursor-pointer"
-                  title="Pilih Cabang Aktif"
-                >
-                  {activeOutlets.length === 0 ? (
-                    <option value="all">Semua Outlet</option>
-                  ) : (
-                    <>
-                      {activeOutlets.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name}
-                        </option>
-                      ))}
-                      <option value="all">Semua Outlet</option>
-                    </>
-                  )}
-                </select>
+                <span className="font-black text-xs text-foreground">
+                  {activeOutlets.find((o) => o.id === selectedOutletId)?.name || "Semua Outlet"}
+                </span>
               ) : (
                 <span className="truncate max-w-[220px] font-black flex items-center gap-1" title="Cabang terkunci sesuai akun terminal kasir">
                   📍 Cabang Aktif: {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||

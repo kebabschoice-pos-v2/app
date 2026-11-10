@@ -61,9 +61,43 @@ export function isIndexedDBSupported(): boolean {
   return isClient() && typeof indexedDB !== "undefined";
 }
 
+let lastServerRequestSuccess = true;
+
+export function reportNetworkSuccess(): void {
+  const wasOnline = currentNetworkStatus.isOnline;
+  lastServerRequestSuccess = true;
+  currentNetworkStatus.isOnline = isClient() ? navigator.onLine !== false : true;
+  if (!wasOnline && currentNetworkStatus.isOnline) {
+    notifyStatusSubscribers();
+  }
+}
+
+export function reportNetworkFailure(error?: any): void {
+  const errMsg = (error?.message || error?.name || String(error || "")).toLowerCase();
+  const isNetworkIssue =
+    errMsg.includes("network") ||
+    errMsg.includes("failed to fetch") ||
+    errMsg.includes("fetch failed") ||
+    errMsg.includes("abort") ||
+    errMsg.includes("timeout") ||
+    errMsg.includes("connection") ||
+    errMsg.includes("offline") ||
+    errMsg.includes("could not resolve host") ||
+    (isClient() && navigator.onLine === false);
+
+  if (isNetworkIssue) {
+    lastServerRequestSuccess = false;
+    if (currentNetworkStatus.isOnline) {
+      currentNetworkStatus.isOnline = false;
+      notifyStatusSubscribers();
+    }
+  }
+}
+
 export function isOnline(): boolean {
   if (!isClient()) return true;
-  return navigator.onLine !== false;
+  if (navigator.onLine === false) return false;
+  return lastServerRequestSuccess;
 }
 
 // In-memory status state
@@ -469,6 +503,11 @@ export async function syncPendingTransactions(
                   quantity: dep.quantity,
                   unit: dep.unit,
                   remaining_stock: updatedStock,
+                  unit_cost: Number((currentInv as any).cost_price || 0),
+                  cost_per_unit: Number((currentInv as any).cost_price || 0),
+                  cost_price: Number((currentInv as any).cost_price || 0),
+                  yield_per_unit: Number((currentInv as any).yield_per_unit) || null,
+                  yield_unit: (currentInv as any).yield_unit || null,
                   notes: `Offline Sync POS #${tx.order_number}: ${dep.product_name}`,
                   created_at: new Date().toISOString(),
                 });
@@ -503,9 +542,11 @@ export async function syncPendingTransactions(
       // Order successfully synced to Supabase (or already existed) -> remove from IndexedDB
       await removePendingTransaction(tx.idempotency_key);
       successCount++;
+      reportNetworkSuccess();
     } catch (err: any) {
       console.warn(`[OfflineSync] Transaction #${tx.order_number} sync failed:`, err);
       failedCount++;
+      reportNetworkFailure(err);
     }
 
     if (onProgress) {
@@ -561,7 +602,7 @@ export function subscribeNetworkStatus(callback: (status: NetworkSyncStatus) => 
 
 export function getNetworkStatus(): NetworkSyncStatus {
   if (isClient()) {
-    currentNetworkStatus.isOnline = navigator.onLine !== false;
+    currentNetworkStatus.isOnline = isOnline();
   }
   return { ...currentNetworkStatus };
 }

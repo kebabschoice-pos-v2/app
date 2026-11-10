@@ -615,50 +615,66 @@ export function MoneyAllocationPage({
           .filter(Boolean),
       );
 
-      const movementUsedQty = Math.max(
-        0,
-        itemMovements.reduce((sum, m) => {
-          const rawQ = Math.abs(Number(m.quantity) || 0);
-          if (rawQ === 0) return sum;
+      // Snapshot-aware cost calculation for Engine 1 (Movement Engine):
+      let movementUsedQty = 0;
+      let movementHistoricCost = 0;
 
-          // Convert movement raw quantity to item's inventory unit (e.g. 40 gram -> 0.02 pcs if 1 pcs = 2000 gram)
-          let convertedQ = rawQ;
-          const mUnit = (m.unit || "").trim().toLowerCase();
-          const itemUnit = (item.unit || "").trim().toLowerCase();
-          const yieldUnit = (item.yield_unit || "").trim().toLowerCase();
-          const yieldPerUnit = Number(item.yield_per_unit) || 0;
+      for (const m of itemMovements) {
+        const rawQ = Math.abs(Number(m.quantity) || 0);
+        if (rawQ === 0) continue;
 
-          if (yieldPerUnit > 0) {
-            if (mUnit && yieldUnit && mUnit === yieldUnit && itemUnit !== yieldUnit) {
-              convertedQ = rawQ / yieldPerUnit;
-            } else if (
-              rawQ >= yieldPerUnit / 10 &&
-              (mUnit === "gram" || mUnit === "gr" || yieldUnit === "gram" || yieldUnit === "gr") &&
-              (itemUnit === "pcs" || itemUnit === "pack" || itemUnit === "tiang")
-            ) {
-              convertedQ = rawQ / yieldPerUnit;
-            } else {
-              convertedQ = convertRecipeToInventoryQuantity(
-                rawQ,
-                mUnit || yieldUnit || itemUnit,
-                itemUnit,
-                yieldPerUnit,
-                yieldUnit,
-              );
-            }
-          }
+        // Convert movement raw quantity to item's inventory unit (e.g. 40 gram -> 0.02 pcs if 1 pcs = 2000 gram)
+        let convertedQ = rawQ;
+        const mUnit = (m.unit || "").trim().toLowerCase();
+        const itemUnit = (item.unit || "").trim().toLowerCase();
+        const yieldUnit = (item.yield_unit || "").trim().toLowerCase();
+        const yieldPerUnit = Number(item.yield_per_unit) || 0;
 
-          const mType = (m.movement_type as string) || (m as any).type || "";
-          if (
-            mType === "void_restore" ||
-            mType === "void_reversal" ||
-            mType === "refund_reversal"
+        if (yieldPerUnit > 0) {
+          if (mUnit && yieldUnit && mUnit === yieldUnit && itemUnit !== yieldUnit) {
+            convertedQ = rawQ / yieldPerUnit;
+          } else if (
+            rawQ >= yieldPerUnit / 10 &&
+            (mUnit === "gram" || mUnit === "gr" || yieldUnit === "gram" || yieldUnit === "gr") &&
+            (itemUnit === "pcs" || itemUnit === "pack" || itemUnit === "tiang")
           ) {
-            return sum - convertedQ;
+            convertedQ = rawQ / yieldPerUnit;
+          } else {
+            convertedQ = convertRecipeToInventoryQuantity(
+              rawQ,
+              mUnit || yieldUnit || itemUnit,
+              itemUnit,
+              yieldPerUnit,
+              yieldUnit,
+            );
           }
-          return sum + convertedQ;
-        }, 0),
-      );
+        }
+
+        // Historic cost snapshot priority:
+        // 1. unit_cost / cost_per_unit / cost_price recorded on stock_movement at transaction time
+        // 2. fallback to current item unit_cost if snapshot is missing
+        const historicUnitCost = Number(
+          (m as any).unit_cost ??
+          (m as any).cost_per_unit ??
+          (m as any).cost_price ??
+          unit_cost,
+        );
+        const effectiveUnitCost = historicUnitCost > 0 ? historicUnitCost : unit_cost;
+
+        const mType = (m.movement_type as string) || (m as any).type || "";
+        const isReversal =
+          mType === "void_restore" ||
+          mType === "void_reversal" ||
+          mType === "refund_reversal";
+
+        if (isReversal) {
+          movementUsedQty = Math.max(0, movementUsedQty - convertedQ);
+          movementHistoricCost = Math.max(0, movementHistoricCost - (convertedQ * effectiveUnitCost));
+        } else {
+          movementUsedQty += convertedQ;
+          movementHistoricCost += convertedQ * effectiveUnitCost;
+        }
+      }
 
       // Engine 2: Fallback from valid non-void sales orders * menu_recipes (skips orders already moved)
       let recipeBomUsedQty = 0;
@@ -721,9 +737,12 @@ export function MoneyAllocationPage({
         }
       }
 
-      // Dual-Engine: Physical recorded movements + un-recorded retroactive orders
-      const usedQty = movementUsedQty + recipeBomUsedQty;
-      const totalEarned = Math.round(usedQty * unit_cost);
+      // Dual-Engine: Physical recorded movements (with historic cost snapshot) + un-recorded retroactive orders
+      const rawUsedQty = movementUsedQty + recipeBomUsedQty;
+      const usedQty = Number(rawUsedQty.toFixed(3));
+      // Prioritize historic snapshot cost for recorded movements + current unit_cost for retroactive recipe orders
+      const retroactiveCost = recipeBomUsedQty * unit_cost;
+      const totalEarned = Math.round(movementHistoricCost + retroactiveCost);
       const spent = spentAmounts[item.id] || 0;
       const added = manualAdded[item.id] || 0;
       const accumulated_balance = Math.max(0, totalEarned - spent + added);
@@ -1383,10 +1402,17 @@ export function MoneyAllocationPage({
               <p className="mt-2 text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
                 {formatRupiah(labaBersihMurni)}
               </p>
-              <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
-                Laba Kas Bersih setelah BOM, Gaji Cair &amp; Kas Keluar Kasir
-                {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
-              </p>
+              <div className="mt-1 space-y-0.5">
+                <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
+                  Laba Kas Bersih setelah BOM, Gaji Cair &amp; Kas Keluar Kasir
+                  {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
+                </p>
+                {totalSalarySavings > 0 && (
+                  <p className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300">
+                    💡 Sisa Setelah Cadangan Gaji Belum Cair: {formatRupiah(Math.max(0, labaBersihMurni - totalSalarySavings))}
+                  </p>
+                )}
+              </div>
             </div>
           ) : (
             <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 shadow-xs flex flex-col justify-between opacity-70">
@@ -1632,7 +1658,7 @@ export function MoneyAllocationPage({
                       )}
                       <div className="flex items-center justify-between text-[9px] text-muted-foreground pt-1 border-t border-amber-500/10">
                         <span>
-                          Keluar: <strong>{Number(pocket.usedQty % 1 === 0 ? pocket.usedQty : pocket.usedQty.toFixed(2)).toLocaleString("id-ID")} {pocket.item.unit}</strong>
+                          Keluar: <strong>{Number(pocket.usedQty.toFixed(3)).toLocaleString("id-ID", { maximumFractionDigits: 3 })} {pocket.item.unit}</strong>
                           {Number(pocket.item.yield_per_unit) > 0 && (
                             <span className="text-[8.5px] opacity-80 block">
                               (± {Math.round(pocket.usedQty * Number(pocket.item.yield_per_unit)).toLocaleString("id-ID")} {pocket.item.yield_unit || "gram"})

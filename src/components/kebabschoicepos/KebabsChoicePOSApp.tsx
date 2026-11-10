@@ -3364,6 +3364,11 @@ async function depleteIngredientStock({
     quantity: convertedQuantity,
     unit: targetInvRow.unit || ingredient.unit || "gram",
     remaining_stock: newStock,
+    unit_cost: Number(targetInvRow.cost_price || 0),
+    cost_per_unit: Number(targetInvRow.cost_price || 0),
+    cost_price: Number(targetInvRow.cost_price || 0),
+    yield_per_unit: Number(targetInvRow.yield_per_unit) || null,
+    yield_unit: targetInvRow.yield_unit || null,
     notes: `${prefixNote} #${orderNumber}: ${cartItemQuantity}x ${cartItemName}`,
     created_at: new Date().toISOString(),
   };
@@ -3455,6 +3460,24 @@ function PosPage({
       }
     }
   }, [isOwner, snapshot.assignedOutletId, activeOutlets, selectedOutletId]);
+
+  // Strictly enforce a real outlet (never "all") whenever in POS mode
+  useEffect(() => {
+    const isInvalid =
+      !selectedOutletId ||
+      selectedOutletId === "all" ||
+      !activeOutlets.some((o) => o.id === selectedOutletId);
+    if (isInvalid && activeOutlets.length > 0) {
+      const targetId = (!isOwner && snapshot.assignedOutletId) || activeOutlets[0]?.id;
+      if (targetId && targetId !== selectedOutletId) {
+        setSelectedOutletId(targetId);
+        try {
+          localStorage.setItem("kebabschoicepos_active_outlet_id", targetId);
+          localStorage.setItem("kebabschoicepos_selected_outlet_id", targetId);
+        } catch {}
+      }
+    }
+  }, [isOwner, selectedOutletId, activeOutlets, snapshot.assignedOutletId]);
 
   // Sync selected outlet to localStorage when changed
   useEffect(() => {
@@ -4644,7 +4667,14 @@ function PosPage({
 
     const orderNumber = `KP-${Date.now().toString().slice(-8)}`;
     const chosenOutletId =
-      selectedOutletId !== "all" ? selectedOutletId : activeOutlets[0]?.id || null;
+      selectedOutletId && selectedOutletId !== "all"
+        ? selectedOutletId
+        : (activeOutlets[0]?.id || snapshot.assignedOutletId || null);
+
+    if (!chosenOutletId) {
+      toast.error("Pilih Cabang Outlet terlebih dahulu sebelum melakukan transaksi kasir.");
+      return;
+    }
     const isOjolChannel = ["gofood", "grabfood", "shopeefood"].includes(orderType);
     let effectiveCustomerId: string | null = null;
     let effectiveCustomerName = "Pelanggan Umum";

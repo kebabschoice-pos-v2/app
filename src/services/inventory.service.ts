@@ -551,15 +551,15 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
     const key = `${(item.outlet_id || "hq").toLowerCase()}___${item.name.trim().toLowerCase()}`;
     const keyName = item.name.toLowerCase().trim();
 
-    // Auto-heal legacy invalid cost for known items
-    if (keyName.includes("daging") && item.cost_price <= 1000) {
+    // Default fallbacks only if uninitialized (cost_price <= 0). Never overwrite user customizations!
+    if (keyName.includes("daging") && item.cost_price <= 0) {
       item.cost_price = 120000;
       if (!item.yield_per_unit || item.yield_per_unit <= 1) {
         item.yield_per_unit = 2000;
         item.yield_unit = "gram";
       }
-    } else if (keyName.includes("tortilla") && (item.cost_price <= 0 || item.cost_price === 20000 || !item.yield_per_unit || item.yield_per_unit <= 1)) {
-      if (item.cost_price <= 0 || item.cost_price === 20000) item.cost_price = 25000;
+    } else if (keyName.includes("tortilla") && item.cost_price <= 0) {
+      item.cost_price = 25000;
       if (!item.yield_per_unit || item.yield_per_unit <= 1) {
         item.yield_per_unit = 20;
         item.yield_unit = "pcs";
@@ -572,16 +572,14 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
       const existing = seenMap.get(key)!;
       const existingCost = existing.cost_price || 0;
       const currentCost = item.cost_price || 0;
-      if (currentCost > existingCost && (currentCost >= 10000 || existingCost <= 1000)) {
-        // Asynchronously delete the old invalid item from database if client has permission
-        if (existingCost <= 1000 && existing.id !== item.id) {
-          supabase.from("inventory_items").delete().eq("id", existing.id).then(() => {}, () => {});
+      if (currentCost > existingCost) {
+        seenMap.set(key, item);
+      } else if (currentCost === existingCost) {
+        const itemTime = item.updated_at ? new Date(item.updated_at).getTime() : 0;
+        const existTime = existing.updated_at ? new Date(existing.updated_at).getTime() : 0;
+        if (itemTime > existTime) {
+          seenMap.set(key, item);
         }
-        seenMap.set(key, item);
-      } else if (item.yield_per_unit && !existing.yield_per_unit) {
-        seenMap.set(key, item);
-      } else if (currentCost <= 1000 && existingCost >= 10000 && existing.id !== item.id) {
-        supabase.from("inventory_items").delete().eq("id", item.id).then(() => {}, () => {});
       }
     }
   }

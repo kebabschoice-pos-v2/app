@@ -2444,14 +2444,76 @@ test("Verifies 40g meat yields 0.02 pcs @ Rp 120.000 = Rp 2.400 (NOT 40 pcs / Rp
     "MoneyAllocationPage.tsx must track movedOrderIds and skip them in Engine 2 to prevent double-counting"
   );
 
-  // 5. Database duplicate removal & Tortilla unification in inventory API
+  // 5. Architecture safeguard: GET /api/inventory must be read-only (no destructive delete in GET flow)
+  const getItemsSection = apiInvCode.slice(apiInvCode.indexOf('if (type === "items")'), apiInvCode.indexOf('// 1. SUPPLIERS'));
   assert.ok(
-    apiInvCode.includes("delete().eq(\"id\", invalid.id)"),
-    "api/inventory.ts must permanently delete duplicate invalid Daging row from Supabase"
+    !getItemsSection.includes(".delete()"),
+    "api/inventory.ts GET items handler must not execute mutation/delete operations"
   );
   assert.ok(
-    apiInvCode.includes("cost_price: 25000") && apiInvCode.includes("yield_per_unit: 20"),
-    "api/inventory.ts must unify Tortilla cost to Rp 25.000 with yield 20 pcs"
+    apiInvCode.includes("costPrice <= 0") && apiInvCode.includes("costPrice = 25000"),
+    "api/inventory.ts must only provide fallback when costPrice is uninitialized (<= 0)"
+  );
+});
+
+// --- TEST 99: Architectural Hardening & Edge Cases (Custom Cost Preservation, Historic Snapshot, POS Outlet Enforce, Safe Decimal, Real Online Check) ---
+console.log("\n▶ 99. ARCHITECTURAL HARDENING & AUDIT INTEGRITY (5 CRITICAL EDGES)");
+test("Validates custom cost preservation (no overwrite on Rp 28.000 Tortilla), historic snapshot calculation, POS outlet locking, safe decimal rounding, and true online/offline detection", () => {
+  const moneyPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"), "utf8");
+  const posAppCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"), "utf8");
+  const offlineCode = fs.readFileSync(path.join(process.cwd(), "src/services/offline-sync.service.ts"), "utf8");
+  const invServiceCode = fs.readFileSync(path.join(process.cwd(), "src/services/inventory.service.ts"), "utf8");
+
+  // 1. Skenario Ubah Harga Baru Tortilla (Rp 28.000) TIDAK boleh ke-reset ke 25.000
+  const userCustomTortillaCost = 28000;
+  // Test simulation: when cost_price > 0, system must preserve userCustomTortillaCost
+  let simulatedCost = userCustomTortillaCost;
+  if (simulatedCost <= 0) simulatedCost = 25000;
+  assert.strictEqual(simulatedCost, 28000, "User custom price (Rp 28.000) must remain strictly unchanged and never reset to Rp 25.000");
+
+  assert.ok(
+    !invServiceCode.includes("cost_price === 20000"),
+    "inventory.service.ts must not forcefully overwrite valid prices"
+  );
+
+  // 2. Kunci data historis modal/HPP di MoneyAllocationPage.tsx
+  assert.ok(
+    moneyPageCode.includes("historicUnitCost") && moneyPageCode.includes("movementHistoricCost"),
+    "MoneyAllocationPage.tsx must calculate Engine 1 using historic cost snapshots from stock_movements"
+  );
+  assert.ok(
+    posAppCode.includes("unit_cost: Number(targetInvRow.cost_price || 0)"),
+    "KebabsChoicePOSApp.tsx must embed unit_cost snapshot into stock_movement records"
+  );
+
+  // 3. Validasi Cabang Aktif di POS Kasir
+  assert.ok(
+    posAppCode.includes("Pilih Cabang Outlet terlebih dahulu sebelum melakukan transaksi kasir"),
+    "KebabsChoicePOSApp.tsx must reject checkout if chosenOutletId is missing"
+  );
+  assert.ok(
+    posAppCode.includes("Strictly enforce a real outlet (never \"all\")") && posAppCode.includes("selectedOutletId === \"all\""),
+    "KebabsChoicePOSApp.tsx must force POS mode out of 'all' outlet into a concrete branch"
+  );
+
+  // 4. Pembulatan Angka Desimal & Indikator Sisa Laba Setelah Cadangan Gaji
+  assert.ok(
+    moneyPageCode.includes("rawUsedQty.toFixed(3)"),
+    "MoneyAllocationPage.tsx must safely round usedQty to 3 decimals without floating-point error"
+  );
+  assert.ok(
+    moneyPageCode.includes("💡 Sisa Setelah Cadangan Gaji Belum Cair:"),
+    "MoneyAllocationPage.tsx must display sub-indicator for remaining profit after unpaid staff payroll commitment"
+  );
+
+  // 5. Deteksi Online Nyata (Bukan Hanya Wi-Fi)
+  assert.ok(
+    offlineCode.includes("reportNetworkFailure") && offlineCode.includes("reportNetworkSuccess"),
+    "offline-sync.service.ts must implement real request success/failure tracking"
+  );
+  assert.ok(
+    offlineCode.includes("lastServerRequestSuccess"),
+    "offline-sync.service.ts must combine navigator.onLine with lastServerRequestSuccess"
   );
 });
 

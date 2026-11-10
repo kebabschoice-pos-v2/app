@@ -49,7 +49,7 @@ import {
   type StockMovementRecord,
 } from "@/services/inventory.service";
 import { getHRStaffProfiles, type StaffProfile } from "@/services/hr.service";
-import { convertRecipeToInventoryQuantity } from "@/services/menu.service";
+import { convertRecipeToInventoryQuantity, getMenuItems } from "@/services/menu.service";
 
 export interface PackConfig {
   pack_size: number;
@@ -368,7 +368,7 @@ export function MoneyAllocationPage({
       );
       setSalesOrders(cleanOrders);
 
-      // Fetch recipes
+      // Fetch recipes from both outlets settings and menu_items catalog
       const recipes: Record<string, any> = {};
       try {
         const { data: outletData } = await supabase.from("outlets").select("settings");
@@ -376,6 +376,20 @@ export function MoneyAllocationPage({
           for (const o of outletData) {
             const s = (o.settings as any) || {};
             if (s.menu_recipes) Object.assign(recipes, s.menu_recipes);
+          }
+        }
+      } catch {}
+
+      try {
+        const menuItems = await getMenuItems({ businessId: bId || undefined }).catch(() => []);
+        for (const m of menuItems) {
+          const rec = m.recipe || (m.recipe_items && m.recipe_items.length > 0 ? { items: m.recipe_items } : null);
+          if (rec) {
+            recipes[m.id] = rec;
+            if (m.name) {
+              recipes[m.name] = rec;
+              recipes[m.name.toLowerCase().trim()] = rec;
+            }
           }
         }
       } catch {}
@@ -611,17 +625,22 @@ export function MoneyAllocationPage({
         if (Array.isArray(ord.items)) {
           for (const line of ord.items) {
             const lineQty = Number(line.quantity) || 1;
+            const lineNameClean = (line.name || "").toLowerCase().trim();
             const recipe =
               line.recipe ||
               menuRecipes[line.id] ||
               menuRecipes[line.product_id] ||
-              menuRecipes[line.name];
-            if (recipe && Array.isArray(recipe.items)) {
-              for (const ing of recipe.items) {
+              menuRecipes[line.name] ||
+              (lineNameClean ? menuRecipes[lineNameClean] : null);
+            const recipeItems = (recipe && (recipe.items || recipe.recipe_items)) || [];
+            if (Array.isArray(recipeItems) && recipeItems.length > 0) {
+              for (const ing of recipeItems) {
+                const ingNameClean = (ing.ingredient_name || ing.name || "").toLowerCase().trim();
+                const itemNameClean = (item.name || "").toLowerCase().trim();
                 if (
                   ing.inventory_item_id === item.id ||
                   ing.id === item.id ||
-                  (ing.name && ing.name.toLowerCase() === item.name.toLowerCase())
+                  (ingNameClean && itemNameClean && ingNameClean === itemNameClean)
                 ) {
                   const ingConverted = convertRecipeToInventoryQuantity(
                     Number(ing.quantity) || 1,
@@ -1421,14 +1440,16 @@ export function MoneyAllocationPage({
             </p>
           </div>
           <div className="flex items-center gap-2 mt-2 sm:mt-0">
-            <Button
-              size="sm"
-              className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground"
-              onClick={() => setIsAddingItemModal(true)}
-            >
-              <PackagePlus className="size-3.5" />
-              Tambah Bahan Baku & Setting Kemasan
-            </Button>
+            {computedBomPockets.length > 0 && (
+              <Button
+                size="sm"
+                className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground"
+                onClick={() => setIsAddingItemModal(true)}
+              >
+                <PackagePlus className="size-3.5" />
+                Tambah Bahan Baku &amp; Setting Kemasan
+              </Button>
+            )}
             <Badge variant="outline" className="text-xs font-bold font-mono">
               Total Saldo BOM: {formatRupiah(totalBomSavings)}
             </Badge>

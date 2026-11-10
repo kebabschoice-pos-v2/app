@@ -498,7 +498,7 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
 
   const extraMeta = store.item_meta || {};
 
-  return (dbItems || []).map((row) => {
+  const mappedItems: InventoryItemDetail[] = (dbItems || []).map((row) => {
     const meta = extraMeta[row.id] || {};
     const stockVal = Number(row.stock) || 0;
     const minVal = Number(row.minimum_stock) || 0;
@@ -542,6 +542,27 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
       status,
     };
   });
+
+  // Deduplicate items in the same outlet with the same name:
+  // If duplicates exist, pick the one with valid/higher cost_price or valid yield_per_unit,
+  // avoiding invalid legacy duplicates (e.g. cost Rp 1.000 vs Rp 120.000).
+  const seenMap = new Map<string, InventoryItemDetail>();
+  for (const item of mappedItems) {
+    const key = `${(item.outlet_id || "hq").toLowerCase()}___${item.name.trim().toLowerCase()}`;
+    if (!seenMap.has(key)) {
+      seenMap.set(key, item);
+    } else {
+      const existing = seenMap.get(key)!;
+      const existingCost = existing.cost_price || 0;
+      const currentCost = item.cost_price || 0;
+      if (currentCost > existingCost && currentCost >= 10000 && existingCost <= 1000) {
+        seenMap.set(key, item);
+      } else if (item.yield_per_unit && !existing.yield_per_unit) {
+        seenMap.set(key, item);
+      }
+    }
+  }
+  return Array.from(seenMap.values());
 }
 
 /**
@@ -599,6 +620,23 @@ export async function createInventoryItem(
   businessId?: string,
 ): Promise<InventoryItemDetail> {
   const bid = await resolveActiveBusinessId(businessId);
+
+  // Check if item with same name in same outlet already exists to prevent duplicate insertion
+  try {
+    const existingItems = await getInventoryItems(bid);
+    const existingDup = existingItems.find(
+      (i) =>
+        i.name.trim().toLowerCase() === data.name.trim().toLowerCase() &&
+        (i.outlet_id || null) === (data.outlet_id || null),
+    );
+    if (existingDup) {
+      await updateInventoryItem(existingDup.id, data, bid);
+      return {
+        ...existingDup,
+        ...data,
+      };
+    }
+  } catch {}
 
   // 1. Try serverless endpoint first (supabaseAdmin)
   try {

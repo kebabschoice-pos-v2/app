@@ -484,6 +484,14 @@ export function InventoryManagement() {
 
       let savedItemId = editingItem?.id;
 
+      const existingDuplicate = !editingItem
+        ? items.find((i) => {
+            const sameName = i.name?.trim().toLowerCase() === formName.trim().toLowerCase();
+            const sameOutlet = (i.outlet_id || null) === (formOutletId || null);
+            return sameName && sameOutlet;
+          })
+        : null;
+
       if (editingItem) {
         await updateInventoryItem(editingItem.id, {
           name: formName.trim(),
@@ -497,6 +505,20 @@ export function InventoryManagement() {
           ...yieldPayload,
         });
         toast.success("Bahan baku berhasil diperbarui");
+      } else if (existingDuplicate) {
+        await updateInventoryItem(existingDuplicate.id, {
+          name: formName.trim(),
+          category: formCategory,
+          unit: formUnit,
+          cost_price: finalCost,
+          stock: Number(formStock) || 0,
+          minimum_stock: Number(formMinStock) || 0,
+          supplier_id: formSupplierId || null,
+          ...outletPayload,
+          ...yieldPayload,
+        });
+        savedItemId = existingDuplicate.id;
+        toast.success(`Bahan baku "${formName.trim()}" sudah ada, data berhasil diperbarui`);
       } else {
         const created = await createInventoryItem({
           name: formName.trim(),
@@ -1192,29 +1214,29 @@ export function InventoryManagement() {
                   );
                   setCloneModalOpen(true);
                 }}
-                className="rounded-2xl gap-1.5 text-primary border-primary/30 hover:bg-primary/10 font-bold"
+                className="rounded-2xl gap-1.5 text-primary border-primary/30 hover:bg-primary/10 font-bold whitespace-nowrap"
                 title="Sinkronkan / Salin Master Bahan dari Cabang Lain"
               >
                 <Copy className="size-4" />
-                <span>🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain</span>
+                <span>Salin Master</span>
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenStockIn()}
-                className="rounded-2xl gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10"
+                className="rounded-2xl gap-1.5 text-emerald-600 dark:text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/10 font-bold whitespace-nowrap"
               >
                 <ArrowDownLeft className="size-4" />
-                <span>+ Catat Masuk</span>
+                <span>+ Masuk</span>
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => handleOpenStockOut()}
-                className="rounded-2xl gap-1.5 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+                className="rounded-2xl gap-1.5 text-rose-600 dark:text-rose-400 border-rose-500/30 hover:bg-rose-500/10 font-bold whitespace-nowrap"
               >
                 <ArrowUpRight className="size-4" />
-                <span>- Catat Keluar</span>
+                <span>- Keluar</span>
               </Button>
             </div>
           </div>

@@ -113,6 +113,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuLabel,
+} from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import {
   getBusinessProfile,
@@ -1119,33 +1127,6 @@ function Header({
           </button>
         </div>
         <div className="flex items-center gap-2 sm:gap-2.5">
-          {/* Mode Tablet Layar Penuh Focus Toggle */}
-          {onToggleTabletFocusMode && (
-            <Button
-              variant={isTabletFocusMode ? "default" : "outline"}
-              size="icon"
-              className={cn(
-                "size-10 rounded-2xl border-border transition-all shadow-xs cursor-pointer",
-                isTabletFocusMode
-                  ? "bg-primary text-primary-foreground shadow-brand"
-                  : "bg-card/70 hover:bg-secondary text-foreground",
-              )}
-              onClick={onToggleTabletFocusMode}
-              title={
-                isTabletFocusMode
-                  ? "Keluar Mode Tablet Penuh (Tampilkan Sidebar & Bar Atas)"
-                  : "Mode Tablet Fokus Penuh (1-Klik Maksimalkan Layar Katalog & Cart)"
-              }
-              aria-label="Mode Layar Penuh Tablet"
-            >
-              {isTabletFocusMode ? (
-                <Minimize2 className="size-4" />
-              ) : (
-                <Maximize2 className="size-4 text-primary" />
-              )}
-            </Button>
-          )}
-
           {/* Quick Search on Mobile */}
           <Button
             variant="outline"
@@ -1157,52 +1138,59 @@ function Header({
           >
             <Search className="size-3.5 text-primary" />
           </Button>
-          {/* Quick Theme Switcher */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="rounded-2xl border-border bg-card/70 hover:bg-secondary text-xs font-bold transition-all shadow-xs"
-            onClick={onOpenThemeModal}
-            title="Kustomisasi Tema UI (Light / Dark / Colors)"
-            aria-label="Kustomisasi Tema UI"
-          >
-            <Palette className="size-3.5 text-primary" />
-          </Button>
 
-          {/* Tombol Kembali ke HQ khusus untuk Akun Owner/HQ saat di layar POS */}
+          {/* Mode Switcher: POS vs HQ */}
           {isOwner && isPosPage && (
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <Link
                 to="/dashboard"
-                className="h-9 px-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-brand transition-all cursor-pointer"
+                className="h-9 px-3 sm:px-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-brand transition-all cursor-pointer"
                 title="Kembali ke Dashboard HQ"
               >
                 <Building2 className="size-4 shrink-0" />
-                <span className="hidden sm:inline">🏢 Kembali ke Dashboard HQ</span>
+                <span className="hidden sm:inline">🏢 Kembali ke HQ</span>
                 <span className="sm:hidden font-bold">🏢 HQ</span>
               </Link>
               {onOpenBranchPosSwitchModal && (
-                <Button
-                  variant="outline"
-                  size="sm"
+                <button
+                  type="button"
                   onClick={onOpenBranchPosSwitchModal}
-                  className="h-9 px-2.5 rounded-2xl border-border bg-card/70 hover:bg-secondary font-bold text-xs gap-1 cursor-pointer"
+                  className="h-9 px-2.5 sm:px-3 rounded-2xl border border-border bg-card/80 hover:bg-secondary text-foreground font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition-all cursor-pointer max-w-[160px] sm:max-w-[210px]"
                   title="Ganti Cabang POS"
                 >
-                  <Monitor className="size-3.5 text-primary" />
-                  <span className="hidden md:inline text-[11px]">Ganti Cabang</span>
-                </Button>
+                  <Store className="size-3.5 text-primary shrink-0" />
+                  <span className="truncate">📍 {(() => {
+                    if (typeof window !== "undefined") {
+                      try {
+                        const activeRaw = localStorage.getItem("kebabschoicepos_active_outlet");
+                        if (activeRaw) {
+                          const parsed = JSON.parse(activeRaw);
+                          if (parsed?.name) return parsed.name;
+                        }
+                        const selId =
+                          localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+                          localStorage.getItem("kebabschoicepos_active_outlet_id");
+                        if (selId && selId !== "all") {
+                          const found = snapshot.outlets?.find((o) => o.id === selId);
+                          if (found) return found.name;
+                        }
+                      } catch {}
+                    }
+                    const assigned = snapshot.outlets?.find((o) => o.id === snapshot.assignedOutletId);
+                    return assigned?.name || snapshot.outlets?.[0]?.name || "Cabang";
+                  })()}</span>
+                  <ChevronDown className="size-3 text-muted-foreground shrink-0" />
+                </button>
               )}
             </div>
           )}
 
-          {/* Masuk POS Quick Entry for Owner/HQ saat di luar layar POS */}
           {isOwner && !isPosPage && onOpenBranchPosSwitchModal && (
             <Button
               variant="hero"
               size="sm"
               onClick={onOpenBranchPosSwitchModal}
-              className="h-9 px-3 rounded-2xl bg-primary text-primary-foreground font-black text-xs gap-1.5 shadow-brand hover:opacity-95 cursor-pointer shrink-0"
+              className="h-9 px-3 sm:px-3.5 rounded-2xl bg-primary text-primary-foreground font-black text-xs gap-1.5 shadow-brand hover:opacity-95 cursor-pointer shrink-0"
               title="Masuk POS Kasir (Pilih Cabang Langsung Masuk)"
             >
               <Monitor className="size-4" />
@@ -1210,59 +1198,117 @@ function Header({
             </Button>
           )}
 
-          {/* Quick Language Switcher */}
-          <Link
-            to="/language-settings"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-2xl border border-border bg-card/70 hover:bg-secondary text-xs font-bold transition-all shadow-xs"
-            title={t("nav.language", "Pengaturan Bahasa")}
-          >
-            <Globe2 className="size-3.5 text-primary" />
-            <span className="font-extrabold">{currentLang}</span>
-          </Link>
-
+          {/* Notifikasi Bell */}
           <Button variant="outline" size="icon" className="rounded-2xl" aria-label="Notifikasi">
             <BellRing className="size-4" />
           </Button>
-          {/* Active Cashier Badge with Fast Switch */}
-          {(active === "pos" || !isHQ) && activeCashierName && (
+
+          {/* Active Cashier Badge with Fast Switch (Only in POS) */}
+          {(isPosPage || !isHQ) && activeCashierName && (
             <button
               type="button"
               onClick={onOpenCashierSwitchModal}
-              title="Ganti Kasir Bertugas (Tukar kru kasir tanpa logout perangkat)"
-              className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-2xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-foreground transition-all cursor-pointer shadow-xs text-left"
+              title="Ganti Kasir Bertugas"
+              className="flex items-center gap-1.5 sm:gap-2 px-2 sm:px-2.5 py-1.5 rounded-2xl border border-primary/30 bg-primary/10 hover:bg-primary/20 text-foreground transition-all cursor-pointer shadow-xs text-left"
             >
-              <div className="size-7 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs shrink-0">
+              <div className="size-6 sm:size-7 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-bold text-xs shrink-0">
                 <UserCheck className="size-3.5" />
               </div>
-              <div className="hidden sm:block min-w-0">
-                <div className="flex items-center gap-1">
-                  <span className="text-[9px] font-black uppercase text-primary tracking-wider">
-                    Kasir:
-                  </span>
-                  <span className="text-[9px] px-1 rounded bg-primary/20 text-primary font-bold">
-                    Ganti
-                  </span>
-                </div>
-                <p className="text-xs font-black truncate max-w-[110px] md:max-w-[140px] text-foreground">
+              <div className="hidden md:block min-w-0 max-w-[100px]">
+                <p className="text-[9px] font-black uppercase text-primary tracking-wider leading-none">
+                  Kasir
+                </p>
+                <p className="text-xs font-black truncate text-foreground leading-tight">
                   {activeCashierName}
                 </p>
               </div>
             </button>
           )}
 
-          <div className="hidden text-right sm:block">
-            <p className="text-sm font-bold">{profile.displayName}</p>
-            <p className="text-xs text-muted-foreground">{profile.email}</p>
-          </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="rounded-2xl"
-            onClick={onSignOut}
-            aria-label={t("nav.logout", "Keluar")}
-          >
-            <LogOut className="size-4" />
-          </Button>
+          {/* Dropdown Menu Profil Ramping (Tema, Bahasa, Fullscreen, Profil, Logout) */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="flex items-center gap-2 pl-2 pr-2.5 sm:pr-3 py-1.5 rounded-2xl border border-border bg-card/80 hover:bg-secondary transition-all cursor-pointer shadow-xs text-left group"
+              >
+                <div className="size-7 sm:size-8 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold text-xs shrink-0 group-hover:bg-primary group-hover:text-primary-foreground transition-colors">
+                  <UserRound className="size-3.5 sm:size-4" />
+                </div>
+                <div className="hidden sm:block min-w-0 max-w-[110px]">
+                  <p className="text-xs font-black truncate text-foreground leading-tight">
+                    {profile.displayName || "Pengguna"}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground truncate uppercase font-semibold">
+                    {snapshot.role}
+                  </p>
+                </div>
+                <ChevronDown className="size-3.5 text-muted-foreground shrink-0" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-56 rounded-2xl p-2 shadow-float border-border bg-popover z-50">
+              <div className="px-2 py-1.5 border-b border-border mb-1">
+                <p className="text-xs font-black text-foreground truncate">{profile.displayName || "Pengguna"}</p>
+                <p className="text-[11px] text-muted-foreground truncate">{profile.email}</p>
+                <span className="inline-block mt-1 text-[9px] font-bold px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">
+                  {snapshot.role}
+                </span>
+              </div>
+
+              {onToggleTabletFocusMode && (
+                <DropdownMenuItem
+                  onClick={onToggleTabletFocusMode}
+                  className="rounded-xl flex items-center gap-2.5 text-xs font-semibold py-2 cursor-pointer"
+                >
+                  {isTabletFocusMode ? <Minimize2 className="size-4 text-primary" /> : <Maximize2 className="size-4 text-primary" />}
+                  <span>{isTabletFocusMode ? "Keluar Fullscreen" : "Layar Penuh (Tablet)"}</span>
+                </DropdownMenuItem>
+              )}
+
+              {onOpenThemeModal && (
+                <DropdownMenuItem
+                  onClick={onOpenThemeModal}
+                  className="rounded-xl flex items-center gap-2.5 text-xs font-semibold py-2 cursor-pointer"
+                >
+                  <Palette className="size-4 text-primary" />
+                  <span>Kustomisasi Tema UI</span>
+                </DropdownMenuItem>
+              )}
+
+              <DropdownMenuItem asChild>
+                <Link
+                  to="/language-settings"
+                  className="rounded-xl flex items-center justify-between text-xs font-semibold py-2 cursor-pointer"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Globe2 className="size-4 text-primary" />
+                    <span>Bahasa Sistem</span>
+                  </div>
+                  <span className="font-extrabold text-[10px] bg-secondary px-1.5 py-0.5 rounded">{currentLang}</span>
+                </Link>
+              </DropdownMenuItem>
+
+              <DropdownMenuItem asChild>
+                <Link
+                  to="/profile"
+                  className="rounded-xl flex items-center gap-2.5 text-xs font-semibold py-2 cursor-pointer"
+                >
+                  <UserRound className="size-4 text-primary" />
+                  <span>Pengaturan Profil</span>
+                </Link>
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator className="my-1 border-border" />
+
+              <DropdownMenuItem
+                onClick={onSignOut}
+                className="rounded-xl flex items-center gap-2.5 text-xs font-bold text-destructive hover:bg-destructive/10 focus:bg-destructive/10 focus:text-destructive py-2 cursor-pointer"
+              >
+                <LogOut className="size-4" />
+                <span>{t("nav.logout", "Keluar / Logout")}</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
     </header>
@@ -1586,27 +1632,6 @@ function Sidebar({
              POS OUTLET SYSTEM (Strict Cashier / POS View)
              ================================================== */
           <>
-            {/* TOMBOL KEMBALI KE DASHBOARD HQ KHUSUS UNTUK AKUN OWNER */}
-            {isOwner && (
-              <div className="mb-3 px-1">
-                <Link
-                  to="/dashboard"
-                  className="w-full flex items-center justify-between gap-2.5 rounded-2xl p-3 bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white shadow-brand hover:opacity-95 transition-all text-left group cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="size-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                      <Building2 className="size-4.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-black text-xs uppercase tracking-wider">🏢 Kembali ke Dashboard HQ</p>
-                      <p className="text-[10px] opacity-90 truncate">Keluar Mode POS & Buka Panel HQ</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="size-4 opacity-75 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                </Link>
-              </div>
-            )}
-
             {/* POS Outlet & Cashier Live Banner */}
             <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3 space-y-1.5 mb-2 shadow-xs">
               <div className="flex items-center gap-2">
@@ -1862,28 +1887,6 @@ function Sidebar({
              HQ SYSTEM (Owner / Admin / Manager)
              ================================================== */
           <>
-            {/* QUICK ENTRY TO POS FOR OWNER */}
-            {onOpenBranchPosSwitchModal && (
-              <div className="mb-3 px-1">
-                <button
-                  type="button"
-                  onClick={onOpenBranchPosSwitchModal}
-                  className="w-full flex items-center justify-between gap-2.5 rounded-2xl p-3 bg-gradient-to-r from-primary to-primary/85 text-primary-foreground shadow-brand hover:opacity-95 transition-all text-left group cursor-pointer"
-                >
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="size-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                      <Monitor className="size-4.5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="font-black text-xs uppercase tracking-wider">🖥️ Masuk POS</p>
-                      <p className="text-[10px] opacity-90 truncate">Pilih Cabang &amp; Langsung Buka</p>
-                    </div>
-                  </div>
-                  <ChevronRight className="size-4 opacity-75 group-hover:translate-x-0.5 transition-transform shrink-0" />
-                </button>
-              </div>
-            )}
-
             {/* GROUP 1: RINGKASAN & LAPORAN */}
             {(!isManager || managerPermissions.includes("reports")) && (
               <AccordionGroup
@@ -3418,8 +3421,30 @@ function PosPage({
   const activeOutlets = snapshot.outlets?.filter((o) => o.active !== false) || [];
   // prettier-ignore
   const assignedOutlet = activeOutlets.find((o) => o.id === snapshot.assignedOutletId) || activeOutlets[0];
-  const defaultOutletId = !isOwner ? assignedOutlet?.id || "all" : activeOutlets[0]?.id || "all";
-  const [selectedOutletId, setSelectedOutletId] = useState<string>(defaultOutletId);
+
+  const getInitialOutletId = () => {
+    if (typeof window !== "undefined") {
+      const saved =
+        localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+        localStorage.getItem("kebabschoicepos_active_outlet_id");
+      if (saved && (saved === "all" || activeOutlets.some((o) => o.id === saved))) {
+        return saved;
+      }
+    }
+    return !isOwner ? assignedOutlet?.id || "all" : activeOutlets[0]?.id || "all";
+  };
+  const [selectedOutletId, setSelectedOutletId] = useState<string>(getInitialOutletId);
+
+  // Listen to outlet:changed event
+  useEffect(() => {
+    const handleOutletChange = (e: any) => {
+      if (e.detail?.outletId && e.detail.outletId !== selectedOutletId) {
+        setSelectedOutletId(e.detail.outletId);
+      }
+    };
+    window.addEventListener("outlet:changed", handleOutletChange);
+    return () => window.removeEventListener("outlet:changed", handleOutletChange);
+  }, [selectedOutletId]);
 
   // If cashier or staff, strictly lock to their assigned outlet (business_members.outlet_id)
   useEffect(() => {
@@ -3436,6 +3461,7 @@ function PosPage({
     if (selectedOutletId && selectedOutletId !== "all") {
       try {
         localStorage.setItem("kebabschoicepos_active_outlet_id", selectedOutletId);
+        localStorage.setItem("kebabschoicepos_selected_outlet_id", selectedOutletId);
       } catch {}
     }
   }, [selectedOutletId]);
@@ -3443,18 +3469,84 @@ function PosPage({
   // Active shift state for live status strictly bound to selected outlet
   const [activeShift, setActiveShift] = useState<any>(null);
   useEffect(() => {
-    try {
-      const outletShift =
-        selectedOutletId && selectedOutletId !== "all"
-          ? localStorage.getItem(`kebabschoicepos_active_shift_${selectedOutletId}`)
-          : null;
-      const saved = outletShift || localStorage.getItem("kebabschoicepos_active_shift");
-      if (saved) setActiveShift(JSON.parse(saved));
-      else setActiveShift(null);
-    } catch {
-      setActiveShift(null);
+    let isCancelled = false;
+
+    async function syncShift() {
+      try {
+        const outletShift =
+          selectedOutletId && selectedOutletId !== "all"
+            ? localStorage.getItem(`kebabschoicepos_active_shift_${selectedOutletId}`)
+            : null;
+        const saved = outletShift || localStorage.getItem("kebabschoicepos_active_shift");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (
+            parsed?.status === "open" &&
+            (!selectedOutletId || selectedOutletId === "all" || parsed.outletId === selectedOutletId)
+          ) {
+            if (!isCancelled) setActiveShift(parsed);
+          }
+        }
+      } catch {}
+
+      if (selectedOutletId && selectedOutletId !== "all") {
+        try {
+          const { data: dbShifts } = await supabase
+            .from("pos_shifts" as any)
+            .select("*")
+            .eq("status", "open")
+            .eq("outlet_id", selectedOutletId)
+            .order("start_time", { ascending: false })
+            .limit(1);
+
+          if (dbShifts && dbShifts.length > 0 && !isCancelled) {
+            const row: any = dbShifts[0];
+            const liveShift = {
+              id: row.id,
+              cashierName: row.cashier_name || "Kasir",
+              cashierId: row.cashier_id,
+              teamMembers: row.team_members,
+              outletName:
+                row.outlet_name || activeOutlets.find((o) => o.id === selectedOutletId)?.name,
+              outletId: row.outlet_id || selectedOutletId,
+              startingCash: Number(row.opening_cash ?? row.starting_cash) || 0,
+              startTime: row.start_time || row.opened_at,
+              status: "open",
+              cashSales: Number(row.cash_sales) || 0,
+              totalCashIn: Number(row.total_cash_in) || 0,
+              totalCashOut: Number(row.total_cash_out) || 0,
+              expectedEndingCash:
+                Number(row.expected_ending_cash) || Number(row.opening_cash ?? row.starting_cash) || 0,
+              notes: row.notes,
+            };
+            setActiveShift(liveShift);
+            localStorage.setItem(
+              `kebabschoicepos_active_shift_${selectedOutletId}`,
+              JSON.stringify(liveShift),
+            );
+          } else if (!dbShifts || dbShifts.length === 0) {
+            if (!isCancelled) {
+              const localOutletShift = localStorage.getItem(
+                `kebabschoicepos_active_shift_${selectedOutletId}`,
+              );
+              if (!localOutletShift) setActiveShift(null);
+            }
+          }
+        } catch {}
+      }
     }
-  }, [selectedOutletId]);
+
+    syncShift();
+
+    const handleShiftUpdated = () => syncShift();
+    window.addEventListener("pos:shift-updated", handleShiftUpdated);
+    window.addEventListener("outlet:changed", handleShiftUpdated);
+    return () => {
+      isCancelled = true;
+      window.removeEventListener("pos:shift-updated", handleShiftUpdated);
+      window.removeEventListener("outlet:changed", handleShiftUpdated);
+    };
+  }, [selectedOutletId, activeOutlets]);
 
   // Thermal Printer & Hardware status
   const [printerInfo, setPrinterInfo] = useState<ConnectedPrinterInfo>({
@@ -3621,6 +3713,7 @@ function PosPage({
   const [tableNumber, setTableNumber] = useState<string>("");
   const [customerQueueName, setCustomerQueueName] = useState<string>("");
   const [ojolOrderCode, setOjolOrderCode] = useState<string>("");
+  const [showExtraDetails, setShowExtraDetails] = useState<boolean>(false);
 
   // Antrean Tersimpan (Hold Orders) State
   const [heldOrders, setHeldOrders] = useState<HeldOrder[]>(() => {
@@ -5181,450 +5274,172 @@ function PosPage({
   return (
     <div className="grid min-h-[calc(100vh-9rem)] gap-6 xl:grid-cols-[1fr_25rem]">
       <section className="space-y-5">
-        {isPosHeaderCollapsed ? (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card/85 px-3.5 py-2 shadow-sm backdrop-blur-xl">
-            {/* Status Ringkas */}
-            <div className="flex flex-wrap items-center gap-2 text-xs">
-              <div className="flex items-center gap-1.5 font-black text-foreground">
-                <Store className="size-3.5 text-primary" />
-                <span>
-                  {selectedOutletId === "all"
-                    ? "Semua Outlet"
-                    : activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
-                      activeOutlets[0]?.name ||
-                      "Outlet Utama"}
-                </span>
-              </div>
-              <span className="text-muted-foreground/40">•</span>
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                  activeShift?.status === "open"
-                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                    : "bg-rose-500/15 text-rose-600 dark:text-rose-400"
-                }`}
-              >
-                {activeShift?.status === "open" ? "🟢 Shift Buka" : "🔴 Shift Tutup"}
+        {/* 1 Bar Status Tipis (1 Baris Kompak) */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border bg-card/85 px-4 py-2.5 shadow-xs backdrop-blur-xl">
+          {/* Status Kiri: Online, Cabang, Kasir & Shift */}
+          <div className="flex flex-wrap items-center gap-2.5 text-xs">
+            {/* Status Online/Offline */}
+            {networkStatus.isSyncing ? (
+              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
+                <RefreshCw className="size-3 animate-spin" />
+                Menyinkronkan...
               </span>
-              <span className="text-muted-foreground/40">•</span>
-              {networkStatus.isSyncing ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
-                  <RefreshCw className="size-3 animate-spin" />
-                  Menyinkronkan...
-                </span>
-              ) : !networkStatus.isOnline || networkStatus.pendingCount > 0 ? (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-                  <WifiOff className="size-3" />
-                  Mode Offline — {networkStatus.pendingCount}
-                </span>
+            ) : !networkStatus.isOnline || networkStatus.pendingCount > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+                <WifiOff className="size-3" />
+                Mode Offline — {networkStatus.pendingCount} Transaksi
+                {networkStatus.pendingCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await syncPendingTransactions();
+                      } catch {}
+                    }}
+                    className="ml-1 underline text-[10px] hover:text-amber-700 cursor-pointer"
+                  >
+                    Sinkronkan Sekarang
+                  </button>
+                )}
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                Online
+              </span>
+            )}
+
+            <span className="text-muted-foreground/30">•</span>
+
+            {/* Cabang Aktif */}
+            <div className="flex items-center gap-1.5 font-bold text-foreground">
+              <Store className="size-3.5 text-primary shrink-0" />
+              {isOwner ? (
+                <select
+                  value={selectedOutletId}
+                  onChange={(e) => setSelectedOutletId(e.target.value)}
+                  className="bg-transparent font-black text-xs text-foreground focus:outline-none cursor-pointer"
+                  title="Pilih Cabang Aktif"
+                >
+                  {activeOutlets.length === 0 ? (
+                    <option value="all">Semua Outlet</option>
+                  ) : (
+                    <>
+                      {activeOutlets.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))}
+                      <option value="all">Semua Outlet</option>
+                    </>
+                  )}
+                </select>
               ) : (
-                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                  <Wifi className="size-3" />
-                  {t("pos.online_status", "Online")}
+                <span className="truncate max-w-[220px] font-black flex items-center gap-1" title="Cabang terkunci sesuai akun terminal kasir">
+                  📍 Cabang Aktif: {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
+                    activeOutlets[0]?.name ||
+                    "Outlet Utama"}
+                  <span className="text-[10px] text-muted-foreground font-normal">(Terkunci)</span>
                 </span>
               )}
             </div>
 
-            {/* Aksi Cepat Hardware & Tombol Buka */}
-            <div className="flex items-center gap-2">
-              <div className="relative">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowPrinterMenu(!showPrinterMenu)}
-                  className="h-8 rounded-xl text-xs gap-1.5 border-border bg-background/90"
-                >
-                  <Printer className="size-3.5 text-primary" />
-                  <span>Printer & Laci</span>
-                  <ChevronDown className="size-3 text-muted-foreground" />
-                </Button>
-                {showPrinterMenu && (
-                  <div className="absolute right-0 top-full mt-2 w-72 rounded-2xl border border-border bg-popover p-3 shadow-xl z-50 animate-in fade-in zoom-in-95">
-                    <div className="mb-2 flex items-center justify-between border-b border-border pb-2">
-                      <span className="text-xs font-bold text-foreground">Status Hardware</span>
-                      <span className="text-[10px] text-muted-foreground">Thermal ESC/POS</span>
-                    </div>
-                    <div className="space-y-1.5 text-xs">
-                      <div className="flex items-center justify-between py-1">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <Printer className="size-3.5" /> Thermal Printer
-                        </span>
-                        <span
-                          className={`font-semibold ${
-                            printerInfo.status === "connected" ? "text-emerald-500" : "text-amber-500"
-                          }`}
-                        >
-                          {printerInfo.status === "connected"
-                            ? `${printerInfo.paperSize} (Siap)`
-                            : "Web/System Ready"}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between py-1">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <ScanBarcode className="size-3.5" /> Scanner Barcode
-                        </span>
-                        <span className="font-semibold text-emerald-500">USB/BT Terhubung</span>
-                      </div>
-                      <div className="flex items-center justify-between py-1">
-                        <span className="flex items-center gap-1.5 text-muted-foreground">
-                          <WalletCards className="size-3.5" /> Laci Kas (Cash Drawer)
-                        </span>
-                        <span className="font-semibold text-emerald-500">RJ11 Terhubung</span>
-                      </div>
-                    </div>
-                    <div className="mt-3 grid grid-cols-2 gap-2 border-t border-border pt-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          await testThermalPrint();
-                        }}
-                        className="h-8 rounded-xl text-xs gap-1"
-                      >
-                        <Printer className="size-3 text-primary" />
-                        Tes Print
-                      </Button>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="secondary"
-                        onClick={async () => {
-                          await kickCashDrawer();
-                          toast.success("Sinyal pulsa laci kas terkirim!");
-                        }}
-                        className="h-8 rounded-xl text-xs gap-1"
-                      >
-                        <WalletCards className="size-3 text-emerald-500" />
-                        Buka Laci
-                      </Button>
-                    </div>
-                  </div>
-                )}
-              </div>
+            <span className="text-muted-foreground/30">•</span>
 
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => handleTogglePosHeader(false)}
-                className="h-8 rounded-xl text-xs font-bold gap-1 text-primary hover:bg-primary/10"
-                title="Buka Bar Info"
+            {/* Kasir & Shift Aktif */}
+            <div className="flex items-center gap-1.5">
+              <span className="font-semibold text-foreground truncate max-w-[130px]">
+                👤 {activeShift?.cashierName || activeCashierName || profile?.displayName || "Kasir"}
+              </span>
+              <span
+                className={cn(
+                  "px-2 py-0.5 rounded-full text-[10px] font-bold",
+                  activeShift?.status === "open"
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                    : "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+                )}
               >
-                <span>Buka Bar Info</span>
-                <ChevronDown className="size-3.5" />
-              </Button>
+                {activeShift?.status === "open" ? "🟢 Shift Buka" : "🔴 Shift Tutup"}
+              </span>
             </div>
           </div>
-        ) : (
-          <div className="rounded-[2rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-3xl font-black tracking-normal">
-                  {t("pos.smart_transaction", "Transaksi POS Pintar")}
-                </h1>
-                {networkStatus.isSyncing ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-500/10 px-2.5 py-0.5 text-xs font-bold text-blue-600 dark:text-blue-400">
-                    <RefreshCw className="size-3 animate-spin" />
-                    Menyinkronkan...
-                  </span>
-                ) : !networkStatus.isOnline || networkStatus.pendingCount > 0 ? (
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-bold text-amber-600 dark:text-amber-400">
-                      <WifiOff className="size-3" />
-                      Mode Offline — {networkStatus.pendingCount} Transaksi Tertunda
-                    </span>
-                    {networkStatus.pendingCount > 0 && (
-                      <button
-                        type="button"
-                        onClick={async () => {
-                          const res = await syncPendingTransactions();
-                          if (res.success > 0) {
-                            toast.success(`Berhasil sinkronisasi ${res.success} transaksi offline.`);
-                            if (isOnline()) {
-                              await onRefresh();
-                            }
-                          } else if (!isOnline()) {
-                            toast.warning("Koneksi internet belum tersedia.");
-                          }
-                        }}
-                        className="inline-flex items-center gap-1 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:text-amber-200 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors cursor-pointer"
-                      >
-                        <RefreshCw className="size-3" />
-                        Sinkronkan Sekarang
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                    <Wifi className="size-3" />
-                    {t("pos.online_status", "Online")}
-                  </span>
+
+          {/* Status Kanan: Printer Status (Ikon Kompak) */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowPrinterMenu(!showPrinterMenu)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border border-border bg-background/80 hover:bg-secondary transition-colors cursor-pointer"
+              title="Status Printer Thermal & Laci Kas"
+            >
+              <Printer
+                className={cn(
+                  "size-3.5",
+                  printerInfo.status === "connected" ? "text-emerald-500" : "text-primary",
                 )}
-              </div>
-              <p className="mt-1.5 text-sm text-muted-foreground">
-                Pilih cabang outlet untuk memfilter ketersediaan menu. Klik produk untuk kustomisasi{" "}
-                <strong>Varian, Level Pedas, & Add-on</strong>.
-              </p>
-            </div>
+              />
+              <span className="hidden sm:inline text-[11px] font-bold">
+                {printerInfo.status === "connected" ? "Printer & Laci Siap" : "Printer & Laci"}
+              </span>
+              <ChevronDown className="size-3 text-muted-foreground" />
+            </button>
 
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Outlet Selector (Dropdown for Owner HQ, Locked Badge for Kasir/Manager) */}
-              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background/90 px-3.5 py-2 shadow-sm">
-                <Store className="size-4 text-primary shrink-0" />
-                <div className="text-xs">
-                  <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                    {t("cart.select_outlet_label", "Cabang Outlet")}
+            {showPrinterMenu && (
+              <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-border bg-popover p-3 shadow-float z-50 animate-in fade-in zoom-in-95">
+                <div className="flex items-center justify-between pb-2 border-b border-border/60 text-xs font-bold">
+                  <span className="flex items-center gap-1.5">
+                    <Printer className="size-3.5 text-primary" />
+                    Status Hardware POS
                   </span>
-                  {isOwner ? (
-                    <select
-                      value={selectedOutletId}
-                      onChange={(e) => setSelectedOutletId(e.target.value)}
-                      className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
-                    >
-                      {activeOutlets.length === 0 ? (
-                        <option value="all">Semua Outlet (Global)</option>
-                      ) : (
-                        <>
-                          {activeOutlets.map((o) => (
-                            <option key={o.id} value={o.id}>
-                              📍 {o.name}
-                            </option>
-                          ))}
-                          <option value="all">🌐 Semua Outlet (Global)</option>
-                        </>
-                      )}
-                    </select>
-                  ) : (
-                    <div className="flex items-center gap-1.5 font-black text-foreground">
-                      <span>
-                        📍 Cabang Aktif:{" "}
-                        {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
-                          activeOutlets[0]?.name ||
-                          "Outlet Utama"}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground font-semibold flex items-center gap-0.5">
-                        <Lock className="size-2.5" /> Terkunci
-                      </span>
-                    </div>
-                  )}
+                  <button
+                    type="button"
+                    onClick={() => setShowPrinterMenu(false)}
+                    className="text-muted-foreground hover:text-foreground text-xs font-bold"
+                  >
+                    ✕
+                  </button>
                 </div>
-              </div>
-
-              {/* Kasir & Live Shift Status Badge */}
-              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background/90 px-3.5 py-2 shadow-sm">
-                <UserRound className="size-4 text-primary shrink-0" />
-                <div className="text-xs">
-                  <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                    Kasir & Shift
-                  </span>
-                  <div className="flex items-center gap-1.5 font-black text-foreground">
-                    <span>{profile?.displayName || "Kasir"}</span>
-                    <span
-                      className={cn(
-                        "px-1.5 py-0.5 rounded-full text-[10px] font-bold",
-                        activeShift?.status === "open"
-                          ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                          : "bg-amber-500/15 text-amber-600 dark:text-amber-400",
-                      )}
-                    >
-                      {activeShift?.status === "open" ? "🟢 Shift Buka" : "🔴 Shift Tutup"}
+                <div className="space-y-1.5 py-2 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Thermal Printer</span>
+                    <span className={cn("font-bold", printerInfo.status === "connected" ? "text-emerald-600" : "text-amber-600")}>
+                      {printerInfo.status === "connected" ? `${printerInfo.paperSize} Siap` : "Dialog Browser"}
                     </span>
                   </div>
-                </div>
-              </div>
-
-              {/* Thermal Printer & Cash Drawer Status Badge */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowPrinterMenu(!showPrinterMenu)}
-                  className="flex items-center gap-2 rounded-2xl border border-border bg-background/90 px-3.5 py-2 shadow-sm hover:border-primary/50 transition-colors text-left"
-                >
-                  {printerInfo.type === "bluetooth" ? (
-                    <Bluetooth className="size-4 text-blue-500 shrink-0" />
-                  ) : printerInfo.type === "usb" ? (
-                    <Usb className="size-4 text-purple-500 shrink-0" />
-                  ) : (
-                    <Printer className="size-4 text-primary shrink-0" />
-                  )}
-                  <div className="text-xs">
-                    <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                      Printer & Laci
-                    </span>
-                    <div className="flex items-center gap-1.5 font-black text-foreground">
-                      <span className="truncate max-w-[110px]">{printerInfo.name}</span>
-                      <span
-                        className={cn(
-                          "px-1.5 py-0.5 rounded-full text-[10px] font-bold",
-                          printerInfo.status === "connected"
-                            ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                            : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {printerInfo.status === "connected" ? "Terhubung" : "Browser"}
-                      </span>
-                    </div>
-                  </div>
-                </button>
-
-                {/* Quick Hardware Actions Menu */}
-                {showPrinterMenu && (
-                  <div className="absolute right-0 top-full mt-2 z-50 w-64 rounded-2xl border border-border bg-card p-3 shadow-float backdrop-blur-md animate-in fade-in zoom-in-95">
-                    <div className="flex items-center justify-between pb-2 border-b border-border/60 text-xs font-bold">
-                      <span className="flex items-center gap-1.5">
-                        <Printer className="size-3.5 text-primary" />
-                        Hardware Thermal POS
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => setShowPrinterMenu(false)}
-                        className="text-muted-foreground hover:text-foreground"
-                      >
-                        <X className="size-3.5" />
-                      </button>
-                    </div>
-
-                    <div className="py-2.5 space-y-1.5 text-xs">
-                      {printerInfo.status === "connected" ? (
-                        <>
-                          <div className="text-[11px] text-muted-foreground mb-2">
-                            Koneksi aktif:{" "}
-                            <strong className="text-foreground">{printerInfo.name}</strong> (
-                            {printerInfo.paperSize})
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full justify-start text-xs rounded-xl h-8 gap-2"
-                            onClick={async () => {
-                              await testThermalPrint();
-                              setShowPrinterMenu(false);
-                            }}
-                          >
-                            <Printer className="size-3.5 text-primary" />
-                            Tes Print Struk
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full justify-start text-xs rounded-xl h-8 gap-2"
-                            onClick={async () => {
-                              await kickCashDrawer();
-                              toast.success("Sinyal pulsa laci kas terkirim!");
-                            }}
-                          >
-                            <WalletCards className="size-3.5 text-emerald-500" />
-                            Buka Laci Kas
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="w-full justify-start text-xs rounded-xl h-8 text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={async () => {
-                              await disconnectPrinter();
-                              toast.info("Printer thermal diputuskan");
-                              setShowPrinterMenu(false);
-                            }}
-                          >
-                            Putus Koneksi
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <p className="text-[11px] text-muted-foreground mb-2">
-                            Printer thermal fisik belum tersambung. Struk akan dicetak via dialog
-                            browser standar (fallback).
-                          </p>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full justify-start text-xs rounded-xl h-8 gap-2"
-                            onClick={async () => {
-                              try {
-                                await connectBluetoothPrinter();
-                                setShowPrinterMenu(false);
-                              } catch (e: any) {
-                                toast.error("Koneksi Bluetooth gagal: " + e.message);
-                              }
-                            }}
-                          >
-                            <Bluetooth className="size-3.5 text-blue-500" />
-                            Hubungkan Printer Bluetooth
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full justify-start text-xs rounded-xl h-8 gap-2"
-                            onClick={async () => {
-                              try {
-                                await connectUsbPrinter();
-                                setShowPrinterMenu(false);
-                              } catch (e: any) {
-                                toast.error("Koneksi USB gagal: " + e.message);
-                              }
-                            }}
-                          >
-                            <Usb className="size-3.5 text-purple-500" />
-                            Hubungkan Printer USB
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="w-full justify-start text-xs rounded-xl h-8 gap-2"
-                            onClick={async () => {
-                              await kickCashDrawer();
-                              toast.info("Perintah laci kas dikirim.");
-                            }}
-                          >
-                            <WalletCards className="size-3.5 text-emerald-500" />
-                            Tes Buka Laci Kas
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Barcode Scanner Ready Badge */}
-              <div className="flex items-center gap-2 rounded-2xl border border-border bg-background/90 px-3.5 py-2 shadow-sm">
-                <ScanBarcode className="size-4 text-primary shrink-0" />
-                <div className="text-xs">
-                  <span className="block text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-                    Barcode Scanner
-                  </span>
-                  <div className="flex items-center gap-1.5 font-black text-foreground">
-                    <span>Scanner USB/BT</span>
-                    <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                      Aktif
-                    </span>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Laci Kas RJ11</span>
+                    <span className="font-bold text-emerald-600">Siap</span>
                   </div>
                 </div>
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/60">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      await testThermalPrint();
+                    }}
+                    className="h-7 text-xs rounded-xl"
+                  >
+                    Tes Print
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="secondary"
+                    onClick={async () => {
+                      await kickCashDrawer();
+                      toast.success("Sinyal pulsa laci kas terkirim!");
+                    }}
+                    className="h-7 text-xs rounded-xl"
+                  >
+                    Buka Laci
+                  </Button>
+                </div>
               </div>
-
-              <div className="flex items-center gap-2 rounded-2xl bg-secondary px-4 py-2.5 text-xs font-bold text-primary">
-                <Bot className="size-4" />
-                {t("cart.smart_customization", "Smart Customization")}
-              </div>
-
-              {/* Collapse Top Bar Button */}
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => handleTogglePosHeader(true)}
-                className="h-10 rounded-2xl border-border bg-background/90 px-3 text-xs font-bold gap-1 text-muted-foreground hover:text-foreground shadow-sm"
-                title="Lipat Bar Atas"
-              >
-                <ChevronUp className="size-4 text-primary" />
-                <span>Lipat Bar Atas</span>
-              </Button>
-            </div>
+            )}
           </div>
         </div>
-        )}
 
         {/* Product Grid */}
         {displayedProducts.length === 0 ? (
@@ -6098,140 +5913,163 @@ function PosPage({
 
         <div className="my-5 h-px bg-border" />
 
-        {/* Order Channels & Table / Queue */}
+        {/* Order Channels (1 Baris Kompak) */}
         <div className="space-y-2">
           <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Channel / Tipe Pesanan
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+              Channel Pesanan
             </p>
-            {orderType === "dine_in" && (
-              <div className="flex items-center gap-1.5">
-                <span className="text-[11px] font-bold text-muted-foreground">Meja:</span>
-                <input
-                  type="text"
-                  placeholder="No."
-                  value={tableNumber}
-                  onChange={(e) => setTableNumber(e.target.value)}
-                  className="w-16 h-7 rounded-lg border border-border bg-background px-2 text-xs font-bold text-center focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-            )}
+            {/* Toggle link kecil + Tambah Diskon / No. Meja */}
+            <button
+              type="button"
+              onClick={() => setShowExtraDetails(!showExtraDetails)}
+              className="text-xs font-bold text-primary hover:underline flex items-center gap-1 cursor-pointer"
+            >
+              {showExtraDetails || discountValue > 0 || Boolean(tableNumber) ? (
+                <span>Tutup Opsi Meja/Diskon ▲</span>
+              ) : (
+                <>
+                  <Plus className="size-3" />
+                  <span>Diskon / No. Meja</span>
+                </>
+              )}
+            </button>
           </div>
-          <div className="grid grid-cols-3 gap-1.5">
+
+          {/* 6 Channel Pesanan dalam 1 Baris Horizontal Kompak */}
+          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
             {[
               { id: "dine_in", label: "Dine In" },
               { id: "take_away", label: "Take Away" },
               { id: "delivery", label: "Delivery" },
-              { id: "gofood", label: "GoFood", activeClass: "bg-emerald-600 hover:bg-emerald-700 text-white" },
-              { id: "grabfood", label: "GrabFood", activeClass: "bg-green-600 hover:bg-green-700 text-white" },
-              { id: "shopeefood", label: "ShopeeFood", activeClass: "bg-orange-600 hover:bg-orange-700 text-white" },
+              { id: "gofood", label: "GoFood", activeClass: "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600" },
+              { id: "grabfood", label: "GrabFood", activeClass: "bg-green-600 hover:bg-green-700 text-white border-green-600" },
+              { id: "shopeefood", label: "ShopeeFood", activeClass: "bg-orange-600 hover:bg-orange-700 text-white border-orange-600" },
             ].map((tItem) => (
-              <Button
+              <button
                 key={tItem.id}
                 type="button"
-                size="sm"
-                variant={orderType === tItem.id ? "default" : "outline"}
-                className={cn(
-                  "rounded-xl text-xs font-bold h-8 transition-colors",
-                  orderType === tItem.id && tItem.activeClass ? tItem.activeClass : "",
-                )}
                 onClick={() => {
                   const newType = tItem.id as PosOrderType;
                   setOrderType(newType);
                   if (["gofood", "grabfood", "shopeefood"].includes(newType)) {
-                    // Auto tag payment to ewallet/online to keep physical cash drawer separate!
-                    if (paymentMethod === "cash") {
-                      setPaymentMethod("ewallet");
-                    }
+                    if (paymentMethod === "cash") setPaymentMethod("ewallet");
                   }
                 }}
+                className={cn(
+                  "px-2.5 py-1 rounded-xl text-xs font-bold whitespace-nowrap transition-all border shrink-0 cursor-pointer",
+                  orderType === tItem.id
+                    ? (tItem.activeClass || "bg-primary text-primary-foreground border-primary shadow-xs")
+                    : "bg-background border-border text-muted-foreground hover:bg-secondary",
+                )}
               >
                 {tItem.label}
-              </Button>
+              </button>
             ))}
           </div>
 
-          {/* Ojol Order Code Input */}
-          {["gofood", "grabfood", "shopeefood"].includes(orderType) && (
-            <div className="pt-1 animate-in fade-in duration-200">
-              <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 p-2">
-                <span className="text-[10px] font-black uppercase text-primary shrink-0">
-                  Kode Ojol:
-                </span>
-                <input
-                  type="text"
-                  placeholder={
-                    orderType === "gofood"
-                      ? "Cth: GF-412"
-                      : orderType === "grabfood"
-                        ? "Cth: GR-882"
-                        : "Cth: SF-109"
-                  }
-                  value={ojolOrderCode}
-                  onChange={(e) => setOjolOrderCode(e.target.value)}
-                  className="flex-1 h-6 rounded-lg bg-transparent px-1 text-xs font-black uppercase focus:outline-none placeholder:normal-case placeholder:font-normal"
-                />
+          {/* Kolom Tersembunyi: Diskon, No. Meja, Kode Ojol (Hanya tampil jika diklik / aktif) */}
+          {(showExtraDetails || discountValue > 0 || Boolean(tableNumber) || ["gofood", "grabfood", "shopeefood"].includes(orderType)) && (
+            <div className="space-y-2 rounded-xl border border-border/80 bg-secondary/30 p-2.5 animate-in fade-in">
+              {/* Ojol Order Code Input */}
+              {["gofood", "grabfood", "shopeefood"].includes(orderType) && (
+                <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 p-2">
+                  <span className="text-[10px] font-black uppercase text-primary shrink-0">
+                    Kode Ojol:
+                  </span>
+                  <input
+                    type="text"
+                    placeholder={
+                      orderType === "gofood"
+                        ? "Cth: GF-412"
+                        : orderType === "grabfood"
+                          ? "Cth: GR-882"
+                          : "Cth: SF-109"
+                    }
+                    value={ojolOrderCode}
+                    onChange={(e) => setOjolOrderCode(e.target.value)}
+                    className="flex-1 h-6 rounded-lg bg-transparent px-1 text-xs font-black uppercase focus:outline-none placeholder:normal-case placeholder:font-normal"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                {/* No. Meja jika Dine In */}
+                {orderType === "dine_in" && (
+                  <div>
+                    <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">
+                      No. Meja
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Contoh: 04"
+                      value={tableNumber}
+                      onChange={(e) => setTableNumber(e.target.value)}
+                      className="w-full h-7 rounded-lg border border-border bg-background px-2 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                )}
+
+                {/* Nama Pemesan / Antrean */}
+                <div className={orderType === "dine_in" ? "" : "col-span-2"}>
+                  <label className="text-[10px] font-bold text-muted-foreground block mb-0.5">
+                    Nama / No. Antrean
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Nama / Antrean (opsional)"
+                    value={customerQueueName}
+                    onChange={(e) => setCustomerQueueName(e.target.value)}
+                    className="w-full h-7 rounded-lg border border-border bg-background px-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1">
-                *Otomatis dipisahkan dari penerimaan tunai fisik laci kasir (Non-Tunai).
-              </p>
+
+              {/* Diskon Kasir */}
+              <div className="pt-1 border-t border-border/40">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] font-bold text-muted-foreground uppercase">Diskon Kasir</span>
+                  <div className="flex items-center rounded-lg border border-border overflow-hidden p-0.5 bg-background">
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded ${discountType === "nominal" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+                      onClick={() => setDiscountType("nominal")}
+                    >
+                      Rp
+                    </button>
+                    <button
+                      type="button"
+                      className={`px-2 py-0.5 text-[10px] font-bold rounded ${discountType === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+                      onClick={() => setDiscountType("percent")}
+                    >
+                      %
+                    </button>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min="0"
+                    placeholder={discountType === "percent" ? "Diskon (%)" : "Diskon (Rp)"}
+                    value={discountValue || ""}
+                    onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
+                    className="w-full h-7 rounded-lg border border-border bg-background px-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  {discountValue > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-rose-500 hover:text-rose-600"
+                      onClick={() => setDiscountValue(0)}
+                    >
+                      Reset
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
-
-          {/* Quick Input: Nama Pemesan / No. Antrean */}
-          <div className="pt-1">
-            <input
-              type="text"
-              placeholder="Nama Pemesan / No. Antrean (cth: Antrean #14 - Mas Budi)"
-              value={customerQueueName}
-              onChange={(e) => setCustomerQueueName(e.target.value)}
-              className="w-full h-8 rounded-xl border border-border bg-background px-3 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </div>
-        </div>
-
-        {/* Cashier Discount */}
-        <div className="space-y-1.5 pt-1">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Diskon Kasir</p>
-            <div className="flex items-center rounded-lg border border-border overflow-hidden p-0.5 bg-background">
-              <button
-                type="button"
-                className={`px-2 py-0.5 text-[10px] font-bold rounded ${discountType === "nominal" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-                onClick={() => setDiscountType("nominal")}
-              >
-                Rp
-              </button>
-              <button
-                type="button"
-                className={`px-2 py-0.5 text-[10px] font-bold rounded ${discountType === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-                onClick={() => setDiscountType("percent")}
-              >
-                %
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              min="0"
-              placeholder={discountType === "percent" ? "Diskon (%)" : "Diskon (Rp)"}
-              value={discountValue || ""}
-              onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
-              className="w-full h-8 rounded-xl border border-border bg-background px-3 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-            {discountValue > 0 && (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                className="h-8 px-2 text-xs text-rose-500 hover:text-rose-600"
-                onClick={() => setDiscountValue(0)}
-              >
-                Reset
-              </Button>
-            )}
-          </div>
         </div>
 
         <div className="my-2 h-px bg-border/60" />
@@ -9158,12 +8996,58 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   const [isCashierSwitchModalOpen, setIsCashierSwitchModalOpen] = useState(false);
   const [isBranchPosModalOpen, setIsBranchPosModalOpen] = useState(false);
 
-  const handleSelectBranchForPos = (out: OutletItem) => {
+  const handleSelectBranchForPos = async (out: OutletItem) => {
     if (typeof window !== "undefined") {
       localStorage.setItem("kebabschoicepos_selected_outlet_id", out.id);
+      localStorage.setItem("kebabschoicepos_active_outlet_id", out.id);
       localStorage.setItem("kebabschoicepos_active_outlet", JSON.stringify(out));
       localStorage.setItem("kebabschoicepos_user_role", "owner");
-      window.dispatchEvent(new CustomEvent("outlet:changed", { detail: { outletId: out.id, outlet: out } }));
+    }
+
+    try {
+      const { data: openShifts } = await supabase
+        .from("pos_shifts" as any)
+        .select("*")
+        .eq("status", "open")
+        .eq("outlet_id", out.id)
+        .order("start_time", { ascending: false })
+        .limit(1);
+
+      if (openShifts && openShifts.length > 0) {
+        const row: any = openShifts[0];
+        const liveShift = {
+          id: row.id,
+          cashierName: row.cashier_name || out.name,
+          cashierId: row.cashier_id,
+          teamMembers: row.team_members,
+          outletName: out.name,
+          outletId: out.id,
+          startingCash: Number(row.opening_cash ?? row.starting_cash) || 0,
+          startTime: row.start_time || row.opened_at,
+          status: "open",
+          cashSales: Number(row.cash_sales) || 0,
+          totalCashIn: Number(row.total_cash_in) || 0,
+          totalCashOut: Number(row.total_cash_out) || 0,
+          expectedEndingCash:
+            Number(row.expected_ending_cash) || Number(row.opening_cash ?? row.starting_cash) || 0,
+          notes: row.notes,
+        };
+        localStorage.setItem(`kebabschoicepos_active_shift_${out.id}`, JSON.stringify(liveShift));
+        localStorage.setItem("kebabschoicepos_active_shift", JSON.stringify(liveShift));
+        if (row.cashier_name) {
+          setActiveCashierName(row.cashier_name);
+          localStorage.setItem("kebabschoicepos_active_cashier_name", row.cashier_name);
+        }
+      }
+    } catch (err) {
+      console.warn("[handleSelectBranchForPos] Failed to sync open shift:", err);
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("outlet:changed", { detail: { outletId: out.id, outlet: out } }),
+      );
+      window.dispatchEvent(new CustomEvent("pos:shift-updated"));
     }
     setIsBranchPosModalOpen(false);
     navigate({ to: "/pos" });

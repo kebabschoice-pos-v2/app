@@ -1319,14 +1319,6 @@ export function MenuManagement() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Button
-              variant="outline"
-              onClick={() => setCategoryModalOpen(true)}
-              className="rounded-2xl font-bold gap-2 bg-background/80"
-            >
-              <Layers className="size-4 text-primary" />
-              Kelola Kategori ({categoryCount})
-            </Button>
-            <Button
               onClick={handleOpenCreateItem}
               className="rounded-2xl font-bold shadow-brand gap-2"
             >
@@ -1414,10 +1406,10 @@ export function MenuManagement() {
 
         <button
           onClick={() => setCategoryModalOpen(true)}
-          className="flex items-center gap-1 whitespace-nowrap rounded-2xl border border-dashed border-primary/40 px-3 py-2 text-xs font-bold text-primary hover:bg-primary/10 transition-colors"
+          className="flex items-center gap-1.5 whitespace-nowrap rounded-2xl border border-dashed border-primary/40 px-3 py-2 text-xs font-bold text-primary hover:bg-primary/10 transition-colors"
         >
-          <Plus className="size-3.5" />
-          <span>Kategori Baru</span>
+          <Layers className="size-3.5" />
+          <span>Kelola Kategori</span>
         </button>
       </div>
 
@@ -1493,17 +1485,6 @@ export function MenuManagement() {
               <TableIcon className="size-4" />
             </button>
           </div>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={loadData}
-            disabled={loading}
-            className="rounded-2xl gap-1.5 text-xs"
-          >
-            <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </Button>
         </div>
       </div>
 

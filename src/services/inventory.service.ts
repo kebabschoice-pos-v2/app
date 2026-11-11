@@ -1,5 +1,27 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveActiveBusinessId, resolveAllUserBusinessIds } from "./menu.service";
+import { resolveInventoryIngredientParams } from "@/lib/bom-analytics";
+
+async function insertStockMovementClientDb(mov: Record<string, any>) {
+  const { id: _ignoreMovId, ...payloadWithoutId } = mov;
+  try {
+    const res = await supabase.from("stock_movements" as any).insert(payloadWithoutId);
+    if (!res?.error) return;
+  } catch {}
+
+  try {
+    await supabase.from("stock_movements" as any).insert({
+      business_id: mov.business_id,
+      inventory_item_id: mov.inventory_item_id,
+      outlet_id: mov.outlet_id || null,
+      type: mov.movement_type || "stock_out",
+      movement_type: mov.movement_type || "stock_out",
+      quantity: mov.quantity,
+      notes: mov.notes || "",
+      created_at: mov.created_at || new Date().toISOString(),
+    });
+  } catch {}
+}
 
 export interface InventoryItemDetail {
   id: string;
@@ -2034,7 +2056,18 @@ export async function updateStockTransferStatus(
   }
 
   const store = await loadProcurementStore(bid);
-  const target = (store.stock_transfers || []).find((t: any) => t.id === transferId);
+  let target = (store.stock_transfers || []).find((t: any) => t.id === transferId);
+  if (!target) {
+    try {
+      const { data: dbTrf } = await supabase
+        .from("stock_transfers" as any)
+        .select(`*, items:stock_transfer_items(*)`)
+        .eq("id", transferId)
+        .maybeSingle();
+      if (dbTrf) target = dbTrf;
+    } catch {}
+  }
+
   const prevStatus = target?.status;
   if (target) {
     target.status = status;
@@ -2051,73 +2084,202 @@ export async function updateStockTransferStatus(
         const qty = Number(it.quantity) || 0;
         if (qty <= 0) continue;
 
+        let originItem: any = null;
         if (it.inventory_item_id) {
-          const { data: originItem } = await supabase
+          const { data: exactOrigin } = await supabase
             .from("inventory_items")
             .select("*")
             .eq("id", it.inventory_item_id)
-            .single();
+            .maybeSingle();
+          originItem = exactOrigin;
+        }
+        if (!originItem && (it.item_name || it.name)) {
+          const rawName = String(it.item_name || it.name).trim();
+          const { data: candidates } = await (supabase
+            .from("inventory_items" as any)
+            .select("*")
+            .eq("business_id", bid) as any)
+            .ilike("name", rawName);
+          if (Array.isArray(candidates) && candidates.length > 0) {
+            originItem =
+              (originOutletId && candidates.find((c: any) => c.outlet_id === originOutletId)) ||
+              candidates[0];
+          }
+        }
 
-          if (originItem) {
-            const newOriginStock = Math.max(0, (Number(originItem.stock) || 0) - qty);
+        if (originItem) {
+          const originId = originItem.id;
+          const newOriginStock = Math.max(0, (Number(originItem.stock) || 0) - qty);
+          await supabase
+            .from("inventory_items")
+            .update({ stock: newOriginStock, updated_at: new Date().toISOString() })
+            .eq("id", originId);
+
+          const movOut: StockMovementRecord = {
+            id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+            business_id: bid,
+            inventory_item_id: originId,
+            item_name: it.item_name || originItem.name,
+            outlet_id: originOutletId,
+            movement_type: "transfer_out",
+            quantity: qty,
+            unit: it.unit || originItem.unit || "pcs",
+            remaining_stock: newOriginStock,
+            notes: `Transfer Keluar ke ${destName} (${target.transfer_number || transferId})`,
+            created_at: new Date().toISOString(),
+          };
+          store.stock_movements = [movOut, ...(store.stock_movements || [])];
+          await insertStockMovementClientDb(movOut);
+
+          if (!store.item_meta) store.item_meta = {};
+          const originMeta = store.item_meta[originId] || {};
+          const resolvedName = String(it.item_name || originItem.name || "").trim();
+          const params = resolveInventoryIngredientParams({
+            name: resolvedName,
+            unit: it.unit || originItem.unit || "pcs",
+            cost_price: Number(originItem.cost_price) || Number(originMeta.cost_price) || 0,
+            yield_per_unit: originItem.yield_per_unit ?? originMeta.yield_per_unit ?? null,
+            yield_unit: originItem.yield_unit ?? originMeta.yield_unit ?? null,
+          });
+          const resolvedSupplierId = originItem.supplier_id ?? originMeta.supplier_id ?? null;
+          const resolvedMinStock = Number(
+            originItem.minimum_stock ?? originMeta.minimum_stock ?? 10,
+          );
+          const resolvedCategory = originItem.category || originMeta.category || "Bahan Baku";
+
+          let destItem: any = null;
+          if (destOutletId) {
+            const { data: existingDest } = await (supabase
+              .from("inventory_items" as any)
+              .select("*")
+              .eq("business_id", bid) as any)
+              .eq("outlet_id", destOutletId)
+              .ilike("name", resolvedName)
+              .maybeSingle();
+            destItem = existingDest;
+          }
+
+          if (destItem) {
+            const newDestStock = (Number(destItem.stock) || 0) + qty;
             await supabase
               .from("inventory_items")
-              .update({ stock: newOriginStock })
-              .eq("id", it.inventory_item_id);
+              .update({ stock: newDestStock, updated_at: new Date().toISOString() })
+              .eq("id", destItem.id);
 
-            const movOut: StockMovementRecord = {
+            const existingDestMeta = store.item_meta[destItem.id] || {};
+            store.item_meta[destItem.id] = {
+              ...existingDestMeta,
+              cost_price: Number(existingDestMeta.cost_price) || params.costPrice,
+              yield_per_unit: existingDestMeta.yield_per_unit ?? params.yieldPerUnit,
+              yield_unit: existingDestMeta.yield_unit ?? params.yieldUnit,
+              supplier_id: existingDestMeta.supplier_id ?? resolvedSupplierId,
+              minimum_stock: existingDestMeta.minimum_stock ?? resolvedMinStock,
+              outlet_id: destOutletId,
+            };
+
+            const movIn: StockMovementRecord = {
               id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
               business_id: bid,
-              inventory_item_id: it.inventory_item_id,
-              item_name: it.item_name || originItem.name,
-              outlet_id: originOutletId,
-              movement_type: "transfer_out",
+              inventory_item_id: destItem.id,
+              item_name: destItem.name,
+              outlet_id: destOutletId,
+              movement_type: "transfer_in",
               quantity: qty,
-              unit: it.unit || originItem.unit || "pcs",
-              remaining_stock: newOriginStock,
-              notes: `Transfer Keluar ke ${destName} (${target.transfer_number || transferId})`,
+              unit: destItem.unit || params.unit,
+              remaining_stock: newDestStock,
+              notes: `Transfer Masuk dari ${originName} (${target.transfer_number || transferId})`,
               created_at: new Date().toISOString(),
             };
-            store.stock_movements = [movOut, ...(store.stock_movements || [])];
-
-            let destItem: any = null;
-            if (destOutletId) {
-              const { data: existingDest } = await (supabase
+            store.stock_movements = [movIn, ...(store.stock_movements || [])];
+            await insertStockMovementClientDb(movIn);
+          } else if (destOutletId) {
+            try {
+              let createdDest: any = null;
+              const fullRes = await (supabase
                 .from("inventory_items" as any)
-                .select("*")
-                .eq("business_id", bid) as any)
-                .eq("outlet_id", destOutletId)
-                .ilike("name", (it.item_name || originItem.name).trim())
-                .maybeSingle();
-              destItem = existingDest;
-            }
+                .insert({
+                  business_id: bid,
+                  outlet_id: destOutletId,
+                  name: resolvedName,
+                  category: resolvedCategory,
+                  unit: params.unit,
+                  stock: qty,
+                  minimum_stock: resolvedMinStock,
+                  cost_price: params.costPrice,
+                  yield_per_unit: params.yieldPerUnit,
+                  yield_unit: params.yieldUnit,
+                  supplier_id: resolvedSupplierId,
+                  health_score: 100,
+                } as any) as any)
+                .select()
+                .single();
 
-            if (destItem) {
-              const newDestStock = (Number(destItem.stock) || 0) + qty;
-              await supabase
-                .from("inventory_items")
-                .update({ stock: newDestStock })
-                .eq("id", destItem.id);
+              if (!fullRes.error && fullRes.data) {
+                createdDest = fullRes.data;
+              } else {
+                const baseRes = await (supabase
+                  .from("inventory_items" as any)
+                  .insert({
+                    business_id: bid,
+                    outlet_id: destOutletId,
+                    name: resolvedName,
+                    category: resolvedCategory,
+                    unit: params.unit,
+                    stock: qty,
+                    minimum_stock: resolvedMinStock,
+                    health_score: 100,
+                  } as any) as any)
+                  .select()
+                  .single();
+                if (!baseRes.error && baseRes.data) {
+                  createdDest = baseRes.data;
+                }
+              }
 
-              const movIn: StockMovementRecord = {
-                id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-                business_id: bid,
-                inventory_item_id: destItem.id,
-                item_name: destItem.name,
-                outlet_id: destOutletId,
-                movement_type: "transfer_in",
-                quantity: qty,
-                unit: destItem.unit || it.unit,
-                remaining_stock: newDestStock,
-                notes: `Transfer Masuk dari ${originName} (${target.transfer_number || transferId})`,
-                created_at: new Date().toISOString(),
-              };
-              store.stock_movements = [movIn, ...(store.stock_movements || [])];
-            }
+              if (createdDest) {
+                store.item_meta[createdDest.id] = {
+                  cost_price: params.costPrice,
+                  yield_per_unit: params.yieldPerUnit,
+                  yield_unit: params.yieldUnit,
+                  supplier_id: resolvedSupplierId,
+                  minimum_stock: resolvedMinStock,
+                  outlet_id: destOutletId,
+                  ...(originMeta.pack_configs ? { pack_configs: originMeta.pack_configs } : {}),
+                };
+
+                const movIn: StockMovementRecord = {
+                  id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+                  business_id: bid,
+                  inventory_item_id: createdDest.id,
+                  item_name: createdDest.name,
+                  outlet_id: destOutletId,
+                  movement_type: "transfer_in",
+                  quantity: qty,
+                  unit: createdDest.unit || params.unit,
+                  remaining_stock: qty,
+                  notes: `Transfer Masuk dari ${originName} (${target.transfer_number || transferId})`,
+                  created_at: new Date().toISOString(),
+                };
+                store.stock_movements = [movIn, ...(store.stock_movements || [])];
+                await insertStockMovementClientDb(movIn);
+              }
+            } catch {}
           }
         }
       }
     }
+
+    try {
+      await supabase
+        .from("stock_transfers" as any)
+        .update({
+          status,
+          ...(status === "sent" ? { sent_at: new Date().toISOString() } : {}),
+          ...(status === "received" ? { received_at: new Date().toISOString() } : {}),
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", transferId);
+    } catch {}
 
     await saveProcurementStore(bid, store);
   }

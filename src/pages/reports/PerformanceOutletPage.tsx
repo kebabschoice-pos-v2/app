@@ -152,9 +152,13 @@ export function PerformanceOutletPage() {
   const displayProfit =
     rawProfit > 0
       ? rawProfit
-      : displayRevenue > 0
-        ? Math.round(displayRevenue * 0.58)
+      : displayRevenue > 0 && !selectedOutlet
+        ? analytics?.totalProfitEstimate || 0
         : 0;
+  const displayMarginPct =
+    displayRevenue > 0
+      ? Math.round((displayProfit / displayRevenue) * 100)
+      : analytics?.marginPercentage || 0;
   const displayAov = selectedOutlet ? selectedOutlet.aov : analytics?.averageAov || 0;
   const topOutlet = outlets[0] || { name: "Outlet Utama", revenue: 0, growth: "+0%" };
 
@@ -402,7 +406,7 @@ export function PerformanceOutletPage() {
           <h3 className="mt-2 text-2xl font-black text-emerald-600">
             {formatRupiah(displayProfit)}
           </h3>
-          <p className="mt-1 text-xs text-muted-foreground">Gross Margin ~58%</p>
+          <p className="mt-1 text-xs text-muted-foreground">Gross Margin {displayMarginPct}%</p>
         </div>
 
         <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">

@@ -200,6 +200,9 @@ export function StockTransferPage() {
       toast.success("Permintaan transfer stok berhasil diajukan!");
       setCreateModalOpen(false);
       await loadData();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("inventory:updated"));
+      }
     } catch (err: any) {
       toast.error("Gagal membuat transfer", { description: err.message });
     } finally {
@@ -223,6 +226,9 @@ export function StockTransferPage() {
         toast.success(`Status transfer berhasil diubah menjadi ${nextStatus}`);
       }
       await loadData();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("inventory:updated"));
+      }
     } catch (err: any) {
       toast.error("Gagal mengubah status transfer", { description: err.message });
     }
@@ -440,26 +446,48 @@ export function StockTransferPage() {
                       <td className="py-3.5 px-4 text-right">
                         <div className="flex items-center justify-end gap-1.5">
                           {t.status === "requested" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatusChange(t, "approved")}
-                              className="h-8 px-2.5 text-xs font-bold rounded-xl text-primary border-primary/30"
-                            >
-                              <span>Setujui</span>
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleStatusChange(t, "approved")}
+                                className="h-8 px-2.5 text-xs font-bold rounded-xl text-primary border-primary/30"
+                              >
+                                <span>Setujui</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="hero"
+                                onClick={() => handleStatusChange(t, "received")}
+                                className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 bg-emerald-600 hover:bg-emerald-700 shadow-brand"
+                              >
+                                <PackageCheck className="size-3.5" />
+                                <span>Setujui & Terima</span>
+                              </Button>
+                            </>
                           )}
 
                           {t.status === "approved" && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => handleStatusChange(t, "sent")}
-                              className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 text-amber-600 border-amber-500/30"
-                            >
-                              <Truck className="size-3" />
-                              <span>Kirim</span>
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => handleStatusChange(t, "sent")}
+                                className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 text-amber-600 border-amber-500/30"
+                              >
+                                <Truck className="size-3" />
+                                <span>Kirim</span>
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="hero"
+                                onClick={() => handleStatusChange(t, "received")}
+                                className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 bg-emerald-600 hover:bg-emerald-700 shadow-brand"
+                              >
+                                <PackageCheck className="size-3.5" />
+                                <span>Konfirmasi Terima</span>
+                              </Button>
+                            </>
                           )}
 
                           {t.status === "sent" && (

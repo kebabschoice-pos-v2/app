@@ -30,6 +30,7 @@ import {
   Wallet,
   type LucideIcon,
 } from "lucide-react";
+import { estimateOrdersBomMetrics, normalizeOrderOutletId } from "@/lib/bom-analytics";
 
 export type NavKey =
   | "dashboard"
@@ -169,6 +170,10 @@ export type InventoryItem = {
   minimum_stock: number;
   health_score: number;
   ai_alert: string | null;
+  cost_price?: number;
+  yield_per_unit?: number | null;
+  yield_unit?: string | null;
+  outlet_id?: string | null;
 };
 
 export type SalesOrder = {
@@ -181,6 +186,7 @@ export type SalesOrder = {
   created_at: string;
   customer_id?: string | null;
   outlet_id?: string | null;
+  items?: any[];
   actionReason?: string | null;
   authorized_by?: string | null;
   cashReceived?: number;
@@ -217,6 +223,8 @@ export type Snapshot = {
   customers: Customer[];
   inventory: InventoryItem[];
   orders: SalesOrder[];
+  orderItems?: any[];
+  menuRecipes?: Record<string, any>;
   insights: AiInsight[];
   isPendingConfirmation?: boolean;
   pendingConfirmationOutletName?: string;
@@ -551,56 +559,53 @@ export const calculateSnapshotMetrics = (snapshot: Snapshot) => {
         )
       : 0;
 
-  // Margin and Profit calculation with safe fallbacks (cost = 0 if unavailable)
-  let totalProductCost = 0;
-  let totalProductPrice = 0;
-  for (const p of snapshot.products || []) {
-    const cost = Number(p.cost_price) || 0;
-    const price = Number(p.price) || 0;
-    if (price > 0) {
-      totalProductPrice += price;
-      totalProductCost += cost;
-    }
-  }
+  // Single-Source-of-Truth BOM HPP & Margin calculation synchronized with Reports & Money Allocation
+  const bomMetrics = estimateOrdersBomMetrics({
+    orders: paidOrders,
+    orderItems: snapshot.orderItems || [],
+    products: snapshot.products || [],
+    menuRecipes: snapshot.menuRecipes || {},
+    inventoryItems: snapshot.inventory || [],
+  });
+  const estimatedCost = bomMetrics.totalBomCost;
+  const grossProfit = bomMetrics.grossProfit;
+  const marginPercentage = bomMetrics.marginPercentage;
 
-  // Cost ratio (fallback to 40% if products don't have cost, or 0 if no products)
-  const avgCostRatio = totalProductPrice > 0 ? totalProductCost / totalProductPrice : 0.4;
-  const estimatedCost = Math.round(todayRevenue * avgCostRatio);
-  const grossProfit = Math.max(0, todayRevenue - estimatedCost);
-  const marginPercentage =
-    todayRevenue > 0
-      ? Math.round((grossProfit / todayRevenue) * 100)
-      : totalProductPrice > 0
-        ? Math.round(((totalProductPrice - totalProductCost) / totalProductPrice) * 100)
-        : 0;
-
-  // Outlet performance aggregation
+  // Outlet performance aggregation (attributing null/orphan outlet_ids to primary active outlet)
+  const outletsList = snapshot.outlets || [];
   const outletMap: Record<string, { id: string; name: string; orders: number; revenue: number }> =
     {};
-  for (const o of snapshot.outlets || []) {
+  for (const o of outletsList) {
     outletMap[o.id] = { id: o.id, name: o.name, orders: 0, revenue: 0 };
   }
   for (const ord of paidOrders) {
-    if (ord.outlet_id) {
-      const target = outletMap[ord.outlet_id];
-      if (target) {
-        target.orders += 1;
-        target.revenue += Number(ord.total) || 0;
-      }
+    const resolvedOutletId = normalizeOrderOutletId(ord.outlet_id, outletsList);
+    const target = resolvedOutletId ? outletMap[resolvedOutletId] : undefined;
+    if (target) {
+      target.orders += 1;
+      target.revenue += Number(ord.total) || 0;
     }
   }
   const outletPerformances = Object.values(outletMap).sort((a, b) => b.revenue - a.revenue);
 
   // Top products
-  const topProducts = [...(snapshot.products || [])].slice(0, 5).map((p, idx) => ({
-    id: p.id,
-    name: p.name,
-    category: p.category,
-    price: p.price,
-    soldCount: paidOrders.length > 0 ? Math.max(1, Math.round(paidOrders.length / (idx + 1))) : 0,
-    revenue:
-      paidOrders.length > 0 ? Math.max(1, Math.round(paidOrders.length / (idx + 1))) * p.price : 0,
-  }));
+  const topProducts = [...(snapshot.products || [])]
+    .map((p) => {
+      const sales = bomMetrics.productSalesMap[p.id] || bomMetrics.productSalesMap[p.name] || {
+        soldCount: 0,
+        revenue: 0,
+      };
+      return {
+        id: p.id,
+        name: p.name,
+        category: p.category,
+        price: p.price,
+        soldCount: sales.soldCount,
+        revenue: sales.revenue,
+      };
+    })
+    .sort((a, b) => b.revenue - a.revenue || b.soldCount - a.soldCount)
+    .slice(0, 5);
 
   return {
     todayRevenue,

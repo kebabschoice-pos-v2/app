@@ -50,6 +50,7 @@ import {
 } from "@/services/inventory.service";
 import { getHRStaffProfiles, type StaffProfile } from "@/services/hr.service";
 import { convertRecipeToInventoryQuantity, getMenuItems } from "@/services/menu.service";
+import { estimateOrdersBomMetrics, normalizeOrderOutletId } from "@/lib/bom-analytics";
 
 export interface PackConfig {
   pack_size: number;
@@ -122,6 +123,8 @@ export function MoneyAllocationPage({
 
   // Dual-Engine: Sales orders & Menu Recipes
   const [salesOrders, setSalesOrders] = useState<any[]>([]);
+  const [menuProducts, setMenuProducts] = useState<any[]>([]);
+  const [orderMetaMap, setOrderMetaMap] = useState<Record<string, any>>({});
   const [menuRecipes, setMenuRecipes] = useState<Record<string, any>>({});
 
   // Staff HR & Cash Movements
@@ -375,20 +378,24 @@ export function MoneyAllocationPage({
       );
       setSalesOrders(cleanOrders);
 
-      // Fetch recipes from both outlets settings and menu_items catalog
+      // Fetch recipes and order_metadata from outlets settings and menu_items catalog
       const recipes: Record<string, any> = {};
+      const extractedOrderMeta: Record<string, any> = {};
       try {
         const { data: outletData } = await supabase.from("outlets").select("settings");
         if (outletData) {
           for (const o of outletData) {
             const s = (o.settings as any) || {};
             if (s.menu_recipes) Object.assign(recipes, s.menu_recipes);
+            if (s.order_metadata) Object.assign(extractedOrderMeta, s.order_metadata);
           }
         }
+        setOrderMetaMap(extractedOrderMeta);
       } catch {}
 
       try {
         const menuItems = await getMenuItems({ businessId: bId || undefined }).catch(() => []);
+        setMenuProducts(menuItems);
         for (const m of menuItems) {
           const rec = m.recipe || (m.recipe_items && m.recipe_items.length > 0 ? { items: m.recipe_items } : null);
           if (rec) {
@@ -557,15 +564,27 @@ export function MoneyAllocationPage({
   }
 
   // 1. Compute Real Sales Days for Operational Allocation (Strict Non-Void)
+  // Normalize order outlet_ids so null/orphaned historical transactions attribute to primary active outlet
+  const normalizedSalesOrders = useMemo(() => {
+    return salesOrders.map((ord) => ({
+      ...ord,
+      outlet_id: normalizeOrderOutletId(
+        ord.outlet_id,
+        outletsList,
+        orderMetaMap[ord.id]?.outlet_id,
+      ),
+    }));
+  }, [salesOrders, outletsList, orderMetaMap]);
+
   const operationalDaysWithSales = useMemo(() => {
     const salesDates = new Set<string>();
-    for (const ord of salesOrders) {
+    for (const ord of normalizedSalesOrders) {
       if (ord.created_at && (!selectedOutletId || selectedOutletId === "all" || ord.outlet_id === selectedOutletId)) {
         salesDates.add(ord.created_at.slice(0, 10));
       }
     }
     return salesDates.size;
-  }, [salesOrders, selectedOutletId]);
+  }, [normalizedSalesOrders, selectedOutletId]);
 
   // 2. Computed BOM Pockets from Real Inventory Items (DUAL-ENGINE CALCULATION)
   const computedBomPockets = useMemo(() => {
@@ -597,7 +616,12 @@ export function MoneyAllocationPage({
       // Engine 1: Real movements of type pos_sale or stock_out for this item (with void/refund reversal deductions)
       const itemMovements = stockMovements.filter((m) => {
         if (m.inventory_item_id !== item.id) return false;
-        if (selectedOutletId !== "all" && m.outlet_id && m.outlet_id !== selectedOutletId) return false;
+        if (
+          selectedOutletId !== "all" &&
+          normalizeOrderOutletId(m.outlet_id, outletsList) !== selectedOutletId
+        ) {
+          return false;
+        }
         const mType = (m.movement_type as string) || (m as any).type || "";
         return (
           mType === "pos_sale" ||
@@ -678,8 +702,8 @@ export function MoneyAllocationPage({
 
       // Engine 2: Fallback from valid non-void sales orders * menu_recipes (skips orders already moved)
       let recipeBomUsedQty = 0;
-      for (const ord of salesOrders) {
-        if (selectedOutletId !== "all" && ord.outlet_id && ord.outlet_id !== selectedOutletId) {
+      for (const ord of normalizedSalesOrders) {
+        if (selectedOutletId !== "all" && ord.outlet_id !== selectedOutletId) {
           continue;
         }
         // Avoid double-counting orders that already generated stock movements
@@ -839,19 +863,20 @@ export function MoneyAllocationPage({
     selectedOutletId,
     spentAmounts,
     manualAdded,
-    salesOrders,
+    normalizedSalesOrders,
+    outletsList,
     menuRecipes,
   ]);
 
   // 3. Financial KPI Preliminary Totals
   const salesOrdersSum = useMemo(() => {
-    return salesOrders.reduce((sum, ord) => {
-      if (selectedOutletId !== "all" && ord.outlet_id && ord.outlet_id !== selectedOutletId) {
+    return normalizedSalesOrders.reduce((sum, ord) => {
+      if (selectedOutletId !== "all" && ord.outlet_id !== selectedOutletId) {
         return sum;
       }
       return sum + (Number(ord.total_amount || ord.total || ord.final_amount) || 0);
     }, 0);
-  }, [salesOrders, selectedOutletId]);
+  }, [normalizedSalesOrders, selectedOutletId]);
 
   const totalOmzet = (analytics?.totalRevenue && analytics.totalRevenue > 0) ? analytics.totalRevenue : salesOrdersSum;
   const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
@@ -920,9 +945,9 @@ export function MoneyAllocationPage({
     return cashMovements.filter((m) => {
       if (m.type !== "out") return false;
       if (selectedOutletId === "all") return true;
-      return !m.outlet_id || m.outlet_id === selectedOutletId;
+      return normalizeOrderOutletId(m.outlet_id, outletsList) === selectedOutletId;
     });
-  }, [cashMovements, selectedOutletId]);
+  }, [cashMovements, selectedOutletId, outletsList]);
 
   const totalCashOut = useMemo(() => {
     return outletCashOutMovements.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
@@ -1539,17 +1564,16 @@ export function MoneyAllocationPage({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {outletsList.map((out) => {
-                const outOrders = salesOrders.filter((o) => o.outlet_id === out.id);
-                const outRevenue = outOrders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-                const outMovements = stockMovements.filter(
-                  (m) =>
-                    m.outlet_id === out.id &&
-                    (m.movement_type === "pos_sale" || m.movement_type === "stock_out"),
-                );
-                const outBomSavings = outMovements.reduce((sum, m) => {
-                  const itm = inventoryList.find((i) => i.id === m.inventory_item_id);
-                  return sum + (Number(m.quantity) || 0) * (itm?.cost_price || 0);
-                }, 0);
+                const outOrders = normalizedSalesOrders.filter((o) => o.outlet_id === out.id);
+                const outBom = estimateOrdersBomMetrics({
+                  orders: outOrders,
+                  products:
+                    menuProducts.length > 0 ? menuProducts : (snapshot?.products || []),
+                  menuRecipes,
+                  inventoryItems: inventoryList,
+                });
+                const outRevenue = outBom.totalRevenue;
+                const outBomSavings = outBom.totalBomCost;
                 const outDays = new Set(
                   outOrders.map((o) => (o.created_at || "").slice(0, 10)),
                 ).size;

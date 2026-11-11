@@ -1,4 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  resolvePrimaryOutletId,
+  normalizeOrderOutletId,
+  estimateOrdersBomMetrics,
+} from "@/lib/bom-analytics";
 import { formatRupiah } from "@/components/kebabschoicepos/data";
 
 export interface OutletMetric {
@@ -401,15 +406,22 @@ export async function getComprehensiveAnalytics(
       } catch {}
     }
 
+    const normalizeOutletForOrder = (ord: any): string | null =>
+      normalizeOrderOutletId(ord?.outlet_id, outlets, orderMetadata[ord?.id]?.outlet_id);
+
+    for (const ord of rawOrders) {
+      (ord as any).outlet_id = normalizeOutletForOrder(ord);
+    }
+    for (const ord of rawVoidOrders) {
+      (ord as any).outlet_id = normalizeOutletForOrder(ord);
+    }
+
     // Apply Filter (Outlet & Date Range) to orders
     const orders = rawOrders.filter((ord) => {
       // Outlet Filter
       if (filter?.outletId && filter.outletId !== "all") {
-        const directOutletId = (ord as any).outlet_id;
-        const meta = orderMetadata[ord.id];
-        const metaOutletId = meta?.outlet_id;
-        const matched = directOutletId === filter.outletId || metaOutletId === filter.outletId;
-        if (!matched && outlets.length > 1) return false;
+        const resolvedOutletId = normalizeOutletForOrder(ord);
+        if (resolvedOutletId !== filter.outletId && outlets.length > 1) return false;
       }
 
       // Date Range Filter
@@ -432,48 +444,96 @@ export async function getComprehensiveAnalytics(
       orderItems = itemsData || [];
     }
 
-    // --- AGGREGATION & CALCULATIONS ---
-    const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
-    const totalOrders = orders.length;
-    const rawItemsSold = orderItems.reduce((sum, item) => sum + (Number(item.quantity) || 1), 0);
-    const totalItemsSold = rawItemsSold > 0 ? rawItemsSold : totalOrders > 0 ? totalOrders : 0;
-
-    // Calculate BOM cost per product
-    const productCostMap: Record<string, number> = {};
-    for (const p of products) {
-      const rec = menuRecipes[p.id];
-      if (rec && Array.isArray(rec.items) && rec.items.length > 0) {
-        // Approximate cost based on ingredients count and base cost
-        let estCost = 0;
-        for (const ing of rec.items) {
-          const qty = Number(ing.quantity) || 1;
-          // Standard estimate: 30-40% of ingredient base value
-          estCost += ing.unit === "kg" ? qty * 85000 : ing.unit === "gram" ? qty * 85 : qty * 2500;
+    // --- ENRICH INVENTORY, PRODUCTS & RECIPES FOR SINGLE-SOURCE-OF-TRUTH BOM ---
+    let enrichedProducts: any[] = products.map((p: any) => ({ ...p }));
+    try {
+      const { data: prodCostRows } = await supabase
+        .from("products")
+        .select("id, cost_price")
+        .in("business_id", targetBizIds);
+      if (prodCostRows && prodCostRows.length > 0) {
+        const prodCostById = new Map<string, number>();
+        for (const r of prodCostRows as any[]) {
+          prodCostById.set(r.id, Number(r.cost_price) || 0);
         }
-        productCostMap[p.id] = Math.min(estCost, p.price * 0.55);
-      } else {
-        // Default standard F&B HPP (Food Cost ~40%)
-        productCostMap[p.id] = Math.round(p.price * 0.4);
+        enrichedProducts = enrichedProducts.map((p) => ({
+          ...p,
+          cost_price: Number(p.cost_price) || prodCostById.get(p.id) || 0,
+        }));
       }
-    }
+    } catch {}
+
+    let enrichedInventoryItems: any[] = [];
+    try {
+      const invFullRes = await supabase
+        .from("inventory_items")
+        .select("id, name, unit, cost_price, yield_per_unit, yield_unit, outlet_id")
+        .in("business_id", targetBizIds);
+      if (!invFullRes.error && invFullRes.data) {
+        enrichedInventoryItems = invFullRes.data;
+      } else {
+        const invBasicRes = await supabase
+          .from("inventory_items")
+          .select("id, name, unit, outlet_id")
+          .in("business_id", targetBizIds);
+        enrichedInventoryItems = invBasicRes.data || [];
+      }
+    } catch {}
+
+    const mergedMenuRecipes: Record<string, any> = { ...(menuRecipes || {}) };
+    try {
+      const { data: outletSettingsRows } = await supabase
+        .from("outlets")
+        .select("id, settings")
+        .in("business_id", targetBizIds);
+      const itemMetaMap: Record<string, any> = {};
+      for (const row of (outletSettingsRows || []) as any[]) {
+        const st = row?.settings || {};
+        if (st.menu_recipes && typeof st.menu_recipes === "object") {
+          for (const [k, v] of Object.entries(st.menu_recipes)) {
+            if (!mergedMenuRecipes[k] && v) mergedMenuRecipes[k] = v;
+          }
+        }
+        if (st.procurement_store?.item_meta && typeof st.procurement_store.item_meta === "object") {
+          Object.assign(itemMetaMap, st.procurement_store.item_meta);
+        }
+      }
+      if (Object.keys(itemMetaMap).length > 0) {
+        enrichedInventoryItems = enrichedInventoryItems.map((inv: any) => {
+          const meta = itemMetaMap[inv.id] || {};
+          return {
+            ...inv,
+            cost_price: Number(inv.cost_price) > 0 ? Number(inv.cost_price) : Number(meta.cost_price) || 0,
+            yield_per_unit: inv.yield_per_unit ?? meta.yield_per_unit ?? null,
+            yield_unit: inv.yield_unit ?? meta.yield_unit ?? null,
+          };
+        });
+      }
+    } catch {}
+
+    const bomMetrics = estimateOrdersBomMetrics({
+      orders,
+      orderItems,
+      products: enrichedProducts,
+      menuRecipes: mergedMenuRecipes,
+      inventoryItems: enrichedInventoryItems,
+    });
+
+    // --- AGGREGATION & CALCULATIONS ---
+    const totalRevenue = bomMetrics.totalRevenue;
+    const totalOrders = bomMetrics.totalOrders;
+    const totalItemsSold = bomMetrics.totalItemsSold;
+    const productCostMap: Record<string, number> = bomMetrics.productCostMap;
 
     // --- MENU PERFORMANCE ITEMS ---
-    const menuSalesMap: Record<string, { soldCount: number; revenue: number }> = {};
-    for (const item of orderItems) {
-      const key = item.product_id || item.name;
-      if (!menuSalesMap[key]) {
-        menuSalesMap[key] = { soldCount: 0, revenue: 0 };
-      }
-      menuSalesMap[key].soldCount += Number(item.quantity) || 1;
-      menuSalesMap[key].revenue +=
-        Number(item.subtotal) || Number(item.unit_price) * (Number(item.quantity) || 1);
-    }
+    const menuSalesMap: Record<string, { soldCount: number; revenue: number }> =
+      bomMetrics.productSalesMap;
 
     // Build menu performance list
-    const menuItems: MenuPerformanceItem[] = products.map((p) => {
+    const menuItems: MenuPerformanceItem[] = enrichedProducts.map((p) => {
       const sales = menuSalesMap[p.id] || menuSalesMap[p.name] || { soldCount: 0, revenue: 0 };
       const cost = productCostMap[p.id] || Math.round(p.price * 0.4);
-      const margin = p.price > 0 ? Math.round(((p.price - cost) / p.price) * 1000) / 10 : 50;
+      const margin = p.price > 0 ? Math.round(((p.price - cost) / p.price) * 100) : 50;
 
       let status: MenuPerformanceItem["status"] = "normal";
       if (sales.soldCount >= 10) status = "best_seller";
@@ -499,11 +559,8 @@ export async function getComprehensiveAnalytics(
     menuItems.sort((a, b) => b.soldCount - a.soldCount);
 
     // Total profit estimate
-    let totalProfitEstimate = menuItems.reduce(
-      (sum, m) => sum + (m.soldCount > 0 ? (m.price - m.cost) * m.soldCount : 0),
-      0,
-    );
-    if (totalProfitEstimate <= 0 && totalRevenue > 0) {
+    let totalProfitEstimate = bomMetrics.grossProfit;
+    if (totalProfitEstimate <= 0 && totalRevenue > 0 && bomMetrics.totalBomCost <= 0) {
       totalProfitEstimate = Math.round(totalRevenue * 0.58);
     }
 
@@ -523,12 +580,23 @@ export async function getComprehensiveAnalytics(
           ];
 
     for (const [index, o] of activeOutletsList.entries()) {
-      // Find orders matching this outlet strictly
+      // Find orders matching this outlet (attributing null/orphan outlet_ids to primary active outlet)
       const outletOrders = orders.filter((ord) => {
-        if ((ord as any).outlet_id) return (ord as any).outlet_id === o.id;
-        const meta = orderMetadata[ord.id];
-        if (meta?.outlet_id) return meta.outlet_id === o.id;
-        return index === 0;
+        const resolvedId = normalizeOrderOutletId(
+          (ord as any).outlet_id,
+          activeOutletsList,
+          orderMetadata[ord.id]?.outlet_id,
+        );
+        return resolvedId === o.id;
+      });
+      const outletOrderIdSet = new Set(outletOrders.map((ord) => ord.id));
+      const outletOrderItems = orderItems.filter((it) => outletOrderIdSet.has(it.order_id));
+      const outletBom = estimateOrdersBomMetrics({
+        orders: outletOrders,
+        orderItems: outletOrderItems,
+        products: enrichedProducts,
+        menuRecipes: mergedMenuRecipes,
+        inventoryItems: enrichedInventoryItems,
       });
 
       const outletRevenue = outletOrders.reduce((sum, ord) => sum + (Number(ord.total) || 0), 0);
@@ -561,8 +629,8 @@ export async function getComprehensiveAnalytics(
       const cashRevenue = pMethods.cash;
       const digitalRevenue = outletRevenue - cashRevenue;
 
-      // Estimasi HPP / CPM (~40% of revenue)
-      const cpmEstimate = Math.round(outletRevenue * 0.4);
+      // HPP / BOM actual calculation synchronized with MoneyAllocation & Dashboard
+      const cpmEstimate = outletBom.totalBomCost;
 
       // Operational cash out from shifts & cash movements for this outlet
       const outletShifts = shiftsData.filter(
@@ -670,7 +738,7 @@ export async function getComprehensiveAnalytics(
         .slice(0, 3);
 
       const aov = outletOrdersCount > 0 ? Math.round(outletRevenue / outletOrdersCount) : 0;
-      const profitEst = Math.round(outletRevenue * 0.58);
+      const profitEst = outletBom.grossProfit;
 
       outletsReport.push({
         id: o.id,
@@ -685,7 +753,7 @@ export async function getComprehensiveAnalytics(
         cpmEstimate,
         operationalCashOut,
         netProfit,
-        itemsSold: outletOrdersCount,
+        itemsSold: outletBom.totalItemsSold,
         profitEstimate: profitEst,
         aov,
         peakTime,
@@ -849,7 +917,7 @@ export async function getComprehensiveAnalytics(
       ) || 82;
 
     const marginPercentage =
-      totalRevenue > 0 ? Math.round((totalProfitEstimate / totalRevenue) * 1000) / 10 : 50;
+      totalRevenue > 0 ? Math.round((totalProfitEstimate / totalRevenue) * 100) : bomMetrics.marginPercentage;
 
     return {
       businessId,

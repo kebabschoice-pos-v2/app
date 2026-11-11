@@ -160,6 +160,7 @@ import {
   subscribeQrisStatus,
   type QrisTransactionResponse,
 } from "@/services/qris.service";
+import { normalizeOrderOutletId } from "@/lib/bom-analytics";
 import {
   calculateSnapshotMetrics,
   demoCustomers,
@@ -866,7 +867,81 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     return ord;
   });
 
-  const mappedOrders = deduplicateEntitiesById([...localSavedOrders, ...rawDbOrders]);
+  const rawMappedOrders = deduplicateEntitiesById([...localSavedOrders, ...rawDbOrders]);
+  const mappedOrders = rawMappedOrders.map((ord) => ({
+    ...ord,
+    outlet_id: normalizeOrderOutletId(
+      ord.outlet_id,
+      mappedOutlets,
+      storedOrderMetadata[ord.id]?.outlet_id,
+    ),
+  }));
+
+  // Enrich products, inventory BOM params & order items safely for unified Dashboard & Analytics KPIs
+  let enrichedMappedProducts = mappedProducts;
+  try {
+    const { data: prodCostRows } = await supabase
+      .from("products")
+      .select("id, cost_price")
+      .in("business_id", allUserBusinessIds);
+    if (prodCostRows && prodCostRows.length > 0) {
+      const prodCostMap = new Map<string, number>();
+      for (const r of prodCostRows as any[]) {
+        prodCostMap.set(r.id, Number(r.cost_price) || 0);
+      }
+      enrichedMappedProducts = mappedProducts.map((p) => ({
+        ...p,
+        cost_price: Number(p.cost_price) || prodCostMap.get(p.id) || 0,
+      }));
+    }
+  } catch {}
+
+  let enrichedMappedInventory = mappedInventory;
+  try {
+    const itemMetaMap: Record<string, any> = {};
+    for (const o of outletsResult.data || []) {
+      const meta = (o?.settings as any)?.procurement_store?.item_meta;
+      if (meta && typeof meta === "object") Object.assign(itemMetaMap, meta);
+    }
+
+    let invBomMap = new Map<string, any>();
+    const invFullRes = await supabase
+      .from("inventory_items")
+      .select("id, cost_price, yield_per_unit, yield_unit, outlet_id")
+      .in("business_id", allUserBusinessIds);
+    if (!invFullRes.error && invFullRes.data) {
+      for (const r of invFullRes.data as any[]) {
+        invBomMap.set(r.id, r);
+      }
+    }
+
+    enrichedMappedInventory = mappedInventory.map((inv) => {
+      const dbRow = invBomMap.get(inv.id) || {};
+      const meta = itemMetaMap[inv.id] || {};
+      return {
+        ...inv,
+        cost_price:
+          Number(dbRow.cost_price) > 0
+            ? Number(dbRow.cost_price)
+            : Number(meta.cost_price) || Number(inv.cost_price) || 0,
+        yield_per_unit: dbRow.yield_per_unit ?? meta.yield_per_unit ?? inv.yield_per_unit ?? null,
+        yield_unit: dbRow.yield_unit ?? meta.yield_unit ?? inv.yield_unit ?? null,
+        outlet_id: dbRow.outlet_id ?? inv.outlet_id ?? null,
+      };
+    });
+  } catch {}
+
+  let mappedOrderItems: any[] = [];
+  if (mappedOrders.length > 0) {
+    try {
+      const orderIds = mappedOrders.map((o) => o.id);
+      const { data: oiData } = await supabase
+        .from("sales_order_items")
+        .select("id, order_id, product_id, name, quantity, unit_price, subtotal")
+        .in("order_id", orderIds);
+      mappedOrderItems = oiData || [];
+    } catch {}
+  }
 
   // Strict resolution priority for assigned outlet:
   // Tier 0: Direct Outlet Device Account match
@@ -929,10 +1004,12 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
       "owner",
     assignedOutletId: resolvedAssignedOutletId,
     outlets: mappedOutlets,
-    products: mappedProducts,
+    products: enrichedMappedProducts,
     customers: mappedCustomers,
-    inventory: mappedInventory,
+    inventory: enrichedMappedInventory,
     orders: mappedOrders,
+    orderItems: mappedOrderItems,
+    menuRecipes: storedRecipes,
     insights: (insightsResult.data ?? []).map(insightFromRow),
     isPendingConfirmation,
     pendingConfirmationOutletName,

@@ -139,10 +139,20 @@ export function PerformanceMenuPage() {
   }, [menuItems]);
 
   const avgMargin = useMemo(() => {
+    if (analytics?.marginPercentage && totalRevenue > 0) {
+      return analytics.marginPercentage;
+    }
+    if (totalRevenue > 0 && menuItems.length > 0) {
+      const totalProfit = menuItems.reduce(
+        (acc, item) => acc + (item.soldCount > 0 ? Math.max(0, item.price - item.cost) * item.soldCount : 0),
+        0,
+      );
+      return Math.round((totalProfit / totalRevenue) * 100);
+    }
     if (menuItems.length === 0) return 0;
     const sum = menuItems.reduce((acc, item) => acc + item.margin, 0);
-    return Math.round((sum / menuItems.length) * 10) / 10;
-  }, [menuItems]);
+    return Math.round(sum / menuItems.length);
+  }, [analytics?.marginPercentage, totalRevenue, menuItems]);
 
   // Unique categories
   const categories = useMemo(() => {

@@ -686,7 +686,8 @@ export function MoneyAllocationPage({
         if (ord.id && movedOrderIds.has(ord.id)) {
           continue;
         }
-        if (Array.isArray(ord.items)) {
+        const hasLineItems = Array.isArray(ord.items) && ord.items.length > 0;
+        if (hasLineItems) {
           for (const line of ord.items) {
             const lineQty = Number(line.quantity) || 1;
             const lineNameClean = (line.name || "").toLowerCase().trim();
@@ -734,6 +735,77 @@ export function MoneyAllocationPage({
               }
             }
           }
+        } else {
+          // Smart Fallback: Orders without sales_order_items rows (e.g. historical orders)
+          // Estimate portion count based on main menu "Original" (@ Rp 9.000)
+          const ordTotal = Number(ord.total_amount || ord.total || ord.final_amount) || 0;
+          if (ordTotal > 0) {
+            const estimatedQty = Math.max(1, Math.round(ordTotal / 9000));
+            const itemNameClean = (item.name || "").toLowerCase().trim();
+
+            // Try matching configured "Original" recipe first
+            let origRecipe = menuRecipes["original"] || menuRecipes["kebab original"] || null;
+            if (!origRecipe) {
+              for (const [recKey, recVal] of Object.entries(menuRecipes)) {
+                if (/original/i.test(recKey)) {
+                  origRecipe = recVal;
+                  break;
+                }
+              }
+            }
+
+            let matchedInRecipe = false;
+            const recItems = (origRecipe && (origRecipe.items || origRecipe.recipe_items)) || [];
+            if (Array.isArray(recItems) && recItems.length > 0) {
+              for (const ing of recItems) {
+                const ingNameClean = (ing.ingredient_name || ing.name || "").toLowerCase().trim();
+                const isMatch =
+                  ing.inventory_item_id === item.id ||
+                  ing.id === item.id ||
+                  (ingNameClean && itemNameClean && (
+                    ingNameClean === itemNameClean ||
+                    ingNameClean.includes(itemNameClean) ||
+                    itemNameClean.includes(ingNameClean)
+                  ));
+                if (isMatch) {
+                  const ingConverted = convertRecipeToInventoryQuantity(
+                    Number(ing.quantity) || 1,
+                    ing.unit || "gram",
+                    item.unit || "gram",
+                    item.yield_per_unit,
+                    item.yield_unit,
+                  );
+                  recipeBomUsedQty += ingConverted * estimatedQty;
+                  matchedInRecipe = true;
+                }
+              }
+            }
+
+            // Standard fallback if recipe items didn't match:
+            // Tortilla: 1 pcs / 0.05 pack (@ 20 pcs/pack)
+            // Daging: 20 gram / 0.01 pcs (@ 2000g/pcs)
+            if (!matchedInRecipe) {
+              if (itemNameClean.includes("tortilla") || itemNameClean.includes("kulit")) {
+                const ingConverted = convertRecipeToInventoryQuantity(
+                  1,
+                  "pcs",
+                  item.unit || "pack",
+                  item.yield_per_unit || 20,
+                  item.yield_unit || "pcs",
+                );
+                recipeBomUsedQty += ingConverted * estimatedQty;
+              } else if (itemNameClean.includes("daging") || itemNameClean.includes("beef")) {
+                const ingConverted = convertRecipeToInventoryQuantity(
+                  20,
+                  "gram",
+                  item.unit || "pcs",
+                  item.yield_per_unit || 2000,
+                  item.yield_unit || "gram",
+                );
+                recipeBomUsedQty += ingConverted * estimatedQty;
+              }
+            }
+          }
         }
       }
 
@@ -771,23 +843,51 @@ export function MoneyAllocationPage({
     menuRecipes,
   ]);
 
-  // 3. Computed Operational Pockets (Auto synced with actual operating days with sales)
-  const computedOpPockets = useMemo(() => {
-    return opPockets.map((op) => {
-      const days = Math.max(op.days_collected ?? 0, operationalDaysWithSales);
-      const autoEarned = days * (op.daily_allocation || 0);
-      const manual = op.manual_stash || 0;
-      const balance = Math.max(0, autoEarned + manual - (op.total_paid || 0));
+  // 3. Financial KPI Preliminary Totals
+  const salesOrdersSum = useMemo(() => {
+    return salesOrders.reduce((sum, ord) => {
+      if (selectedOutletId !== "all" && ord.outlet_id && ord.outlet_id !== selectedOutletId) {
+        return sum;
+      }
+      return sum + (Number(ord.total_amount || ord.total || ord.final_amount) || 0);
+    }, 0);
+  }, [salesOrders, selectedOutletId]);
 
+  const totalOmzet = (analytics?.totalRevenue && analytics.totalRevenue > 0) ? analytics.totalRevenue : salesOrdersSum;
+  const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
+
+  // 4. Computed Operational Pockets (Auto synced with actual operating days with sales and capped by available revenue)
+  const computedOpPockets = useMemo(() => {
+    const availableCashAfterBom = Math.max(0, totalOmzet - totalBomSavings);
+
+    const unconstrained = opPockets.map((op) => {
+      const days = Math.max(op.days_collected ?? 0, operationalDaysWithSales);
+      const autoEarned = Math.round(days * (op.daily_allocation || 0));
+      const manual = Math.round(op.manual_stash || 0);
+      const targetAllocation = Math.max(0, Math.round(autoEarned + manual - (op.total_paid || 0)));
       return {
         ...op,
         effective_days: days,
+        target_allocation: targetAllocation,
+      };
+    });
+
+    const totalTarget = unconstrained.reduce((sum, op) => sum + op.target_allocation, 0);
+
+    return unconstrained.map((op) => {
+      let balance = op.target_allocation;
+      // Cap realized balance to actual available cash after BOM so we don't display phantom cash exceeding revenue
+      if (totalTarget > availableCashAfterBom && totalTarget > 0) {
+        balance = Math.round((op.target_allocation / totalTarget) * availableCashAfterBom);
+      }
+      return {
+        ...op,
         accumulated_balance: balance,
       };
     });
-  }, [opPockets, operationalDaysWithSales]);
+  }, [opPockets, operationalDaysWithSales, totalOmzet, totalBomSavings]);
 
-  // 4. Celengan Gaji & Tunjangan Tim Cabang
+  // 5. Celengan Gaji & Tunjangan Tim Cabang
   const branchStaffProfiles = useMemo(() => {
     return staffProfiles.filter((p) => {
       if (selectedOutletId === "all") return true;
@@ -798,24 +898,24 @@ export function MoneyAllocationPage({
   const dailyStaffSalaryTotal = useMemo(() => {
     return branchStaffProfiles.reduce((sum, p) => {
       const baseDaily = Math.round((p.base_salary || 2000000) / 30);
-      const allowDaily = p.daily_allowance || 25000;
+      const allowDaily = Math.round(p.daily_allowance || 25000);
       return sum + baseDaily + allowDaily;
     }, 0);
   }, [branchStaffProfiles]);
 
   const currentSalaryPaid = useMemo(() => {
     if (selectedOutletId === "all") {
-      return Object.values(salaryPaid).reduce((s, a) => s + a, 0);
+      return Object.values(salaryPaid).reduce((s, a) => s + Math.round(a), 0);
     }
-    return salaryPaid[selectedOutletId] || 0;
+    return Math.round(salaryPaid[selectedOutletId] || 0);
   }, [salaryPaid, selectedOutletId]);
 
   const totalSalarySavings = useMemo(() => {
-    const totalAccumulated = dailyStaffSalaryTotal * operationalDaysWithSales;
-    return Math.max(0, totalAccumulated - currentSalaryPaid);
+    const totalAccumulated = Math.round(dailyStaffSalaryTotal * operationalDaysWithSales);
+    return Math.max(0, Math.round(totalAccumulated - currentSalaryPaid));
   }, [dailyStaffSalaryTotal, operationalDaysWithSales, currentSalaryPaid]);
 
-  // 5. Kas Keluar Laci Kasir Cabang (Petty Cash)
+  // 6. Kas Keluar Laci Kasir Cabang (Petty Cash)
   const outletCashOutMovements = useMemo(() => {
     return cashMovements.filter((m) => {
       if (m.type !== "out") return false;
@@ -828,21 +928,10 @@ export function MoneyAllocationPage({
     return outletCashOutMovements.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
   }, [outletCashOutMovements]);
 
-  // 6. Financial KPI Totals (Truthful, Zero-Safe & Multi-Pillar)
+  // 7. Financial KPI Totals (Truthful, Zero-Safe & Multi-Pillar)
   const ownerProfitTransferDeduction = Number(spentAmounts["__owner_profit__"] || 0);
   const emergencyFundTransferDeduction = Number(spentAmounts["__emergency_fund__"] || 0);
 
-  const salesOrdersSum = useMemo(() => {
-    return salesOrders.reduce((sum, ord) => {
-      if (selectedOutletId !== "all" && ord.outlet_id && ord.outlet_id !== selectedOutletId) {
-        return sum;
-      }
-      return sum + (Number(ord.total_amount || ord.total || ord.final_amount) || 0);
-    }, 0);
-  }, [salesOrders, selectedOutletId]);
-
-  const totalOmzet = (analytics?.totalRevenue && analytics.totalRevenue > 0) ? analytics.totalRevenue : salesOrdersSum;
-  const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
   const rawTotalOpSavings = computedOpPockets.reduce((sum, op) => sum + op.accumulated_balance, 0);
   const totalOpSavings = Math.max(0, rawTotalOpSavings - emergencyFundTransferDeduction);
 
@@ -854,9 +943,9 @@ export function MoneyAllocationPage({
 
   const baseProfit = Math.max(
     0,
-    totalOmzet - totalBomFromSales - currentSalaryPaid - totalCashOut - emergencyFundTransferDeduction,
+    Math.round(totalOmzet - totalBomFromSales - currentSalaryPaid - totalCashOut - emergencyFundTransferDeduction),
   );
-  const labaBersihMurni = Math.max(0, baseProfit - ownerProfitTransferDeduction);
+  const labaBersihMurni = Math.max(0, Math.round(baseProfit - ownerProfitTransferDeduction));
 
   // ACTION: Cairkan Gaji & Tunjangan Tim
   async function handleDisburseSalary() {

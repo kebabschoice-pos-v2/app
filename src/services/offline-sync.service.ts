@@ -73,19 +73,25 @@ export function reportNetworkSuccess(): void {
 }
 
 export function reportNetworkFailure(error?: any): void {
-  const errMsg = (error?.message || error?.name || String(error || "")).toLowerCase();
-  const isNetworkIssue =
-    errMsg.includes("network") ||
-    errMsg.includes("failed to fetch") ||
-    errMsg.includes("fetch failed") ||
-    errMsg.includes("abort") ||
-    errMsg.includes("timeout") ||
-    errMsg.includes("connection") ||
-    errMsg.includes("offline") ||
-    errMsg.includes("could not resolve host") ||
-    (isClient() && navigator.onLine === false);
+  // STRICT RULE: Never mark offline due to Supabase query, schema, RLS, 400, or 404 errors!
+  // Only mark offline if the browser's navigator.onLine is actually false,
+  // or if there is an explicit TypeError: Failed to fetch indicating total network disconnection.
+  if (isClient() && navigator.onLine === false) {
+    lastServerRequestSuccess = false;
+    if (currentNetworkStatus.isOnline) {
+      currentNetworkStatus.isOnline = false;
+      notifyStatusSubscribers();
+    }
+    return;
+  }
 
-  if (isNetworkIssue) {
+  const errMsg = (error?.message || error?.name || String(error || "")).toLowerCase();
+  const isPureFetchFailure =
+    (error instanceof TypeError && errMsg.includes("failed to fetch")) ||
+    errMsg.includes("network disconnected") ||
+    errMsg.includes("could not resolve host");
+
+  if (isPureFetchFailure && isClient() && navigator.onLine === false) {
     lastServerRequestSuccess = false;
     if (currentNetworkStatus.isOnline) {
       currentNetworkStatus.isOnline = false;
@@ -96,8 +102,8 @@ export function reportNetworkFailure(error?: any): void {
 
 export function isOnline(): boolean {
   if (!isClient()) return true;
-  if (navigator.onLine === false) return false;
-  return lastServerRequestSuccess;
+  // Prioritize navigator.onLine to avoid false offline state in live browsers
+  return navigator.onLine !== false;
 }
 
 // In-memory status state

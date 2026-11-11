@@ -46,6 +46,8 @@ import {
   loadBranchMoneyLedger,
   saveBranchMoneyLedger,
   cloneMasterInventoryToOutlet,
+  getWasteRecords,
+  getStockTransfers,
   type InventoryItemDetail,
   type StockMovementRecord,
   type SupplierItem,
@@ -173,6 +175,8 @@ export function InventoryManagement() {
   const [cloneTargetOutletId, setCloneTargetOutletId] = useState<string>("");
   const [cloningLoading, setCloningLoading] = useState(false);
   const [branchLedger, setBranchLedger] = useState<any>(null);
+  const [wasteList, setWasteList] = useState<any[]>([]);
+  const [transferList, setTransferList] = useState<any[]>([]);
 
   async function loadData() {
     setLoading(true);
@@ -180,13 +184,15 @@ export function InventoryManagement() {
       syncMenuRecipesWithInventory().catch(() => {});
       const activeBranchId =
         selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
-      const [itms, supps, movs, mets, outls, bLedger] = await Promise.all([
+      const [itms, supps, movs, mets, outls, bLedger, wastes, transfers] = await Promise.all([
         getInventoryItems(),
         getSuppliers(),
         getStockMovements(),
         getInventoryDashboardMetrics(),
         getOutletList().catch(() => [] as OutletItem[]),
         loadBranchMoneyLedger(activeBranchId).catch(() => null),
+        getWasteRecords(activeBranchId || undefined).catch(() => []),
+        getStockTransfers(activeBranchId || undefined).catch(() => []),
       ]);
       setItems(itms);
       setSuppliers(supps);
@@ -194,6 +200,8 @@ export function InventoryManagement() {
       setMetrics(mets);
       setOutlets(outls);
       setBranchLedger(bLedger);
+      setWasteList(wastes || []);
+      setTransferList(transfers || []);
     } catch (err: any) {
       console.error("[InventoryManagement] loadData error:", err);
       toast.error("Gagal memuat data inventori", {
@@ -295,7 +303,7 @@ export function InventoryManagement() {
   }, [items, search, selectedCategory, selectedStatus, selectedOutlet]);
 
   // Real-Time Daily Stock Usage & Waste Breakdown
-  const [mutationPeriod, setMutationPeriod] = useState<"today" | "7days" | "all">("today");
+  const [mutationPeriod, setMutationPeriod] = useState<"today" | "7days" | "all">("all");
 
   const dailyMutationsBreakdown = useMemo(() => {
     const now = new Date();
@@ -303,21 +311,22 @@ export function InventoryManagement() {
     const sevenDaysAgo = new Date();
     sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
+    const matchesPeriod = (dateStr?: string | null) => {
+      if (mutationPeriod === "today") {
+        return (dateStr || "").slice(0, 10) === todayStr;
+      } else if (mutationPeriod === "7days") {
+        const mTime = new Date(dateStr || 0).getTime();
+        return mTime >= sevenDaysAgo.getTime();
+      }
+      return true; // all
+    };
+
     const relevantMovements = movements.filter((m) => {
       // Filter by outlet
       if (selectedOutlet !== "all" && selectedOutlet !== "central") {
         if (m.outlet_id && m.outlet_id !== selectedOutlet) return false;
       }
-
-      // Filter by period
-      if (mutationPeriod === "today") {
-        const mDate = (m.created_at || "").slice(0, 10);
-        return mDate === todayStr;
-      } else if (mutationPeriod === "7days") {
-        const mTime = new Date(m.created_at || 0).getTime();
-        return mTime >= sevenDaysAgo.getTime();
-      }
-      return true; // all
+      return matchesPeriod(m.created_at);
     });
 
     // Group by inventory_item_id or item_name
@@ -337,18 +346,18 @@ export function InventoryManagement() {
 
     const map = new Map<string, ItemMutationSummary>();
 
-    for (const m of relevantMovements) {
-      const itm = items.find((i) => i.id === m.inventory_item_id);
-      const itemId = m.inventory_item_id || itm?.id || m.item_name || "unknown";
-      const itemName = m.item_name || itm?.name || "Bahan Baku";
+    const getOrCreateEntry = (itemId: string, itemName: string) => {
+      const itm = items.find((i) => i.id === itemId || i.name?.toLowerCase().trim() === itemName.toLowerCase().trim());
+      const resolvedId = itm?.id || itemId || "unknown";
+      const resolvedName = itm?.name || itemName || "Bahan Baku";
       const unit = itm?.unit || "unit";
       const yield_per_unit = itm?.yield_per_unit;
       const yield_unit = itm?.yield_unit;
 
-      if (!map.has(itemId)) {
-        map.set(itemId, {
-          itemId,
-          itemName,
+      if (!map.has(resolvedId)) {
+        map.set(resolvedId, {
+          itemId: resolvedId,
+          itemName: resolvedName,
           unit,
           yield_per_unit,
           yield_unit,
@@ -360,8 +369,12 @@ export function InventoryManagement() {
           wasteNotes: [],
         });
       }
+      return map.get(resolvedId)!;
+    };
 
-      const entry = map.get(itemId)!;
+    // 1. Process recorded movements
+    for (const m of relevantMovements) {
+      const entry = getOrCreateEntry(m.inventory_item_id || "", m.item_name || "");
       const mType = (m.movement_type as string) || (m as any).type || "";
       const qty = Math.abs(Number(m.quantity) || 0);
 
@@ -379,10 +392,53 @@ export function InventoryManagement() {
       }
     }
 
+    // 2. Incorporate waste records (if not already recorded in movements)
+    for (const w of wasteList) {
+      if (selectedOutlet !== "all" && selectedOutlet !== "central" && w.outlet_id && w.outlet_id !== selectedOutlet) {
+        continue;
+      }
+      if (!matchesPeriod(w.created_at)) continue;
+      const isAlreadyInMov = relevantMovements.some(
+        (m) => m.id === w.id || (m.notes && m.notes.includes(w.id)),
+      );
+      if (!isAlreadyInMov) {
+        const entry = getOrCreateEntry(w.inventory_item_id || "", w.item_name || "");
+        entry.wasteQty += Math.abs(Number(w.quantity) || 0);
+        if (w.notes) entry.wasteNotes.push(w.notes);
+      }
+    }
+
+    // 3. Incorporate approved / sent / received stock transfers
+    for (const tr of transferList) {
+      const status = tr.status || "";
+      const isApprovedOrSentOrReceived = status === "approved" || status === "sent" || status === "received";
+      if (!isApprovedOrSentOrReceived) continue;
+
+      const matchesOutlet =
+        selectedOutlet === "all" ||
+        selectedOutlet === "central" ||
+        tr.origin_outlet_id === selectedOutlet ||
+        tr.destination_outlet_id === selectedOutlet;
+      if (!matchesOutlet) continue;
+      if (!matchesPeriod(tr.created_at || tr.sent_at || tr.received_at)) continue;
+
+      for (const it of tr.items || []) {
+        const qty = Math.abs(Number(it.quantity) || 0);
+        if (qty <= 0) continue;
+        const entry = getOrCreateEntry(it.inventory_item_id || "", it.item_name || "");
+        entry.transferQty += qty;
+      }
+    }
+
     return Array.from(map.values()).filter(
-      (entry) => entry.posSaleQty > 0 || entry.wasteQty > 0 || entry.stockInQty > 0,
+      (entry) =>
+        entry.posSaleQty > 0 ||
+        entry.wasteQty > 0 ||
+        entry.stockInQty > 0 ||
+        entry.transferQty > 0 ||
+        entry.opnameQty > 0,
     );
-  }, [movements, items, selectedOutlet, mutationPeriod]);
+  }, [movements, wasteList, transferList, items, selectedOutlet, mutationPeriod]);
 
   // Dynamic Categories state with local persistence
   const [customCategories, setCustomCategories] = useState<string[]>(() => {

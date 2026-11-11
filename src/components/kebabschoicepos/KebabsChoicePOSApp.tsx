@@ -5330,7 +5330,7 @@ function PosPage({
                   Sinkronkan Sekarang
                 </button>
               </span>
-            ) : (typeof navigator !== "undefined" && navigator.onLine === false) || !networkStatus.isOnline ? (
+            ) : (typeof navigator !== "undefined" && navigator.onLine === false) ? (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <WifiOff className="size-3" />
                 Mode Offline (Tidak Ada Internet)

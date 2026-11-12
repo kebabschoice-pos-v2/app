@@ -950,38 +950,13 @@ export function MoneyAllocationPage({
   const totalOmzet = (analytics?.totalRevenue && analytics.totalRevenue > 0) ? analytics.totalRevenue : salesOrdersSum;
   const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
 
-  // 4. Computed Operational Pockets (Auto synced with actual operating days with sales and capped by available revenue)
-  const computedOpPockets = useMemo(() => {
-    const availableCashAfterBom = Math.max(0, totalOmzet - totalBomSavings);
+  // Pure BOM savings generated strictly from sales without manual injections
+  const totalBomFromSales = computedBomPockets.reduce(
+    (sum, b) => sum + Math.max(0, b.totalEarned - b.spent),
+    0,
+  );
 
-    const unconstrained = opPockets.map((op) => {
-      const days = Math.max(op.days_collected ?? 0, operationalDaysWithSales);
-      const autoEarned = Math.round(days * (op.daily_allocation || 0));
-      const manual = Math.round(op.manual_stash || 0);
-      const targetAllocation = Math.max(0, Math.round(autoEarned + manual - (op.total_paid || 0)));
-      return {
-        ...op,
-        effective_days: days,
-        target_allocation: targetAllocation,
-      };
-    });
-
-    const totalTarget = unconstrained.reduce((sum, op) => sum + op.target_allocation, 0);
-
-    return unconstrained.map((op) => {
-      let balance = op.target_allocation;
-      // Cap realized balance to actual available cash after BOM so we don't display phantom cash exceeding revenue
-      if (totalTarget > availableCashAfterBom && totalTarget > 0) {
-        balance = Math.round((op.target_allocation / totalTarget) * availableCashAfterBom);
-      }
-      return {
-        ...op,
-        accumulated_balance: balance,
-      };
-    });
-  }, [opPockets, operationalDaysWithSales, totalOmzet, totalBomSavings]);
-
-  // 5. Celengan Gaji & Tunjangan Tim Cabang
+  // 4. Celengan Gaji & Tunjangan Tim Cabang + Kas Keluar Laci Kasir Cabang
   const branchStaffProfiles = useMemo(() => {
     return staffProfiles.filter((p) => {
       if (selectedOutletId === "all") return true;
@@ -1009,7 +984,6 @@ export function MoneyAllocationPage({
     return Math.max(0, Math.round(totalAccumulated - currentSalaryPaid));
   }, [dailyStaffSalaryTotal, operationalDaysWithSales, currentSalaryPaid]);
 
-  // 6. Kas Keluar Laci Kasir Cabang (Petty Cash)
   const outletCashOutMovements = useMemo(() => {
     return cashMovements.filter((m) => {
       if (m.type !== "out") return false;
@@ -1022,22 +996,77 @@ export function MoneyAllocationPage({
     return outletCashOutMovements.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
   }, [outletCashOutMovements]);
 
-  // 7. Financial KPI Totals (Truthful, Zero-Safe & Multi-Pillar)
+  const totalExpenseAndSalaryPaid = currentSalaryPaid + totalCashOut;
+
+  // 5. Computed Operational Pockets (Proportional to active sales days, capped by remaining cash after BOM & expenses)
+  const computedOpPockets = useMemo(() => {
+    const availableCashAfterBomAndExpense = Math.max(
+      0,
+      totalOmzet - totalBomFromSales - totalExpenseAndSalaryPaid,
+    );
+
+    const unconstrained = opPockets.map((op) => {
+      const days = Math.max(op.days_collected ?? 0, operationalDaysWithSales);
+      const dailyTarget =
+        Number(op.daily_allocation) || Math.round((Number(op.target_monthly) || 0) / 30);
+      const autoEarned = Math.round(days * dailyTarget);
+      const manual = Math.round(op.manual_stash || 0);
+      const targetAllocation = Math.max(0, Math.round(autoEarned + manual - (op.total_paid || 0)));
+      return {
+        ...op,
+        daily_allocation: dailyTarget,
+        effective_days: days,
+        target_allocation: targetAllocation,
+      };
+    });
+
+    const totalTarget = unconstrained.reduce((sum, op) => sum + op.target_allocation, 0);
+
+    // Cap realized balance to actual available gross profit so Card 2 + Card 3 + Card 4 + Card 5 === Card 1
+    let allocatedSoFar = 0;
+    const positiveIndices = unconstrained
+      .map((op, idx) => (op.target_allocation > 0 ? idx : -1))
+      .filter((idx) => idx >= 0);
+    const lastPositiveIdx =
+      positiveIndices.length > 0 ? positiveIndices[positiveIndices.length - 1] : -1;
+
+    return unconstrained.map((op, idx) => {
+      let balance = op.target_allocation;
+      if (totalTarget > availableCashAfterBomAndExpense && totalTarget > 0) {
+        if (idx === lastPositiveIdx) {
+          balance = Math.max(0, availableCashAfterBomAndExpense - allocatedSoFar);
+        } else {
+          balance = Math.round(
+            (op.target_allocation / totalTarget) * availableCashAfterBomAndExpense,
+          );
+          allocatedSoFar += balance;
+        }
+      }
+      return {
+        ...op,
+        accumulated_balance: balance,
+      };
+    });
+  }, [opPockets, operationalDaysWithSales, totalOmzet, totalBomFromSales, totalExpenseAndSalaryPaid]);
+
+  const totalMonthlyOpTarget = useMemo(() => {
+    return computedOpPockets.reduce(
+      (sum, op) =>
+        sum + (Number(op.target_monthly) || Math.round((Number(op.daily_allocation) || 0) * 30)),
+      0,
+    );
+  }, [computedOpPockets]);
+
+  // 6. Financial KPI Totals (Balanced Zero-Sum Accounting Equation: Card2 + Card3 + Card4 + Card5 = Card1)
   const ownerProfitTransferDeduction = Number(spentAmounts["__owner_profit__"] || 0);
   const emergencyFundTransferDeduction = Number(spentAmounts["__emergency_fund__"] || 0);
 
   const rawTotalOpSavings = computedOpPockets.reduce((sum, op) => sum + op.accumulated_balance, 0);
   const totalOpSavings = Math.max(0, rawTotalOpSavings - emergencyFundTransferDeduction);
 
-  // Pure BOM savings generated strictly from sales without manual injections
-  const totalBomFromSales = computedBomPockets.reduce(
-    (sum, b) => sum + Math.max(0, b.totalEarned - b.spent),
-    0,
-  );
-
   const baseProfit = Math.max(
     0,
-    Math.round(totalOmzet - totalBomFromSales - currentSalaryPaid - totalCashOut - emergencyFundTransferDeduction),
+    Math.round(totalOmzet - totalBomFromSales - rawTotalOpSavings - currentSalaryPaid - totalCashOut),
   );
   const labaBersihMurni = Math.max(0, Math.round(baseProfit - ownerProfitTransferDeduction));
 
@@ -1546,8 +1575,8 @@ export function MoneyAllocationPage({
             </p>
             <p className="mt-1 text-[10px] text-blue-700/80 dark:text-blue-400/80">
               {operationalDaysWithSales > 0
-                ? `${operationalDaysWithSales} hari penjualan aktif (Kios/Listrik/Parkir)`
-                : "Rp 0 jika belum ada hari penjualan aktif"}
+                ? `Terkumpul dari ${operationalDaysWithSales} Hari Aktif (Target Bulanan: ${formatRupiah(totalMonthlyOpTarget)})`
+                : `Rp 0 jika belum ada hari penjualan aktif (Target Bulanan: ${formatRupiah(totalMonthlyOpTarget)})`}
               {emergencyFundTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(emergencyFundTransferDeduction)}`}
             </p>
           </div>
@@ -1587,7 +1616,7 @@ export function MoneyAllocationPage({
               </p>
               <div className="mt-1 space-y-0.5">
                 <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
-                  Laba Kas Bersih setelah BOM, Gaji Cair &amp; Kas Keluar Kasir
+                  Laba Kas Bersih setelah BOM, Operasional, Gaji Cair &amp; Kas Keluar Kasir
                   {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
                 </p>
                 {totalSalarySavings > 0 && (
@@ -1646,11 +1675,33 @@ export function MoneyAllocationPage({
                 const outDays = new Set(
                   outOrders.map((o) => (o.created_at || "").slice(0, 10)),
                 ).size;
-                const outOpCost = computedOpPockets.reduce(
-                  (sum, op) => sum + outDays * (op.daily_allocation || 0),
+                const rawOutOpCost = computedOpPockets.reduce(
+                  (sum, op) =>
+                    sum +
+                    Math.round(
+                      outDays *
+                        (Number(op.daily_allocation) ||
+                          Math.round((Number(op.target_monthly) || 0) / 30)),
+                    ),
                   0,
                 );
-                const outProfit = Math.max(0, outRevenue - outBomSavings - outOpCost);
+                const outSalaryPaid = Math.round(salaryPaid[out.id] || 0);
+                const outCashOut = cashMovements
+                  .filter(
+                    (m) =>
+                      m.type === "out" &&
+                      normalizeOrderOutletId(m.outlet_id, outletsList) === out.id,
+                  )
+                  .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
+                const outAvailableForOp = Math.max(
+                  0,
+                  outRevenue - outBomSavings - outSalaryPaid - outCashOut,
+                );
+                const outOpCost = Math.min(outAvailableForOp, rawOutOpCost);
+                const outProfit = Math.max(
+                  0,
+                  outRevenue - outBomSavings - outOpCost - outSalaryPaid - outCashOut,
+                );
 
                 return (
                   <div

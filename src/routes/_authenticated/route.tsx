@@ -1,12 +1,13 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 
 export const Route = createFileRoute("/_authenticated")({
   ssr: false,
   beforeLoad: async () => {
-    const { data, error } = await supabase.auth.getUser();
-    if (error || !data.user) throw redirect({ to: "/auth" });
-    return { user: data.user };
+    if (typeof window === "undefined") return;
+    const user = await resolveAuthenticatedUser();
+    if (!user) throw redirect({ to: "/auth" });
+    return { user };
   },
   component: () => <Outlet />,
 });

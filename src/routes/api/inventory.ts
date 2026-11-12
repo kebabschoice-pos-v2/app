@@ -228,22 +228,31 @@ export const Route = createFileRoute("/api/inventory")({
             const suppliers = store.suppliers || [];
             const extraMeta = store.item_meta || {};
 
+            // Resolve outlet names directly from outlets table (including archived branches holding stock)
+            const outletNameMap = new Map<string, string>();
+            try {
+              const { data: outletRows } = await supabaseAdmin
+                .from("outlets")
+                .select("id, name");
+              for (const o of outletRows || []) {
+                if (o.id && o.name) outletNameMap.set(o.id, o.name);
+              }
+            } catch {}
+
             const mappedItems = dbItems.map((row: any) => {
               const meta = extraMeta[row.id] || {};
               const stockVal = Number(row.stock) || 0;
               const minVal = Number(row.minimum_stock) || 0;
               let costPrice =
-                typeof row.cost_price === "number"
-                  ? row.cost_price
-                  : typeof meta.cost_price === "number"
-                    ? meta.cost_price
-                    : meta.cost_price
-                      ? Number(meta.cost_price)
-                      : 0;
+                Number(row.cost_price) > 0
+                  ? Number(row.cost_price)
+                  : Number(meta.cost_price) > 0
+                    ? Number(meta.cost_price)
+                    : 0;
               const supplierId = row.supplier_id || meta.supplier_id || null;
               const matchedSup = suppliers.find((s: any) => s.id === supplierId);
               const outletId = row.outlet_id || meta.outlet_id || null;
-              const outletName = meta.outlet_name || null;
+              const outletName = (outletId ? outletNameMap.get(outletId) : null) || meta.outlet_name || null;
               let yieldPerUnit =
                 typeof row.yield_per_unit === "number" && row.yield_per_unit > 0
                   ? row.yield_per_unit
@@ -555,12 +564,24 @@ export const Route = createFileRoute("/api/inventory")({
                 : null;
             const yieldUnitVal = itemData.yield_unit ? String(itemData.yield_unit).trim() : null;
 
+            let resolvedOutletName = itemData.outlet_name || null;
+            if (!resolvedOutletName && itemData.outlet_id) {
+              try {
+                const { data: oRow } = await supabaseAdmin
+                  .from("outlets")
+                  .select("name")
+                  .eq("id", itemData.outlet_id)
+                  .maybeSingle();
+                if (oRow?.name) resolvedOutletName = oRow.name;
+              } catch {}
+            }
+
             store.item_meta = store.item_meta || {};
             store.item_meta[inserted.id] = {
               cost_price: Number(itemData.cost_price) || 0,
               supplier_id: itemData.supplier_id || null,
               outlet_id: itemData.outlet_id || null,
-              outlet_name: itemData.outlet_name || null,
+              outlet_name: resolvedOutletName,
               yield_per_unit: yieldPerUnitVal,
               yield_unit: yieldUnitVal,
             };
@@ -610,13 +631,29 @@ export const Route = createFileRoute("/api/inventory")({
                 .eq("id", body.id);
             }
 
+            let resolvedUpdateOutletName = itemData.outlet_name;
+            if (resolvedUpdateOutletName === undefined && itemData.outlet_id !== undefined) {
+              if (itemData.outlet_id) {
+                try {
+                  const { data: oRow } = await supabaseAdmin
+                    .from("outlets")
+                    .select("name")
+                    .eq("id", itemData.outlet_id)
+                    .maybeSingle();
+                  resolvedUpdateOutletName = oRow?.name || null;
+                } catch {}
+              } else {
+                resolvedUpdateOutletName = null;
+              }
+            }
+
             store.item_meta = store.item_meta || {};
             store.item_meta[body.id] = {
               ...(store.item_meta[body.id] || {}),
               ...(itemData.cost_price !== undefined ? { cost_price: Number(itemData.cost_price) } : {}),
               ...(itemData.supplier_id !== undefined ? { supplier_id: itemData.supplier_id } : {}),
               ...(itemData.outlet_id !== undefined ? { outlet_id: itemData.outlet_id } : {}),
-              ...(itemData.outlet_name !== undefined ? { outlet_name: itemData.outlet_name } : {}),
+              ...(resolvedUpdateOutletName !== undefined ? { outlet_name: resolvedUpdateOutletName } : {}),
               ...(itemData.yield_per_unit !== undefined
                 ? { yield_per_unit: itemData.yield_per_unit !== null ? Number(itemData.yield_per_unit) : null }
                 : {}),
@@ -1099,6 +1136,7 @@ export const Route = createFileRoute("/api/inventory")({
                       supplier_id: existingDestMeta.supplier_id ?? resolvedSupplierId,
                       minimum_stock: existingDestMeta.minimum_stock ?? resolvedMinStock,
                       outlet_id: destOutletId,
+                      outlet_name: destName || existingDestMeta.outlet_name || null,
                     };
 
                     const movIn = {
@@ -1171,6 +1209,7 @@ export const Route = createFileRoute("/api/inventory")({
                           supplier_id: resolvedSupplierId,
                           minimum_stock: resolvedMinStock,
                           outlet_id: destOutletId,
+                          outlet_name: destName || null,
                           ...(originMeta.pack_configs ? { pack_configs: originMeta.pack_configs } : {}),
                         };
 

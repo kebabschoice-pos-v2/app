@@ -122,6 +122,7 @@ import {
   DropdownMenuLabel,
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   getBusinessProfile,
   updateBusinessProfile,
@@ -5385,16 +5386,21 @@ function PosPage({
         <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border bg-card/85 px-4 py-2.5 shadow-xs backdrop-blur-xl">
           {/* Status Kiri: Online, Cabang, Kasir & Shift */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            {/* Status Online/Offline */}
+            {/* Status Online/Sinkronisasi */}
             {networkStatus.isSyncing ? (
               <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
                 <RefreshCw className="size-3 animate-spin" />
                 Menyinkronkan...
               </span>
-            ) : networkStatus.pendingCount > 0 ? (
+            ) : typeof navigator !== "undefined" && navigator.onLine === false ? (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <WifiOff className="size-3" />
-                Mode Offline — {networkStatus.pendingCount} Transaksi
+                Koneksi Terputus (Antrean Lokal Aktif)
+              </span>
+            ) : networkStatus.pendingCount > 0 ? (
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
+                🟢 Online • {networkStatus.pendingCount} Antrean Sinkronisasi
                 <button
                   type="button"
                   onClick={async () => {
@@ -5402,15 +5408,10 @@ function PosPage({
                       await syncPendingTransactions();
                     } catch {}
                   }}
-                  className="ml-1 underline text-[10px] hover:text-amber-700 cursor-pointer"
+                  className="ml-1 underline text-[10px] hover:text-emerald-700 cursor-pointer"
                 >
-                  Sinkronkan Sekarang
+                  Sinkronkan
                 </button>
-              </span>
-            ) : (typeof navigator !== "undefined" && navigator.onLine === false) ? (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                <WifiOff className="size-3" />
-                Mode Offline (Tidak Ada Internet)
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
@@ -9198,20 +9199,20 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
 
   async function refresh() {
     try {
-      const { data, error } = await supabase.auth.getUser();
-      if (error || !data.user) {
+      const authUser = await resolveAuthenticatedUser();
+      if (!authUser) {
         await navigate({ to: "/auth", replace: true });
         return;
       }
 
-      const userEmail = data.user.email ?? "admin@kitapos.id";
+      const userEmail = authUser.email ?? "admin@kitapos.id";
       const nameFromMetadata =
-        (typeof data.user.user_metadata?.display_name === "string"
-          ? data.user.user_metadata.display_name
+        (typeof authUser.user_metadata?.display_name === "string"
+          ? authUser.user_metadata.display_name
           : userEmail.split("@")[0]) || "User";
       const nextProfile: UserProfile = { email: userEmail, displayName: nameFromMetadata };
       setProfile(nextProfile);
-      const nextSnapshot = await loadSnapshot(data.user.id, nextProfile);
+      const nextSnapshot = await loadSnapshot(authUser.id, nextProfile);
       setSnapshot(nextSnapshot);
     } catch (err) {
       console.warn("[refresh] Error loading snapshot:", err);

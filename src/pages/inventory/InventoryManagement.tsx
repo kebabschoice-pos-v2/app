@@ -52,7 +52,7 @@ import {
   type StockMovementRecord,
   type SupplierItem,
 } from "@/services/inventory.service";
-import { syncMenuRecipesWithInventory } from "@/services/menu.service";
+import { getBusinessOutlets, syncMenuRecipesWithInventory } from "@/services/menu.service";
 import { getOutletList, type OutletItem } from "@/services/outlet.service";
 import {
   formatNumberWithDots,
@@ -184,21 +184,43 @@ export function InventoryManagement() {
       syncMenuRecipesWithInventory().catch(() => {});
       const activeBranchId =
         selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
-      const [itms, supps, movs, mets, outls, bLedger, wastes, transfers] = await Promise.all([
+      const [itms, supps, movs, mets, outls, bizOutlets, bLedger, wastes, transfers] = await Promise.all([
         getInventoryItems(),
         getSuppliers(),
         getStockMovements(),
         getInventoryDashboardMetrics(),
         getOutletList().catch(() => [] as OutletItem[]),
+        getBusinessOutlets().catch(() => [] as Array<{ id: string; name: string }>),
         loadBranchMoneyLedger(activeBranchId).catch(() => null),
         getWasteRecords(activeBranchId || undefined).catch(() => []),
         getStockTransfers(activeBranchId || undefined).catch(() => []),
       ]);
+      // Merge active outlets with archived-but-holding-stock outlets & item outlet references
+      const mergedOutletsMap = new Map<string, OutletItem>();
+      for (const o of outls || []) {
+        if (o?.id) mergedOutletsMap.set(o.id, o);
+      }
+      for (const bo of bizOutlets || []) {
+        if (bo?.id && !mergedOutletsMap.has(bo.id)) {
+          mergedOutletsMap.set(bo.id, {
+            id: bo.id,
+            name: bo.name,
+          } as OutletItem);
+        }
+      }
+      for (const it of itms || []) {
+        if (it?.outlet_id && it?.outlet_name && !mergedOutletsMap.has(it.outlet_id)) {
+          mergedOutletsMap.set(it.outlet_id, {
+            id: it.outlet_id,
+            name: it.outlet_name,
+          } as OutletItem);
+        }
+      }
       setItems(itms);
       setSuppliers(supps);
       setMovements(movs);
       setMetrics(mets);
-      setOutlets(outls);
+      setOutlets(Array.from(mergedOutletsMap.values()));
       setBranchLedger(bLedger);
       setWasteList(wastes || []);
       setTransferList(transfers || []);
@@ -1382,7 +1404,7 @@ export function InventoryManagement() {
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
                                 <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded-md">
                                   <Warehouse className="size-2.5" />
-                                  {item.outlet_name || (outlets.find((o) => o.id === item.outlet_id)?.name) || "Gudang Pusat"}
+                                  {item.outlet_name || (outlets.find((o) => o.id === item.outlet_id)?.name) || (item.outlet_id ? "Outlet Cabang" : "Gudang Pusat")}
                                 </span>
                                 {item.ai_alert && (
                                   <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400">

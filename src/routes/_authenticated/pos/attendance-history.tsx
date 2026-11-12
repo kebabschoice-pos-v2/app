@@ -1,8 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { KebabsChoicePOSApp } from "@/components/kebabschoicepos/KebabsChoicePOSApp";
 
 export const Route = createFileRoute("/_authenticated/pos/attendance-history")({
+  ssr: false,
   head: () => ({
     meta: [
       { title: "Riwayat Absensi | KebabsChoicePOS" },
@@ -10,8 +11,9 @@ export const Route = createFileRoute("/_authenticated/pos/attendance-history")({
     ],
   }),
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    if (!data.user) throw redirect({ to: "/auth" });
+    if (typeof window === "undefined") return;
+    const user = await resolveAuthenticatedUser();
+    if (!user) throw redirect({ to: "/auth" });
   },
   component: () => <KebabsChoicePOSApp page="pos-attendance-history" />,
 });

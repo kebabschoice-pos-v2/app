@@ -2,6 +2,73 @@ import { createFileRoute } from "@tanstack/react-router";
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { computeRecipeUnitBomCost, type InventoryItemLite } from "@/lib/bom-analytics";
+
+function dedupeRecipeItemsList<T extends Record<string, any>>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const result: T[] = [];
+  for (const r of items || []) {
+    if (!r) continue;
+    const nameKey = String(r.ingredient_name || r.name || "").trim().toLowerCase();
+    const idKey = String(r.inventory_item_id || r.ingredient_id || "").trim();
+    const key = nameKey || idKey;
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    result.push(r);
+  }
+  return result;
+}
+
+async function fetchNormalizedInventoryForBom(
+  allBusinessIds: string[],
+  outletsInput?: Array<{ settings?: any }>,
+): Promise<InventoryItemLite[]> {
+  let rawItems: any[] = [];
+  try {
+    const res = await supabaseAdmin
+      .from("inventory_items")
+      .select("id, name, unit, stock, cost_price, yield_per_unit, yield_unit")
+      .in("business_id", allBusinessIds);
+    if (!res.error && res.data) {
+      rawItems = res.data;
+    } else {
+      const fb = await supabaseAdmin
+        .from("inventory_items")
+        .select("id, name, unit, stock")
+        .in("business_id", allBusinessIds);
+      rawItems = fb.data || [];
+    }
+  } catch {
+    rawItems = [];
+  }
+
+  const itemMetaMap: Record<string, any> = {};
+  for (const o of outletsInput || []) {
+    const s = (o?.settings as any) || {};
+    const metaSource = s.procurement_store?.item_meta || s.item_meta || {};
+    if (metaSource && typeof metaSource === "object") {
+      Object.assign(itemMetaMap, metaSource);
+    }
+  }
+
+  return rawItems.map((row: any) => {
+    const meta = itemMetaMap[row.id] || {};
+    const costPrice =
+      Number(row.cost_price) > 0
+        ? Number(row.cost_price)
+        : Number(meta.cost_price) > 0
+          ? Number(meta.cost_price)
+          : 0;
+    return {
+      id: row.id,
+      name: row.name,
+      unit: row.unit,
+      cost_price: costPrice,
+      yield_per_unit: Number(row.yield_per_unit) > 0 ? Number(row.yield_per_unit) : Number(meta.yield_per_unit) || null,
+      yield_unit: row.yield_unit || meta.yield_unit || null,
+    };
+  });
+}
 
 async function authenticateRequest(request: Request) {
   const authHeader = request.headers.get("authorization");
@@ -568,9 +635,27 @@ export const Route = createFileRoute("/api/menu")({
             // Relational tables not yet created or offline
           }
 
+          // Normalize inventory items for single-source-of-truth BOM HPP calculation
+          const normalizedInventoryForBom = await fetchNormalizedInventoryForBom(
+            allBusinessIds,
+            allOutlets || [],
+          );
+
           menuItems = menuItems.map((item) => {
             const itemRecipe = storedRecipes[item.id];
             const itemCustomization = storedCustomizations[item.id] || {};
+            const rawRecipeItems = Array.isArray(itemRecipe?.items) ? itemRecipe.items : [];
+            const dedupedRecipeItems = dedupeRecipeItemsList(rawRecipeItems);
+            const liveBomCost = computeRecipeUnitBomCost(
+              dedupedRecipeItems,
+              normalizedInventoryForBom,
+            );
+            const storedCost = Number(item.cost_price) > 0
+              ? Number(item.cost_price)
+              : Number(itemCustomization.cost_price) > 0
+                ? Number(itemCustomization.cost_price)
+                : 0;
+            const resolvedCostPrice = liveBomCost > 0 ? liveBomCost : storedCost;
             const itemOutlets =
               storedOutletsMap[item.id] ||
               (allOutlets || []).map((o) => ({
@@ -607,11 +692,7 @@ export const Route = createFileRoute("/api/menu")({
 
             return {
               ...item,
-              cost_price: item.cost_price
-                ? Number(item.cost_price)
-                : itemCustomization.cost_price
-                  ? Number(itemCustomization.cost_price)
-                  : 0,
+              cost_price: resolvedCostPrice,
               promo_price: item.promo_price ?? itemCustomization.promo_price ?? null,
               tax_rate: item.tax_rate ?? itemCustomization.tax_rate ?? 0,
               image_crop_position:
@@ -624,8 +705,10 @@ export const Route = createFileRoute("/api/menu")({
               variants: itemCustomization.variants || resolvedVariantGroups[0]?.options || [],
               modifiers: itemCustomization.modifiers || [],
               addons: itemCustomization.addons || [],
-              recipe: itemRecipe || null,
-              recipe_items: itemRecipe?.items || [],
+              recipe: itemRecipe
+                ? { ...itemRecipe, items: dedupedRecipeItems }
+                : null,
+              recipe_items: dedupedRecipeItems,
               outlet_assignments: itemOutlets,
             };
           });
@@ -1296,25 +1379,20 @@ export const Route = createFileRoute("/api/menu")({
               price = 15000;
             }
 
-            // Calculate dynamic HPP from recipe items if provided or if costPrice is 0
+            // Calculate dynamic HPP from deduplicated recipe items using single-source-of-truth BOM logic
             if (Array.isArray(body.recipe_items) && body.recipe_items.length > 0) {
-              let computedHpp = 0;
-              for (const r of body.recipe_items) {
-                const rQty = Number(r.quantity) || 1;
-                const rCost = Number(r.cost_estimate) || 0;
-                if (rCost > 0) {
-                  computedHpp += rCost;
-                } else {
-                  const rName = (r.ingredient_name || "").toLowerCase();
-                  if (rName.includes("daging") || rName.includes("beef")) {
-                    computedHpp += rQty * 60; // 20g @ Rp 120.000 / 2000g = Rp 1.200
-                  } else if (rName.includes("tortilla") || rName.includes("kulit")) {
-                    computedHpp += rQty * 1250; // 1 pcs @ Rp 25.000 / 20pcs = Rp 1.250
-                  }
-                }
-              }
+              body.recipe_items = dedupeRecipeItemsList(body.recipe_items);
+              const { data: outletRows } = await supabaseAdmin
+                .from("outlets")
+                .select("settings")
+                .in("business_id", allBusinessIds);
+              const invForBom = await fetchNormalizedInventoryForBom(
+                allBusinessIds,
+                outletRows || [],
+              );
+              const computedHpp = computeRecipeUnitBomCost(body.recipe_items, invForBom);
               if (computedHpp > 0) {
-                costPrice = Math.round(computedHpp);
+                costPrice = computedHpp;
               }
             }
 

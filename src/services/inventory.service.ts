@@ -520,15 +520,29 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
 
   const extraMeta = store.item_meta || {};
 
+  // Resolve outlet names from outlets table (including archived branches holding stock)
+  const outletNameMap = new Map<string, string>();
+  try {
+    const { data: outletRows } = await supabase.from("outlets").select("id, name");
+    for (const o of outletRows || []) {
+      if (o.id && o.name) outletNameMap.set(o.id, o.name);
+    }
+  } catch {}
+
   const mappedItems: InventoryItemDetail[] = (dbItems || []).map((row) => {
     const meta = extraMeta[row.id] || {};
     const stockVal = Number(row.stock) || 0;
     const minVal = Number(row.minimum_stock) || 0;
-    const costPrice = Number(row.cost_price ?? meta.cost_price ?? 0);
+    const costPrice =
+      Number(row.cost_price) > 0
+        ? Number(row.cost_price)
+        : Number(meta.cost_price) > 0
+          ? Number(meta.cost_price)
+          : 0;
     const supplierId = meta.supplier_id || null;
     const matchedSup = suppliers.find((s) => s.id === supplierId);
     const outletId = (row as any).outlet_id || meta.outlet_id || null;
-    const outletName = meta.outlet_name || null;
+    const outletName = (outletId ? outletNameMap.get(outletId) : null) || meta.outlet_name || null;
     const yieldPerUnit =
       Number((row as any).yield_per_unit ?? meta.yield_per_unit ?? meta.pack_size ?? 0) || null;
     const yieldUnit =
@@ -2240,6 +2254,7 @@ export async function updateStockTransferStatus(
               supplier_id: existingDestMeta.supplier_id ?? resolvedSupplierId,
               minimum_stock: existingDestMeta.minimum_stock ?? resolvedMinStock,
               outlet_id: destOutletId,
+              outlet_name: destName || existingDestMeta.outlet_name || null,
             };
 
             const movIn: StockMovementRecord = {
@@ -2309,6 +2324,7 @@ export async function updateStockTransferStatus(
                   supplier_id: resolvedSupplierId,
                   minimum_stock: resolvedMinStock,
                   outlet_id: destOutletId,
+                  outlet_name: destName || null,
                   ...(originMeta.pack_configs ? { pack_configs: originMeta.pack_configs } : {}),
                 };
 

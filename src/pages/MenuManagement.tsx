@@ -78,6 +78,10 @@ import {
   type InventoryIngredient,
   type MenuItemInput,
 } from "@/services/menu.service";
+import {
+  computeRecipeUnitBomCost,
+  resolveInventoryIngredientParams,
+} from "@/lib/bom-analytics";
 import { getManagerPermissions, type ManagerPermissions } from "@/services/manager-permissions.service";
 import { cn } from "@/lib/utils";
 
@@ -601,9 +605,18 @@ export function MenuManagement() {
     );
     setAddons(item.addons && item.addons.length > 0 ? [...item.addons] : []);
 
-    // Set Recipe Items if existing (auto-map to valid inventory items & real costs)
+    // Set Recipe Items if existing (auto-map to valid inventory items, deduplicate & compute real BOM costs)
     const existingRec = item.recipe_items || (item.recipe?.items ? item.recipe.items : []);
-    const fixedRec = existingRec.map((r: any) => {
+    const seenRecKeys = new Set<string>();
+    const dedupedRec = existingRec.filter((r: any) => {
+      const key =
+        String(r.ingredient_name || "").trim().toLowerCase() ||
+        String(r.inventory_item_id || "");
+      if (key && seenRecKeys.has(key)) return false;
+      if (key) seenRecKeys.add(key);
+      return true;
+    });
+    const fixedRec = dedupedRec.map((r: any) => {
       const matched =
         inventoryIngredients.find((inv) => inv.id === r.inventory_item_id) ||
         inventoryIngredients.find(
@@ -613,17 +626,16 @@ export function MenuManagement() {
             inv.name.toLowerCase().trim() === r.ingredient_name.toLowerCase().trim(),
         );
       if (matched) {
+        const params = resolveInventoryIngredientParams(matched);
         const invQty = convertRecipeToInventoryQuantity(
           r.quantity || 1,
           r.unit,
-          matched.unit,
-          matched.yield_per_unit,
-          matched.yield_unit,
+          params.unit,
+          params.yieldPerUnit,
+          params.yieldUnit,
         );
         const costEst =
-          matched.cost_price && matched.cost_price > 0
-            ? Math.round(invQty * matched.cost_price)
-            : r.cost_estimate || 0;
+          params.costPrice > 0 ? Math.round(invQty * params.costPrice) : r.cost_estimate || 0;
         return {
           ...r,
           inventory_item_id: matched.id,
@@ -634,6 +646,10 @@ export function MenuManagement() {
       return r;
     });
     setRecipeItems(fixedRec.length > 0 ? [...fixedRec] : []);
+    const liveEditorBomCost = recalcRecipeHPP(fixedRec, inventoryIngredients);
+    if (liveEditorBomCost > 0) {
+      setCostPrice(liveEditorBomCost);
+    }
 
     // Merge outlet assignments with all active outlets
     const existingMap = new Map((item.outlet_assignments || []).map((oa) => [oa.outlet_id, oa]));
@@ -988,40 +1004,24 @@ export function MenuManagement() {
   const [quickFixYield, setQuickFixYield] = useState<Record<string, number>>({});
   const [quickFixLoading, setQuickFixLoading] = useState<Record<string, boolean>>({});
 
+  function getEffectiveMenuBomCost(item: MenuItem): number {
+    const rawRec = item.recipe_items || (item.recipe?.items ? item.recipe.items : []);
+    if (rawRec.length === 0) return item.cost_price || 0;
+    const seen = new Set<string>();
+    const deduped = rawRec.filter((r: any) => {
+      const key =
+        String(r.ingredient_name || "").trim().toLowerCase() ||
+        String(r.inventory_item_id || "");
+      if (key && seen.has(key)) return false;
+      if (key) seen.add(key);
+      return true;
+    });
+    const bomCost = computeRecipeUnitBomCost(deduped, inventoryIngredients);
+    return bomCost > 0 ? bomCost : item.cost_price || 0;
+  }
+
   function recalcRecipeHPP(items: RecipeItem[], ingredients: InventoryIngredient[]): number {
-    let estimatedCost = 0;
-    for (const r of items) {
-      const matchedInv =
-        ingredients.find((inv) => inv.id === r.inventory_item_id) ||
-        ingredients.find(
-          (inv) =>
-            inv.name &&
-            r.ingredient_name &&
-            inv.name.toLowerCase().trim() === r.ingredient_name.toLowerCase().trim(),
-        );
-      if (matchedInv && matchedInv.cost_price && matchedInv.cost_price > 0) {
-        const invQty = convertRecipeToInventoryQuantity(
-          r.quantity || 1,
-          r.unit,
-          matchedInv.unit,
-          matchedInv.yield_per_unit,
-          matchedInv.yield_unit,
-        );
-        estimatedCost += invQty * matchedInv.cost_price;
-      } else if (r.cost_estimate && r.cost_estimate > 0) {
-        estimatedCost += Number(r.cost_estimate);
-      } else {
-        const nameLower = (r.ingredient_name || "").toLowerCase();
-        if (nameLower.includes("daging") || nameLower.includes("beef")) {
-          // 20g Daging Kebab @ Rp 120.000 / 2000g = Rp 60/g -> Rp 1.200
-          estimatedCost += (Number(r.quantity) || 20) * 60;
-        } else if (nameLower.includes("tortilla") || nameLower.includes("kulit")) {
-          // 1 pcs Tortilla @ Rp 25.000 / 20pcs = Rp 1.250/pcs
-          estimatedCost += (Number(r.quantity) || 1) * 1250;
-        }
-      }
-    }
-    return Math.round(estimatedCost);
+    return computeRecipeUnitBomCost(items, ingredients);
   }
 
   async function handleQuickFixIngredient(itemId: string, itemUnit: string, curRecipeUnit: string) {
@@ -1631,7 +1631,7 @@ export function MenuManagement() {
         /* GRID VIEW */
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {filteredItems.map((item) => {
-            const cost = item.cost_price || 0;
+            const cost = getEffectiveMenuBomCost(item);
             const pr = item.price || 0;
             const margin = Math.max(0, pr - cost);
             const marginPct = pr > 0 ? Math.round((margin / pr) * 100) : 0;
@@ -1833,7 +1833,7 @@ export function MenuManagement() {
               </thead>
               <tbody className="divide-y divide-border/60">
                 {filteredItems.map((item) => {
-                  const cost = item.cost_price || 0;
+                  const cost = getEffectiveMenuBomCost(item);
                   const pr = item.price || 0;
                   const margin = Math.max(0, pr - cost);
                   const marginPct = pr > 0 ? Math.round((margin / pr) * 100) : 0;

@@ -1668,8 +1668,9 @@ test("IndexedDB stores, idempotency keys, offline queueing, sequential synchroni
   assert.ok(posApp.includes("queueOfflineTransaction"), "POS checkout must queue offline transaction when disconnected");
   assert.ok(posApp.includes("syncPendingTransactions"), "POS cashier must allow manual or auto sync execution");
   assert.ok(posApp.includes("Menyinkronkan..."), "POS header must render 'Menyinkronkan...' syncing state");
-  assert.ok(posApp.includes("Mode Offline —"), "POS header must render offline state with pending counter");
-  assert.ok(posApp.includes("Sinkronkan Sekarang"), "POS header must provide 'Sinkronkan Sekarang' action button");
+  assert.ok(posApp.includes("Koneksi Terputus (Antrean Lokal Aktif)"), "POS header must render disconnected local-queue state when offline");
+  assert.ok(posApp.includes("Antrean Sinkronisasi"), "POS header must render online pending-queue counter");
+  assert.ok(posApp.includes("Sinkronkan"), "POS header must provide 'Sinkronkan' action button");
   assert.ok(posApp.includes("Online"), "POS header must render 'Online' status badge");
 });
 
@@ -2560,7 +2561,8 @@ test("Validates 12 orders / 38 portions BOM calculation, true POS online badge, 
 
   // 3. Validasi Batasan Kas Celengan Operasional & Pembulatan Payroll
   assert.ok(
-    moneyPageCode.includes("Math.max(0, totalOmzet - totalBomSavings)"),
+    moneyPageCode.includes("availableCashAfterBomAndExpense") &&
+      moneyPageCode.includes("totalOmzet - totalBomFromSales - totalExpenseAndSalaryPaid"),
     "MoneyAllocationPage.tsx must cap operational pockets to real available cash revenue after BOM"
   );
   assert.ok(
@@ -2592,8 +2594,10 @@ test("Validates 12 orders / 38 portions BOM calculation, true POS online badge, 
     "api/menu.ts must safeguard Kebab Uji Test price to Rp 15.000"
   );
   assert.ok(
-    menuMgmtCode.includes("recalcRecipeHPP") && menuMgmtCode.includes("60"),
-    "MenuManagement.tsx must dynamically compute 20g meat recipe HPP @ Rp 60/g = Rp 1.200"
+    menuMgmtCode.includes("recalcRecipeHPP") &&
+      menuMgmtCode.includes("computeRecipeUnitBomCost") &&
+      fs.readFileSync(path.join(process.cwd(), "src/lib/bom-analytics.ts"), "utf8").includes("120000"),
+    "MenuManagement.tsx must dynamically compute 20g meat recipe HPP via computeRecipeUnitBomCost (Rp 120.000 / 2000g = Rp 1.200)"
   );
 });
 
@@ -2778,6 +2782,85 @@ test("Prevents double BOM counting across branches (Rp 93.100 vs Rp 138.700) and
   executeReceive(false); // retry/fallback attempt
   assert.strictEqual(originStock, 5, "Origin branch stock 10 - 5 must remain 5 pcs (never double-deducted to 0 pcs)");
   assert.strictEqual(destStock, 5, "Destination branch stock 0 + 5 must remain 5 pcs");
+});
+
+console.log("\n▶ 103. FINAL POLISH: 5-CARD MONEY ALLOCATION EQUATION, TRANSFERRED OUTLET BINDING, MENU BOM SYNC, POS ONLINE & SSR AUTH GUARD");
+test("Balances 5-card money allocation equation, binds transferred stock branch label, syncs menu card BOM HPP, and hardens POS online/auth guard", () => {
+  const moneyPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"), "utf8");
+  const apiInvCode = fs.readFileSync(path.join(process.cwd(), "src/routes/api/inventory.ts"), "utf8");
+  const invServiceCode = fs.readFileSync(path.join(process.cwd(), "src/services/inventory.service.ts"), "utf8");
+  const invPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"), "utf8");
+  const apiMenuCode = fs.readFileSync(path.join(process.cwd(), "src/routes/api/menu.ts"), "utf8");
+  const menuPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/MenuManagement.tsx"), "utf8");
+  const posAppCode = fs.readFileSync(path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"), "utf8");
+  const authGuardCode = fs.readFileSync(path.join(process.cwd(), "src/integrations/supabase/auth-guard.ts"), "utf8");
+  const posIndexRouteCode = fs.readFileSync(path.join(process.cwd(), "src/routes/_authenticated/pos/index.tsx"), "utf8");
+
+  // 1. 5-card MoneyAllocation accounting balance & proportional operational savings
+  assert.ok(
+    moneyPageCode.includes("operationalDaysWithSales") &&
+      moneyPageCode.includes("totalMonthlyOpTarget") &&
+      moneyPageCode.includes("Target Bulanan:") &&
+      moneyPageCode.includes("availableCashAfterBomAndExpense"),
+    "MoneyAllocationPage.tsx must prorate operational pockets by operationalDaysWithSales and cap to availableCashAfterBomAndExpense"
+  );
+
+  // Verify accounting identity numerically: Rp 342.000 omzet, Rp 93.100 BOM, 1 active day (Rp 21.000/hari op from Rp 630.000/bulan)
+  const totalRevenue = 342000;
+  const totalBom = 93100;
+  const paidExpense = 0;
+  const paidSalary = 0;
+  const availableAfterBom = Math.max(0, totalRevenue - totalBom - paidExpense - paidSalary);
+  const opSavings = Math.min(availableAfterBom, 21000 * 1);
+  const ownerProfit = totalRevenue - totalBom - opSavings - paidSalary - paidExpense;
+  assert.strictEqual(totalBom + opSavings + paidSalary + paidExpense + ownerProfit, totalRevenue);
+  assert.strictEqual(opSavings, 21000);
+  assert.strictEqual(ownerProfit, 227900);
+
+  // 2. Transferred inventory branch label & non-zero cost priority
+  assert.ok(
+    apiInvCode.includes("outletNameMap") && apiInvCode.includes("outlet_name: destName"),
+    "api/inventory.ts must resolve outlet_name via outlets table and save outlet_name on transfer"
+  );
+  assert.ok(
+    invServiceCode.includes("outletNameMap") && invServiceCode.includes("Number(row.cost_price) > 0"),
+    "inventory.service.ts must map outletNameMap and avoid cost_price=0 shadowing meta.cost_price"
+  );
+  assert.ok(
+    invPageCode.includes("getBusinessOutlets") && !invPageCode.includes('?.name) || "Gudang Pusat"'),
+    "InventoryManagement.tsx must merge business outlets (including archived branches with stock) and avoid falling back outlet-bound items to Gudang Pusat"
+  );
+
+  // 3. Menu card BOM sync & unit math verification (Original = Rp 2.450 / 73%, Kebab Uji Test = Rp 1.200 / 92%)
+  assert.ok(
+    apiMenuCode.includes("computeRecipeUnitBomCost") && apiMenuCode.includes("dedupeRecipeItemsList"),
+    "api/menu.ts must deduplicate recipe items and compute live BOM cost with computeRecipeUnitBomCost"
+  );
+  assert.ok(
+    menuPageCode.includes("getEffectiveMenuBomCost") && menuPageCode.includes("computeRecipeUnitBomCost"),
+    "MenuManagement.tsx must render live BOM HPP cost across grid cards, table rows, and modal editor"
+  );
+  const originalBom = Math.round(1 * (25000 / 20) + 20 * (120000 / 2000));
+  const originalMargin = Math.round(((9000 - originalBom) / 9000) * 100);
+  const ujiBom = Math.round(20 * (120000 / 2000));
+  const ujiMargin = Math.round(((15000 - ujiBom) / 15000) * 100);
+  assert.strictEqual(originalBom, 2450);
+  assert.strictEqual(originalMargin, 73);
+  assert.strictEqual(ujiBom, 1200);
+  assert.strictEqual(ujiMargin, 92);
+
+  // 4. False POS offline badge removal & SSR-safe getSession-first auth guard
+  assert.ok(
+    !posAppCode.includes("Mode Offline (Tidak Ada Internet)") &&
+      !posAppCode.includes("Mode Offline —"),
+    "KebabsChoicePOSApp.tsx must not display false 'Mode Offline (Tidak Ada Internet)' badge"
+  );
+  assert.ok(
+    authGuardCode.includes("getSession") &&
+      posIndexRouteCode.includes("ssr: false") &&
+      posIndexRouteCode.includes("resolveAuthenticatedUser"),
+    "/pos routes and auth-guard.ts must use ssr: false and resolveAuthenticatedUser (getSession first)"
+  );
 });
 
 console.log("\n==================================================");

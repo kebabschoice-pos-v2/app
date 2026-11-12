@@ -2050,31 +2050,96 @@ export async function updateStockTransferStatus(
         status,
       }),
     });
-    if (res.ok) return;
+    if (res.ok) {
+      const contentType = res.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const json = await res.json().catch(() => null);
+        if (!json || json.success !== false) {
+          return;
+        }
+      } else {
+        return;
+      }
+    }
   } catch (err) {
     console.warn("[inventory.service] API update-transfer-status error, fallback:", err);
   }
 
   const store = await loadProcurementStore(bid);
-  let target = (store.stock_transfers || []).find((t: any) => t.id === transferId);
-  if (!target) {
+  let dbTrf: any = null;
+  try {
+    const { data } = await supabase
+      .from("stock_transfers" as any)
+      .select(`*, items:stock_transfer_items(*)`)
+      .eq("id", transferId)
+      .maybeSingle();
+    dbTrf = data;
+  } catch {}
+
+  const storeTrf = (store.stock_transfers || []).find(
+    (t: any) =>
+      t.id === transferId || (dbTrf?.transfer_number && t.transfer_number === dbTrf.transfer_number),
+  );
+  const target = storeTrf || dbTrf;
+  const prevStatus = dbTrf?.status || storeTrf?.status || target?.status;
+  const transferNum = target?.transfer_number || transferId;
+
+  let alreadyDeducted =
+    prevStatus === "received" ||
+    prevStatus === "completed" ||
+    Boolean(storeTrf?.stock_deducted) ||
+    Boolean(dbTrf?.stock_deducted) ||
+    Boolean(target?.stock_deducted);
+
+  if (status === "received" && !alreadyDeducted && transferNum) {
+    const inStoreMov = (store.stock_movements || []).some(
+      (m: any) =>
+        m.movement_type === "transfer_out" &&
+        String(m.notes || "").includes(`(${transferNum})`),
+    );
+    if (inStoreMov) {
+      alreadyDeducted = true;
+    } else {
+      try {
+        const { data: existingMovs } = await (supabase
+          .from("stock_movements" as any)
+          .select("id")
+          .eq("movement_type", "transfer_out") as any)
+          .ilike("notes", `%(${transferNum})%`)
+          .limit(1);
+        if (Array.isArray(existingMovs) && existingMovs.length > 0) {
+          alreadyDeducted = true;
+        }
+      } catch {}
+    }
+  }
+
+  let claimedInDb = true;
+  if (status === "received" && !alreadyDeducted && dbTrf?.id) {
     try {
-      const { data: dbTrf } = await supabase
+      const claimRes = await (supabase
         .from("stock_transfers" as any)
-        .select(`*, items:stock_transfer_items(*)`)
-        .eq("id", transferId)
+        .update({ status: "received", updated_at: new Date().toISOString() })
+        .eq("id", dbTrf.id) as any)
+        .neq("status", "received")
+        .neq("status", "completed")
+        .select("id")
         .maybeSingle();
-      if (dbTrf) target = dbTrf;
+      if (!claimRes.error && !claimRes.data) {
+        claimedInDb = false;
+      }
     } catch {}
   }
 
-  const prevStatus = target?.status;
   if (target) {
     target.status = status;
     if (status === "sent") target.sent_at = new Date().toISOString();
-    if (status === "received") target.received_at = new Date().toISOString();
+    if (status === "received") {
+      target.received_at = new Date().toISOString();
+      target.stock_deducted = true;
+    }
 
-    if (status === "received" && prevStatus !== "received") {
+    if (status === "received" && !alreadyDeducted && claimedInDb) {
       const originOutletId = target.origin_outlet_id || null;
       const destOutletId = target.destination_outlet_id || null;
       const originName = target.origin_outlet_name || "Gudang Asal";

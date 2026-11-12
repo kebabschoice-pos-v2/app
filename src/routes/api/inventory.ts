@@ -890,37 +890,93 @@ export const Route = createFileRoute("/api/inventory")({
             return Response.json({ success: true, data: newTransfer });
           }
 
-          // 7. UPDATE TRANSFER STATUS (WITH REAL STOCK MUTATION ON RECEIVE)
+          // 7. UPDATE TRANSFER STATUS (WITH IDEMPOTENT REAL STOCK MUTATION ON RECEIVE)
           if (action === "update-transfer-status") {
             const { transfer_id, status } = body;
-            let targetTransfer = store.stock_transfers.find((t: any) => t.id === transfer_id);
-            if (!targetTransfer) {
-              try {
-                const { data: dbTrf } = await supabaseAdmin
-                  .from("stock_transfers" as any)
-                  .select(`*, items:stock_transfer_items(*)`)
-                  .eq("id", transfer_id)
-                  .single();
-                if (dbTrf) targetTransfer = dbTrf;
-              } catch {}
-            }
+            let dbTrf: any = null;
+            try {
+              const { data } = await supabaseAdmin
+                .from("stock_transfers" as any)
+                .select(`*, items:stock_transfer_items(*)`)
+                .eq("id", transfer_id)
+                .maybeSingle();
+              dbTrf = data;
+            } catch {}
+
+            const storeTrf = (store.stock_transfers || []).find(
+              (t: any) =>
+                t.id === transfer_id ||
+                (dbTrf?.transfer_number && t.transfer_number === dbTrf.transfer_number),
+            );
+            let targetTransfer = storeTrf || dbTrf;
             if (targetTransfer && (!targetTransfer.items || targetTransfer.items.length === 0)) {
-              const matchedStore = store.stock_transfers.find(
-                (t: any) => t.id === transfer_id || t.transfer_number === targetTransfer.transfer_number,
+              const fallbackSource =
+                (storeTrf?.items?.length ? storeTrf : null) ||
+                (dbTrf?.items?.length ? dbTrf : null);
+              if (fallbackSource) targetTransfer.items = fallbackSource.items;
+            }
+
+            const prevStatus = dbTrf?.status || storeTrf?.status || targetTransfer?.status;
+            const transferNum = targetTransfer?.transfer_number || transfer_id;
+            let alreadyDeducted =
+              prevStatus === "received" ||
+              prevStatus === "completed" ||
+              Boolean(storeTrf?.stock_deducted) ||
+              Boolean(dbTrf?.stock_deducted) ||
+              Boolean(targetTransfer?.stock_deducted);
+
+            if (status === "received" && !alreadyDeducted && transferNum) {
+              const inStoreMov = (store.stock_movements || []).some(
+                (m: any) =>
+                  m.movement_type === "transfer_out" &&
+                  String(m.notes || "").includes(`(${transferNum})`),
               );
-              if (matchedStore && Array.isArray(matchedStore.items) && matchedStore.items.length > 0) {
-                targetTransfer.items = matchedStore.items;
+              if (inStoreMov) {
+                alreadyDeducted = true;
+              } else {
+                try {
+                  const { data: existingMovs } = await (supabaseAdmin
+                    .from("stock_movements" as any)
+                    .select("id")
+                    .eq("movement_type", "transfer_out") as any)
+                    .ilike("notes", `%(${transferNum})%`)
+                    .limit(1);
+                  if (Array.isArray(existingMovs) && existingMovs.length > 0) {
+                    alreadyDeducted = true;
+                  }
+                } catch {}
               }
             }
-            const prevStatus = targetTransfer?.status;
+
+            // Atomic DB claim before mutating stock so concurrent or fallback retries cannot deduct twice
+            let claimedInDb = true;
+            if (status === "received" && !alreadyDeducted && dbTrf?.id) {
+              try {
+                const claimRes = await (supabaseAdmin
+                  .from("stock_transfers" as any)
+                  .update({ status: "received", updated_at: new Date().toISOString() })
+                  .eq("id", dbTrf.id) as any)
+                  .neq("status", "received")
+                  .neq("status", "completed")
+                  .select("id")
+                  .maybeSingle();
+                if (!claimRes.error && !claimRes.data) {
+                  claimedInDb = false;
+                }
+              } catch {}
+            }
+
             if (targetTransfer) {
               targetTransfer.status = status;
               if (status === "sent") targetTransfer.sent_at = new Date().toISOString();
-              if (status === "received") targetTransfer.received_at = new Date().toISOString();
+              if (status === "received") {
+                targetTransfer.received_at = new Date().toISOString();
+                targetTransfer.stock_deducted = true;
+              }
             }
 
-            // Real stock mutation when status becomes "received" and wasn't previously "received"
-            if (status === "received" && prevStatus !== "received" && targetTransfer) {
+            // Real stock mutation ONLY when claiming transition to "received" for the first time
+            if (status === "received" && !alreadyDeducted && claimedInDb && targetTransfer) {
               const originOutletId = targetTransfer.origin_outlet_id || null;
               const destOutletId = targetTransfer.destination_outlet_id || null;
               const originName = targetTransfer.origin_outlet_name || "Gudang Asal";

@@ -62,6 +62,7 @@ export function StockTransferPage() {
   // Detail Modal
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [selectedTransfer, setSelectedTransfer] = useState<StockTransferRecord | null>(null);
+  const [updatingTransferId, setUpdatingTransferId] = useState<string | null>(null);
 
   async function loadData() {
     setLoading(true);
@@ -214,6 +215,8 @@ export function StockTransferPage() {
     transfer: StockTransferRecord,
     nextStatus: "approved" | "sent" | "received" | "cancelled",
   ) {
+    if (updatingTransferId) return;
+    setUpdatingTransferId(transfer.id);
     try {
       await updateStockTransferStatus(transfer.id, nextStatus);
       if (nextStatus === "sent") {
@@ -231,6 +234,8 @@ export function StockTransferPage() {
       }
     } catch (err: any) {
       toast.error("Gagal mengubah status transfer", { description: err.message });
+    } finally {
+      setUpdatingTransferId(null);
     }
   }
 
@@ -450,6 +455,7 @@ export function StockTransferPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
+                                disabled={updatingTransferId === t.id}
                                 onClick={() => handleStatusChange(t, "approved")}
                                 className="h-8 px-2.5 text-xs font-bold rounded-xl text-primary border-primary/30"
                               >
@@ -458,6 +464,7 @@ export function StockTransferPage() {
                               <Button
                                 size="sm"
                                 variant="hero"
+                                disabled={updatingTransferId === t.id}
                                 onClick={() => handleStatusChange(t, "received")}
                                 className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 bg-emerald-600 hover:bg-emerald-700 shadow-brand"
                               >
@@ -472,6 +479,7 @@ export function StockTransferPage() {
                               <Button
                                 size="sm"
                                 variant="outline"
+                                disabled={updatingTransferId === t.id}
                                 onClick={() => handleStatusChange(t, "sent")}
                                 className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 text-amber-600 border-amber-500/30"
                               >
@@ -481,6 +489,7 @@ export function StockTransferPage() {
                               <Button
                                 size="sm"
                                 variant="hero"
+                                disabled={updatingTransferId === t.id}
                                 onClick={() => handleStatusChange(t, "received")}
                                 className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 bg-emerald-600 hover:bg-emerald-700 shadow-brand"
                               >
@@ -494,6 +503,7 @@ export function StockTransferPage() {
                             <Button
                               size="sm"
                               variant="hero"
+                              disabled={updatingTransferId === t.id}
                               onClick={() => handleStatusChange(t, "received")}
                               className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 bg-emerald-600 hover:bg-emerald-700 shadow-brand"
                             >

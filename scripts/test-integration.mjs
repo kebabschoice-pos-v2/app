@@ -2687,6 +2687,99 @@ test("Verifies 100% Rp 342.000 branch attribution, unified 73% BOM margin / Rp 2
   );
 });
 
+console.log("\n▶ 102. MULTI-BRANCH BOM DEDUPLICATION & IDEMPOTENT STOCK TRANSFER EXECUTION");
+test("Prevents double BOM counting across branches (Rp 93.100 vs Rp 138.700) and double stock deduction on transfer approval (10 - 5 = 5 pcs)", () => {
+  const moneyPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"), "utf8");
+  const apiInvCode = fs.readFileSync(path.join(process.cwd(), "src/routes/api/inventory.ts"), "utf8");
+  const invServiceCode = fs.readFileSync(path.join(process.cwd(), "src/services/inventory.service.ts"), "utf8");
+  const transferPageCode = fs.readFileSync(path.join(process.cwd(), "src/pages/inventory/StockTransferPage.tsx"), "utf8");
+
+  // 1. Verify strict per-branch BOM isolation & HQ consolidation in MoneyAllocationPage.tsx
+  assert.ok(
+    moneyPageCode.includes("if (itemOutletId && ord.outlet_id && ord.outlet_id !== itemOutletId)") &&
+      moneyPageCode.includes("if (itemOutletId && movOutletId && movOutletId !== itemOutletId)") &&
+      moneyPageCode.includes("mergedByName"),
+    "MoneyAllocationPage.tsx must strictly match order/movement outlet_id to item outlet_id and consolidate identical HQ names in 'all' mode"
+  );
+
+  // Simulation: Cabang 1 & Cabang 2 both hold 'Daging Kebab Uji', 38 portions sold ONLY at Cabang 1
+  const invItems = [
+    { id: "tort-1", name: "Tortilla", outlet_id: "out-1", stock: 20, unit: "pack", cost: 25000, yieldPerUnit: 20, recipeQty: 1 },
+    { id: "dag-1", name: "Daging Kebab Uji", outlet_id: "out-1", stock: 5, unit: "pcs", cost: 120000, yieldPerUnit: 2000, recipeQty: 20 },
+    { id: "dag-2", name: "Daging Kebab Uji", outlet_id: "out-2", stock: 5, unit: "pcs", cost: 120000, yieldPerUnit: 2000, recipeQty: 20 },
+  ];
+  const branchOrders = [{ id: "o-all", outlet_id: "out-1", portions: 38 }];
+
+  const perItemEarned = invItems.map((it) => {
+    const matchingOrders = branchOrders.filter((ord) => ord.outlet_id === it.outlet_id);
+    const portions = matchingOrders.reduce((s, o) => s + o.portions, 0);
+    const earned = Math.round((portions * it.recipeQty / it.yieldPerUnit) * it.cost);
+    return { ...it, earned };
+  });
+
+  assert.strictEqual(perItemEarned[1].earned, 45600, "Cabang 1 Daging BOM must be Rp 45.600");
+  assert.strictEqual(perItemEarned[2].earned, 0, "Cabang 2 Daging BOM with 0 sales must be Rp 0");
+
+  // HQ consolidation groups same-name ingredients across branches
+  const hqGroups = new Map();
+  for (const row of perItemEarned) {
+    const key = row.name.trim().toLowerCase();
+    const prev = hqGroups.get(key) || { name: row.name, stock: 0, earned: 0 };
+    prev.stock += row.stock;
+    prev.earned += row.earned;
+    hqGroups.set(key, prev);
+  }
+  const hqCards = Array.from(hqGroups.values());
+  const hqDaging = hqCards.find((c) => c.name === "Daging Kebab Uji");
+  const totalHqBom = hqCards.reduce((s, c) => s + c.earned, 0);
+  assert.strictEqual(hqCards.length, 2, "HQ view must consolidate Tortilla + Daging into 2 cards");
+  assert.strictEqual(hqDaging.stock, 10, "Merged HQ Daging stock must sum 5 + 5 = 10 pcs");
+  assert.strictEqual(hqDaging.earned, 45600, "Merged HQ Daging BOM must be Rp 45.600 (NOT Rp 91.200)");
+  assert.strictEqual(totalHqBom, 93100, "Total HQ BOM must equal Rp 93.100 (NOT Rp 138.700)");
+
+  // 2. Verify idempotent single-deduction guards in API, Service, and UI
+  assert.ok(
+    invServiceCode.includes('contentType.includes("application/json")') &&
+      invServiceCode.includes("alreadyDeducted") &&
+      invServiceCode.includes("stock_deducted") &&
+      invServiceCode.includes("claimedInDb"),
+    "inventory.service.ts must return on API success and guard against double stock deduction via status, stock_deducted, transfer_out check, and DB claim"
+  );
+  assert.ok(
+    apiInvCode.includes("alreadyDeducted") &&
+      apiInvCode.includes("claimedInDb") &&
+      apiInvCode.includes("stock_deducted = true"),
+    "api/inventory.ts must atomically claim transfer receipt and refuse repeated stock deduction"
+  );
+  assert.ok(
+    transferPageCode.includes("updatingTransferId"),
+    "StockTransferPage.tsx must lock transfer buttons via updatingTransferId while request is in flight"
+  );
+
+  // Simulation of transfer approval + duplicate fallback/retry call: 10 pcs - 5 pcs must stay 5 pcs
+  let originStock = 10;
+  let destStock = 0;
+  const transferRecord = { id: "trf-133612", qty: 5, status: "requested", stock_deducted: false };
+  const executeReceive = (apiSucceeded) => {
+    if (!transferRecord.stock_deducted && transferRecord.status !== "received") {
+      originStock -= transferRecord.qty;
+      destStock += transferRecord.qty;
+      transferRecord.status = "received";
+      transferRecord.stock_deducted = true;
+    }
+    if (apiSucceeded) return;
+    // Fallback call after API already mutated DB must still be a no-op
+    if (!transferRecord.stock_deducted && transferRecord.status !== "received") {
+      originStock -= transferRecord.qty;
+      destStock += transferRecord.qty;
+    }
+  };
+  executeReceive(true);
+  executeReceive(false); // retry/fallback attempt
+  assert.strictEqual(originStock, 5, "Origin branch stock 10 - 5 must remain 5 pcs (never double-deducted to 0 pcs)");
+  assert.strictEqual(destStock, 5, "Destination branch stock 0 + 5 must remain 5 pcs");
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

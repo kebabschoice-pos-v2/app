@@ -50,7 +50,11 @@ import {
 } from "@/services/inventory.service";
 import { getHRStaffProfiles, type StaffProfile } from "@/services/hr.service";
 import { convertRecipeToInventoryQuantity, getMenuItems } from "@/services/menu.service";
-import { estimateOrdersBomMetrics, normalizeOrderOutletId } from "@/lib/bom-analytics";
+import {
+  estimateOrdersBomMetrics,
+  normalizeOrderOutletId,
+  resolvePrimaryOutletId,
+} from "@/lib/bom-analytics";
 
 export interface PackConfig {
   pack_size: number;
@@ -266,12 +270,13 @@ export function MoneyAllocationPage({
       const branchItems =
         selectedOutletId === "all"
           ? invItems
-          : invItems.filter((i) => !i.outlet_id || i.outlet_id === selectedOutletId);
+          : invItems.filter((i) => {
+              if (i.outlet_id) return i.outlet_id === selectedOutletId;
+              const fallbackPrimary = resolvePrimaryOutletId(outletsList);
+              return !fallbackPrimary || fallbackPrimary === selectedOutletId;
+            });
 
-      // If branch has no specific items, fall back to all items so BOM repurchase pockets never disappear
-      const filteredInv = branchItems.length > 0 ? branchItems : invItems;
-
-      setInventoryList(filteredInv);
+      setInventoryList(branchItems);
       setStockMovements(movements);
       setStaffProfiles(hrProfiles);
 
@@ -586,9 +591,15 @@ export function MoneyAllocationPage({
     return salesDates.size;
   }, [normalizedSalesOrders, selectedOutletId]);
 
-  // 2. Computed BOM Pockets from Real Inventory Items (DUAL-ENGINE CALCULATION)
+  // 2. Computed BOM Pockets from Real Inventory Items (DUAL-ENGINE CALCULATION, STRICT BRANCH ISOLATION + HQ MERGE)
   const computedBomPockets = useMemo(() => {
-    return inventoryList.map((item) => {
+    const primaryOutletId = resolvePrimaryOutletId(outletsList);
+
+    const perItemPockets = inventoryList.map((item) => {
+      const itemOutletId = item.outlet_id
+        ? normalizeOrderOutletId(item.outlet_id, outletsList)
+        : primaryOutletId;
+
       // Pack Config fallback
       const hasYield = Number(item.yield_per_unit) > 0;
       const isPackOrPcs = item.unit === "pcs" || item.unit === "pack" || item.unit === "tiang";
@@ -613,13 +624,14 @@ export function MoneyAllocationPage({
       const unit_cost =
         pack_price > 0 && pack_size > 0 ? pack_price / pack_size : item.cost_price || 0;
 
-      // Engine 1: Real movements of type pos_sale or stock_out for this item (with void/refund reversal deductions)
+      // Engine 1: Real movements of type pos_sale or stock_out for this branch item (with void/refund reversal deductions)
       const itemMovements = stockMovements.filter((m) => {
         if (m.inventory_item_id !== item.id) return false;
-        if (
-          selectedOutletId !== "all" &&
-          normalizeOrderOutletId(m.outlet_id, outletsList) !== selectedOutletId
-        ) {
+        const movOutletId = normalizeOrderOutletId(m.outlet_id, outletsList);
+        if (selectedOutletId !== "all" && movOutletId !== selectedOutletId) {
+          return false;
+        }
+        if (itemOutletId && movOutletId && movOutletId !== itemOutletId) {
           return false;
         }
         const mType = (m.movement_type as string) || (m as any).type || "";
@@ -700,10 +712,14 @@ export function MoneyAllocationPage({
         }
       }
 
-      // Engine 2: Fallback from valid non-void sales orders * menu_recipes (skips orders already moved)
+      // Engine 2: Fallback from valid non-void sales orders * menu_recipes (strictly matching this item's outlet)
       let recipeBomUsedQty = 0;
       for (const ord of normalizedSalesOrders) {
         if (selectedOutletId !== "all" && ord.outlet_id !== selectedOutletId) {
+          continue;
+        }
+        // Prevent double-counting across branches: only orders belonging to this item's branch apply
+        if (itemOutletId && ord.outlet_id && ord.outlet_id !== itemOutletId) {
           continue;
         }
         // Avoid double-counting orders that already generated stock movements
@@ -854,7 +870,60 @@ export function MoneyAllocationPage({
         added,
         accumulated_balance,
         canBuyPacks: pack_price > 0 ? Math.floor(accumulated_balance / pack_price) : 0,
+        branchCount: 1,
       };
+    });
+
+    if (selectedOutletId !== "all") {
+      return perItemPockets;
+    }
+
+    // Consolidate identical ingredient names across branches into 1 HQ card (summing branch-isolated earnings/stock)
+    const mergedByName = new Map<string, typeof perItemPockets>();
+    for (const pocket of perItemPockets) {
+      const key = (pocket.item.name || "").trim().toLowerCase() || pocket.item.id;
+      const existingGroup = mergedByName.get(key) || [];
+      existingGroup.push(pocket);
+      mergedByName.set(key, existingGroup);
+    }
+
+    return Array.from(mergedByName.values()).flatMap((group) => {
+      if (group.length === 0) return [];
+      if (group.length === 1 && group[0]) return [group[0]];
+
+      const rep =
+        group.find((p) => p.item.outlet_id === primaryOutletId) ||
+        group.find((p) => p.totalEarned > 0) ||
+        group[0];
+      if (!rep) return [];
+
+      const mergedStock = Number(
+        group.reduce((sum, p) => sum + (Number(p.item.stock) || 0), 0).toFixed(3),
+      );
+      const mergedUsedQty = Number(
+        group.reduce((sum, p) => sum + (Number(p.usedQty) || 0), 0).toFixed(3),
+      );
+      const mergedEarned = group.reduce((sum, p) => sum + (Number(p.totalEarned) || 0), 0);
+      const mergedSpent = group.reduce((sum, p) => sum + (Number(p.spent) || 0), 0);
+      const mergedAdded = group.reduce((sum, p) => sum + (Number(p.added) || 0), 0);
+      const mergedBalance = Math.max(0, mergedEarned - mergedSpent + mergedAdded);
+
+      return [
+        {
+          ...rep,
+          item: {
+            ...rep.item,
+            stock: mergedStock,
+          },
+          usedQty: mergedUsedQty,
+          totalEarned: mergedEarned,
+          spent: mergedSpent,
+          added: mergedAdded,
+          accumulated_balance: mergedBalance,
+          canBuyPacks: rep.pack_price > 0 ? Math.floor(mergedBalance / rep.pack_price) : 0,
+          branchCount: group.length,
+        },
+      ];
     });
   }, [
     inventoryList,
@@ -1693,8 +1762,13 @@ export function MoneyAllocationPage({
                 <div>
                   <div className="flex items-start justify-between gap-2">
                     <div className="min-w-0">
-                      <h3 className="font-black text-sm text-foreground truncate">
-                        {pocket.item.name}
+                      <h3 className="font-black text-sm text-foreground truncate flex items-center gap-1.5">
+                        <span className="truncate">{pocket.item.name}</span>
+                        {(pocket as any).branchCount > 1 && (
+                          <span className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold text-primary">
+                            {(pocket as any).branchCount} Cabang
+                          </span>
+                        )}
                       </h3>
                       <span className="text-[10px] font-bold text-muted-foreground block">
                         Kemasan {pocket.pack_size} {pocket.item.unit} / Pack · {formatRupiah(pocket.pack_price)}

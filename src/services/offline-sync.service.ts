@@ -40,6 +40,7 @@ export interface OfflineTransaction {
 
 export interface NetworkSyncStatus {
   isOnline: boolean;
+  online: boolean;
   pendingCount: number;
   isSyncing: boolean;
   lastSyncedAt: string | null;
@@ -64,51 +65,39 @@ export function isIndexedDBSupported(): boolean {
 let lastServerRequestSuccess = true;
 
 export function reportNetworkSuccess(): void {
-  const wasOnline = currentNetworkStatus.isOnline;
   lastServerRequestSuccess = true;
-  currentNetworkStatus.isOnline = isClient() ? navigator.onLine !== false : true;
-  if (!wasOnline && currentNetworkStatus.isOnline) {
+  const online = isOnline();
+  const wasOnline = currentNetworkStatus.isOnline;
+  currentNetworkStatus.isOnline = online;
+  currentNetworkStatus.online = online;
+  if (!wasOnline && online) {
     notifyStatusSubscribers();
   }
 }
 
 export function reportNetworkFailure(error?: any): void {
-  // STRICT RULE: Never mark offline due to Supabase query, schema, RLS, 400, or 404 errors!
-  // Only mark offline if the browser's navigator.onLine is actually false,
-  // or if there is an explicit TypeError: Failed to fetch indicating total network disconnection.
-  if (isClient() && navigator.onLine === false) {
+  // STRICT RULE: Only mark offline if the browser's navigator.onLine is explicitly false!
+  // Never mark offline due to Supabase query, schema, RLS, 400, or 404 errors.
+  if (typeof window !== "undefined" && typeof navigator !== "undefined" && navigator.onLine === false) {
     lastServerRequestSuccess = false;
-    if (currentNetworkStatus.isOnline) {
+    if (currentNetworkStatus.isOnline || currentNetworkStatus.online) {
       currentNetworkStatus.isOnline = false;
-      notifyStatusSubscribers();
-    }
-    return;
-  }
-
-  const errMsg = (error?.message || error?.name || String(error || "")).toLowerCase();
-  const isPureFetchFailure =
-    (error instanceof TypeError && errMsg.includes("failed to fetch")) ||
-    errMsg.includes("network disconnected") ||
-    errMsg.includes("could not resolve host");
-
-  if (isPureFetchFailure && isClient() && navigator.onLine === false) {
-    lastServerRequestSuccess = false;
-    if (currentNetworkStatus.isOnline) {
-      currentNetworkStatus.isOnline = false;
+      currentNetworkStatus.online = false;
       notifyStatusSubscribers();
     }
   }
 }
 
 export function isOnline(): boolean {
-  if (!isClient()) return true;
-  // Prioritize navigator.onLine to avoid false offline state in live browsers
+  if (typeof window === "undefined" || typeof navigator === "undefined") return true;
+  // Strictly return true unless the browser navigator explicitly reports false
   return navigator.onLine !== false;
 }
 
 // In-memory status state
 let currentNetworkStatus: NetworkSyncStatus = {
   isOnline: isOnline(),
+  online: isOnline(),
   pendingCount: 0,
   isSyncing: false,
   lastSyncedAt: null,
@@ -117,6 +106,9 @@ let currentNetworkStatus: NetworkSyncStatus = {
 const statusSubscribers = new Set<(status: NetworkSyncStatus) => void>();
 
 function notifyStatusSubscribers() {
+  const online = isOnline();
+  currentNetworkStatus.isOnline = online;
+  currentNetworkStatus.online = online;
   const snapshot: NetworkSyncStatus = { ...currentNetworkStatus };
   statusSubscribers.forEach((fn) => {
     try {
@@ -578,6 +570,7 @@ export function subscribeNetworkStatus(callback: (status: NetworkSyncStatus) => 
   if (isClient()) {
     const handleOnline = () => {
       currentNetworkStatus.isOnline = true;
+      currentNetworkStatus.online = true;
       notifyStatusSubscribers();
       // Auto-sync when coming back online
       syncPendingTransactions().catch(() => {});
@@ -585,6 +578,7 @@ export function subscribeNetworkStatus(callback: (status: NetworkSyncStatus) => 
 
     const handleOffline = () => {
       currentNetworkStatus.isOnline = false;
+      currentNetworkStatus.online = false;
       notifyStatusSubscribers();
     };
 
@@ -607,8 +601,8 @@ export function subscribeNetworkStatus(callback: (status: NetworkSyncStatus) => 
 }
 
 export function getNetworkStatus(): NetworkSyncStatus {
-  if (isClient()) {
-    currentNetworkStatus.isOnline = isOnline();
-  }
+  const online = isOnline();
+  currentNetworkStatus.isOnline = online;
+  currentNetworkStatus.online = online;
   return { ...currentNetworkStatus };
 }

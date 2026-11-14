@@ -5387,31 +5387,10 @@ function PosPage({
           {/* Status Kiri: Online, Cabang, Kasir & Shift */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             {/* Status Online/Sinkronisasi */}
-            {networkStatus.isSyncing ? (
-              <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 dark:text-blue-400">
-                <RefreshCw className="size-3 animate-spin" />
-                Menyinkronkan...
-              </span>
-            ) : typeof navigator !== "undefined" && navigator.onLine === false ? (
+            {typeof window !== "undefined" && typeof navigator !== "undefined" && navigator.onLine === false ? (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <WifiOff className="size-3" />
                 Koneksi Terputus (Antrean Lokal Aktif)
-              </span>
-            ) : networkStatus.pendingCount > 0 ? (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                🟢 Online • {networkStatus.pendingCount} Antrean Sinkronisasi
-                <button
-                  type="button"
-                  onClick={async () => {
-                    try {
-                      await syncPendingTransactions();
-                    } catch {}
-                  }}
-                  className="ml-1 underline text-[10px] hover:text-emerald-700 cursor-pointer"
-                >
-                  Sinkronkan
-                </button>
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">

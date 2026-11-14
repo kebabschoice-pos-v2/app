@@ -1022,7 +1022,11 @@ export function MoneyAllocationPage({
 
     const totalTarget = unconstrained.reduce((sum, op) => sum + op.target_allocation, 0);
 
-    // Cap realized balance to actual available gross profit so Card 2 + Card 3 + Card 4 + Card 5 === Card 1
+    // Profit First: Batasi alokasi celengan operasional maksimal 30% dari Laba Kotor berjalan agar laba murni owner terlindungi
+    const maxOpCap = Math.round(availableCashAfterBomAndExpense * 0.30);
+    const availableForOp = Math.min(availableCashAfterBomAndExpense, maxOpCap);
+
+    // Cap realized balance to availableForOp (max 30% of gross profit) so Card 2 + Card 3 + Card 4 + Card 5 === Card 1
     let allocatedSoFar = 0;
     const positiveIndices = unconstrained
       .map((op, idx) => (op.target_allocation > 0 ? idx : -1))
@@ -1032,12 +1036,12 @@ export function MoneyAllocationPage({
 
     return unconstrained.map((op, idx) => {
       let balance = op.target_allocation;
-      if (totalTarget > availableCashAfterBomAndExpense && totalTarget > 0) {
+      if (totalTarget > availableForOp && totalTarget > 0) {
         if (idx === lastPositiveIdx) {
-          balance = Math.max(0, availableCashAfterBomAndExpense - allocatedSoFar);
+          balance = Math.max(0, availableForOp - allocatedSoFar);
         } else {
           balance = Math.round(
-            (op.target_allocation / totalTarget) * availableCashAfterBomAndExpense,
+            (op.target_allocation / totalTarget) * availableForOp,
           );
           allocatedSoFar += balance;
         }
@@ -1697,7 +1701,9 @@ export function MoneyAllocationPage({
                   0,
                   outRevenue - outBomSavings - outSalaryPaid - outCashOut,
                 );
-                const outOpCost = Math.min(outAvailableForOp, rawOutOpCost);
+                const maxOutOpCap = Math.round(outAvailableForOp * 0.30);
+                const effectiveOutOpBudget = Math.min(outAvailableForOp, maxOutOpCap);
+                const outOpCost = Math.min(effectiveOutOpBudget, rawOutOpCost);
                 const outProfit = Math.max(
                   0,
                   outRevenue - outBomSavings - outOpCost - outSalaryPaid - outCashOut,

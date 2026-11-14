@@ -1664,14 +1664,11 @@ test("IndexedDB stores, idempotency keys, offline queueing, sequential synchroni
   // 5. Shift Open Caching
   assert.ok(shiftPage.includes("cacheOutletCatalog"), "PosShiftCashPage must trigger cacheOutletCatalog on shift opening");
 
-  // 6. POS Cashier 3-State Network Badge & Offline Queueing
+  // 6. POS Cashier Network Badge & Offline Queueing
   assert.ok(posApp.includes("queueOfflineTransaction"), "POS checkout must queue offline transaction when disconnected");
   assert.ok(posApp.includes("syncPendingTransactions"), "POS cashier must allow manual or auto sync execution");
-  assert.ok(posApp.includes("Menyinkronkan..."), "POS header must render 'Menyinkronkan...' syncing state");
   assert.ok(posApp.includes("Koneksi Terputus (Antrean Lokal Aktif)"), "POS header must render disconnected local-queue state when offline");
-  assert.ok(posApp.includes("Antrean Sinkronisasi"), "POS header must render online pending-queue counter");
-  assert.ok(posApp.includes("Sinkronkan"), "POS header must provide 'Sinkronkan' action button");
-  assert.ok(posApp.includes("Online"), "POS header must render 'Online' status badge");
+  assert.ok(posApp.includes("🟢 Online & Sinkron"), "POS header must render green 'Online & Sinkron' status badge");
 });
 
 // --- TEST 58: Dynamic QRIS Architecture, Realtime Webhook & Auto-Settlement (Tahap 4) ---
@@ -2796,26 +2793,33 @@ test("Balances 5-card money allocation equation, binds transferred stock branch 
   const authGuardCode = fs.readFileSync(path.join(process.cwd(), "src/integrations/supabase/auth-guard.ts"), "utf8");
   const posIndexRouteCode = fs.readFileSync(path.join(process.cwd(), "src/routes/_authenticated/pos/index.tsx"), "utf8");
 
-  // 1. 5-card MoneyAllocation accounting balance & proportional operational savings
+  // 1. 5-card MoneyAllocation accounting balance, proportional operational savings & 30% Gross Profit cap (Profit First)
   assert.ok(
     moneyPageCode.includes("operationalDaysWithSales") &&
       moneyPageCode.includes("totalMonthlyOpTarget") &&
       moneyPageCode.includes("Target Bulanan:") &&
-      moneyPageCode.includes("availableCashAfterBomAndExpense"),
-    "MoneyAllocationPage.tsx must prorate operational pockets by operationalDaysWithSales and cap to availableCashAfterBomAndExpense"
+      moneyPageCode.includes("availableCashAfterBomAndExpense") &&
+      moneyPageCode.includes("availableCashAfterBomAndExpense * 0.30"),
+    "MoneyAllocationPage.tsx must prorate operational pockets and cap to maximum 30% of Gross Profit (availableCashAfterBomAndExpense)"
   );
 
-  // Verify accounting identity numerically: Rp 342.000 omzet, Rp 93.100 BOM, 1 active day (Rp 21.000/hari op from Rp 630.000/bulan)
+  // Verify accounting identity numerically with 30% Gross Profit Cap:
+  // Omzet Rp 342.000, BOM Rp 93.100 -> Laba Kotor Rp 248.900
+  // 30% Cap: Math.round(248.900 * 0.30) = Rp 74.670
+  // Sisa Laba Murni Owner: 248.900 - 74.670 = Rp 174.230 (70% - tidak habis jadi Rp 0!)
   const totalRevenue = 342000;
   const totalBom = 93100;
   const paidExpense = 0;
   const paidSalary = 0;
-  const availableAfterBom = Math.max(0, totalRevenue - totalBom - paidExpense - paidSalary);
-  const opSavings = Math.min(availableAfterBom, 21000 * 1);
+  const grossProfit = Math.max(0, totalRevenue - totalBom - paidExpense - paidSalary);
+  const maxOpCap = Math.round(grossProfit * 0.30);
+  const unconstrainedOp = 21000 * 9; // 9 active sales days
+  const opSavings = Math.min(unconstrainedOp, maxOpCap);
   const ownerProfit = totalRevenue - totalBom - opSavings - paidSalary - paidExpense;
-  assert.strictEqual(totalBom + opSavings + paidSalary + paidExpense + ownerProfit, totalRevenue);
-  assert.strictEqual(opSavings, 21000);
-  assert.strictEqual(ownerProfit, 227900);
+  assert.strictEqual(totalBom + opSavings + paidSalary + paidExpense + ownerProfit, totalRevenue, "5-Card accounting equation must sum 100% to totalRevenue");
+  assert.strictEqual(grossProfit, 248900, "Gross profit after BOM must be Rp 248.900");
+  assert.strictEqual(opSavings, 74670, "Operational savings must cap at 30% = Rp 74.670");
+  assert.strictEqual(ownerProfit, 174230, "Owner pure profit must preserve 70% = Rp 174.230 (never Rp 0)");
 
   // 2. Transferred inventory branch label & non-zero cost priority
   assert.ok(
@@ -2854,6 +2858,15 @@ test("Balances 5-card money allocation equation, binds transferred stock branch 
     !posAppCode.includes("Mode Offline (Tidak Ada Internet)") &&
       !posAppCode.includes("Mode Offline —"),
     "KebabsChoicePOSApp.tsx must not display false 'Mode Offline (Tidak Ada Internet)' badge"
+  );
+  assert.ok(
+    posAppCode.includes("🟢 Online & Sinkron"),
+    "KebabsChoicePOSApp.tsx must always render green '🟢 Online & Sinkron' status badge when online"
+  );
+  assert.ok(
+    fs.readFileSync(path.join(process.cwd(), "src/services/offline-sync.service.ts"), "utf8").includes("currentNetworkStatus.online = online") ||
+      fs.readFileSync(path.join(process.cwd(), "src/services/offline-sync.service.ts"), "utf8").includes("online: isOnline()"),
+    "offline-sync.service.ts must guarantee online property is always true when browser is online"
   );
   assert.ok(
     authGuardCode.includes("getSession") &&

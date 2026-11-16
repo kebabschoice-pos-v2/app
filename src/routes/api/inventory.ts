@@ -666,8 +666,27 @@ export const Route = createFileRoute("/api/inventory")({
             return Response.json({ success: true });
           }
 
-          // 0c. DELETE ITEM
+          // 0c. DELETE ITEM (CASCADE SAFETY)
           if (action === "delete-item") {
+            try {
+              await supabaseAdmin.from("recipe_items" as any).delete().eq("inventory_item_id", body.id);
+            } catch {}
+            try {
+              await supabaseAdmin.from("recipe_items" as any).delete().eq("ingredient_id", body.id);
+            } catch {}
+            try {
+              await supabaseAdmin.from("recipes" as any).delete().eq("ingredient_id", body.id);
+            } catch {}
+            try {
+              await supabaseAdmin.from("stock_movements" as any).delete().eq("inventory_item_id", body.id);
+            } catch {}
+            try {
+              await supabaseAdmin.from("stock_transfer_items" as any).delete().eq("inventory_item_id", body.id);
+            } catch {}
+            try {
+              await supabaseAdmin.from("waste_records" as any).delete().eq("inventory_item_id", body.id);
+            } catch {}
+
             await supabaseAdmin.from("inventory_items").delete().eq("id", body.id);
             try {
               await supabaseAdmin.from("ingredients" as any).delete().eq("id", body.id);
@@ -736,8 +755,21 @@ export const Route = createFileRoute("/api/inventory")({
             return Response.json({ success: true, data: store.suppliers[idx] || body.data });
           }
 
-          // 3. DELETE SUPPLIER
+          // 3. DELETE SUPPLIER (CASCADE SAFETY)
           if (action === "delete-supplier") {
+            try {
+              await supabaseAdmin
+                .from("inventory_items")
+                .update({ supplier_id: null } as any)
+                .eq("supplier_id", body.id);
+            } catch {}
+            try {
+              await supabaseAdmin
+                .from("ingredients" as any)
+                .update({ supplier_id: null } as any)
+                .eq("supplier_id", body.id);
+            } catch {}
+
             store.suppliers = store.suppliers.filter((s: any) => s.id !== body.id);
             try {
               await supabaseAdmin

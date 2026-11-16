@@ -2583,7 +2583,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         <StatCard
           label={t("dashboard.revenue_today", "Revenue Hari Ini")}
           value={formatRupiah(metrics.todayRevenue || 0)}
-          trend={`${metrics.orders || 0} transaksi hari ini`}
+          trend={`${metrics.orders || 0} transaksi`}
           icon={DollarSign}
         />
         <StatCard
@@ -2596,7 +2596,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         <StatCard
           label={t("dashboard.profit_margin", "Margin Keuntungan")}
           value={`${metrics.marginPercentage || 0}%`}
-          trend={`Profit: ${formatRupiah(metrics.grossProfit || 0)}`}
+          trend={`Laba: ${formatRupiah(metrics.grossProfit || 0)}`}
           icon={TrendingUp}
           tone="primary"
         />
@@ -5383,78 +5383,60 @@ function PosPage({
     <div className="grid min-h-[calc(100vh-9rem)] gap-6 xl:grid-cols-[1fr_25rem]">
       <section className="space-y-5">
         {/* 1 Bar Status Tipis (1 Baris Kompak) */}
-        <div className="flex flex-wrap items-center justify-between gap-2.5 rounded-2xl border border-border bg-card/85 px-4 py-2.5 shadow-xs backdrop-blur-xl">
-          {/* Status Kiri: Online, Cabang, Kasir & Shift */}
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card/85 px-4 py-2 shadow-xs backdrop-blur-xl">
+          {/* Status Kiri: Online, Kasir & Shift, Cabang */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            {/* Status Online/Sinkronisasi */}
+            {/* Status Online */}
             {typeof window !== "undefined" && typeof navigator !== "undefined" && navigator.onLine === false ? (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-amber-600 dark:text-amber-400">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <WifiOff className="size-3" />
-                Koneksi Terputus (Antrean Lokal Aktif)
+                Offline
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                 <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                🟢 Online & Sinkron
+                🟢 Online
               </span>
             )}
 
             <span className="text-muted-foreground/30">•</span>
 
-            {/* Cabang Aktif */}
-            <div className="flex items-center gap-1.5 font-bold text-foreground">
-              <Store className="size-3.5 text-primary shrink-0" />
-              {isOwner ? (
-                <span className="font-black text-xs text-foreground">
-                  📍 {activeOutlets.find((o) => o.id === selectedOutletId)?.name || activeOutlets[0]?.name || "Cabang Utama"}
-                </span>
-              ) : (
-                <span className="truncate max-w-[220px] font-black flex items-center gap-1" title="Cabang terkunci sesuai akun terminal kasir">
-                  📍 Cabang Aktif: {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
-                    activeOutlets[0]?.name ||
-                    "Cabang Utama"}
-                  <span className="text-[10px] text-muted-foreground font-normal">(Terkunci)</span>
-                </span>
-              )}
-            </div>
+            {/* Kasir & Shift Aktif */}
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary text-[11px] font-semibold text-foreground">
+              👤 {activeShift?.cashierName || activeCashierName || profile?.displayName || "Nilam"}
+              <span className="text-muted-foreground font-normal">({activeShift?.status === "open" ? "Shift Aktif" : "Shift Tutup"})</span>
+            </span>
 
             <span className="text-muted-foreground/30">•</span>
 
-            {/* Kasir & Shift Aktif */}
-            <div className="flex items-center gap-1.5">
-              <span className="font-semibold text-foreground truncate max-w-[130px]">
-                👤 {activeShift?.cashierName || activeCashierName || profile?.displayName || "Kasir"}
+            {/* Cabang Aktif */}
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary text-[11px] font-semibold text-foreground"
+              title={!isOwner ? "📍 Cabang Aktif: Terkunci" : undefined}
+            >
+              <Store className="size-3 text-primary shrink-0" />
+              <span>
+                {activeOutlets.find((o) => o.id === selectedOutletId)?.name || activeOutlets[0]?.name || "Cabang"}
+                {!isOwner && <span className="sr-only">📍 Cabang Aktif: Terkunci</span>}
               </span>
-              <span
-                className={cn(
-                  "px-2 py-0.5 rounded-full text-[10px] font-bold",
-                  activeShift?.status === "open"
-                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                    : "bg-rose-500/15 text-rose-600 dark:text-rose-400",
-                )}
-              >
-                {activeShift?.status === "open" ? "🟢 Shift Buka" : "🔴 Shift Tutup"}
-              </span>
-            </div>
+            </span>
           </div>
 
-          {/* Status Kanan: Printer Status (Ikon Kompak) */}
+          {/* Status Kanan: Printer Status */}
           <div className="relative">
             <button
               type="button"
               onClick={() => setShowPrinterMenu(!showPrinterMenu)}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-xs font-semibold border border-border bg-background/80 hover:bg-secondary transition-colors cursor-pointer"
-              title="Status Printer Thermal & Laci Kas"
+              title="Status Printer & Laci Kas"
             >
               <Printer
                 className={cn(
                   "size-3.5",
-                  printerInfo.status === "connected" ? "text-emerald-500" : "text-primary",
+                  printerInfo.status === "connected" ? "text-emerald-500" : "text-muted-foreground",
                 )}
               />
-              <span className="hidden sm:inline text-[11px] font-bold">
-                {printerInfo.status === "connected" ? "Printer & Laci Siap" : "Printer & Laci"}
-              </span>
+              <span className="text-[11px] font-bold">🖨️ Printer</span>
               <ChevronDown className="size-3 text-muted-foreground" />
             </button>
 
@@ -6004,7 +5986,7 @@ function PosPage({
               ) : (
                 <>
                   <Plus className="size-3" />
-                  <span>Diskon / No. Meja</span>
+                  <span>Diskon / Meja</span>
                 </>
               )}
             </button>
@@ -6014,7 +5996,7 @@ function PosPage({
           <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
             {[
               { id: "dine_in", label: "Dine In" },
-              { id: "take_away", label: "Take Away" },
+              { id: "take_away", label: "Bungkus" },
               { id: "delivery", label: "Delivery" },
               { id: "gofood", label: "GoFood", activeClass: "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600" },
               { id: "grabfood", label: "GrabFood", activeClass: "bg-green-600 hover:bg-green-700 text-white border-green-600" },
@@ -6155,10 +6137,10 @@ function PosPage({
           </p>
           <div className="grid grid-cols-2 gap-2">
             {[
-              ["cash", "Cash", DollarSign, paymentSettings.cashEnabled],
+              ["cash", "Tunai", DollarSign, paymentSettings.cashEnabled],
               ["qris", "QRIS", QrCode, paymentSettings.qrisEnabled],
-              ["ewallet", "E-wallet / Transfer", WalletCards, paymentSettings.transferEnabled],
-              ["card", "Card / EDC", CreditCard, paymentSettings.cardEnabled],
+              ["ewallet", "Transfer", WalletCards, paymentSettings.transferEnabled],
+              ["card", "EDC", CreditCard, paymentSettings.cardEnabled],
             ]
               .filter((item) => item[3] !== false)
               .map(([key, label, Icon]: any) => (
@@ -6285,7 +6267,7 @@ function PosPage({
             disabled={cart.length === 0}
             onClick={checkout}
           >
-            {t("cart.checkout_pay", "Checkout & Bayar")} ({formatRupiah(total)})
+            {t("cart.checkout_pay", "Bayar")} {formatRupiah(total)}
             <Send className="size-4" />
           </Button>
         </div>

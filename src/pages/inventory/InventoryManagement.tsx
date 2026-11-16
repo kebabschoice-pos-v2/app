@@ -985,14 +985,11 @@ export function InventoryManagement() {
             </div>
             <div>
               <h2 className="text-sm font-black text-foreground flex items-center gap-2">
-                <span>Ringkasan Mutasi Bahan Baku</span>
+                <span>Mutasi Stok</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
                   {mutationPeriod === "today" ? "Hari Ini" : mutationPeriod === "7days" ? "7 Hari Terakhir" : "Semua Waktu"}
                 </span>
               </h2>
-              <p className="text-[11px] text-muted-foreground">
-                Pantau langsung terpakai penjualan POS, restock masuk, dan kerusakan/waste fisik bahan per cabang.
-              </p>
             </div>
           </div>
 
@@ -1059,61 +1056,43 @@ export function InventoryManagement() {
                     </div>
                   </div>
 
-                  <div className="space-y-1.5 text-xs">
-                    {/* Terpakai Penjualan */}
+                  <div className="flex flex-wrap gap-1.5 text-xs font-semibold pt-1">
+                    {/* Terjual POS */}
                     {item.posSaleQty > 0 && (
-                      <div className="flex items-center justify-between text-muted-foreground bg-primary/5 rounded-xl px-2.5 py-1.5">
-                        <span className="flex items-center gap-1 font-semibold text-foreground text-[11px]">
-                          <ShoppingCart className="size-3 text-primary" />
-                          Terpakai POS:
-                        </span>
-                        <span className="font-mono font-bold text-primary text-[11px]">
-                          -{item.posSaleQty.toFixed(2)} {item.unit}
-                          {hasYield && (
-                            <span className="text-[10px] text-muted-foreground ml-1">
-                              (-{posSaleYield.toLocaleString("id-ID")} {item.yield_unit})
-                            </span>
-                          )}
-                        </span>
-                      </div>
+                      <span className="inline-flex items-center gap-1 bg-primary/10 text-primary rounded-lg px-2 py-1 text-[11px] font-bold">
+                        <ShoppingCart className="size-3 shrink-0" />
+                        Terjual: -{Number(item.posSaleQty.toFixed(2))} {item.unit}
+                      </span>
                     )}
 
                     {/* Masuk Restock */}
                     {item.stockInQty > 0 && (
-                      <div className="flex items-center justify-between text-muted-foreground bg-emerald-500/10 rounded-xl px-2.5 py-1.5">
-                        <span className="flex items-center gap-1 font-semibold text-emerald-700 dark:text-emerald-400 text-[11px]">
-                          <ArrowDownLeft className="size-3 text-emerald-600" />
-                          Masuk Restock:
-                        </span>
-                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 text-[11px]">
-                          +{item.stockInQty.toFixed(2)} {item.unit}
-                        </span>
-                      </div>
+                      <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 rounded-lg px-2 py-1 text-[11px] font-bold">
+                        <ArrowDownLeft className="size-3 shrink-0" />
+                        Masuk: +{Number(item.stockInQty.toFixed(2))} {item.unit}
+                      </span>
                     )}
 
                     {/* Rusak / Terbuang (Waste) */}
                     {item.wasteQty > 0 && (
-                      <div className="space-y-1 bg-rose-500/10 rounded-xl px-2.5 py-1.5 border border-rose-500/20">
-                        <div className="flex items-center justify-between">
-                          <span className="flex items-center gap-1 font-bold text-rose-700 dark:text-rose-300 text-[11px]">
-                            <Trash2 className="size-3 text-rose-600" />
-                            Rusak / Waste:
-                          </span>
-                          <span className="font-mono font-black text-rose-600 dark:text-rose-400 text-[11px]">
-                            -{item.wasteQty.toFixed(2)} {item.unit}
-                            {hasYield && (
-                              <span className="text-[10px] ml-1">
-                                (-{wasteYield.toLocaleString("id-ID")} {item.yield_unit})
-                              </span>
-                            )}
-                          </span>
-                        </div>
-                        {item.wasteNotes.length > 0 && (
-                          <p className="text-[9px] text-rose-700/80 dark:text-rose-300/80 truncate">
-                            Catatan: {item.wasteNotes.join(", ")}
-                          </p>
-                        )}
-                      </div>
+                      <span className="inline-flex items-center gap-1 bg-rose-500/10 text-rose-600 dark:text-rose-400 rounded-lg px-2 py-1 text-[11px] font-bold">
+                        <Trash2 className="size-3 shrink-0" />
+                        Rusak: -{Number(item.wasteQty.toFixed(2))} {item.unit}
+                      </span>
+                    )}
+
+                    {/* Transfer */}
+                    {item.transferQty > 0 && (
+                      <span className="inline-flex items-center gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg px-2 py-1 text-[11px] font-bold">
+                        Transfer: -{Number(item.transferQty.toFixed(2))} {item.unit}
+                      </span>
+                    )}
+
+                    {/* Opname */}
+                    {item.opnameQty !== 0 && (
+                      <span className="inline-flex items-center gap-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg px-2 py-1 text-[11px] font-bold">
+                        Opname: {item.opnameQty > 0 ? "+" : ""}{Number(item.opnameQty.toFixed(2))} {item.unit}
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1934,7 +1913,7 @@ export function InventoryManagement() {
                   )}
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-muted-foreground block mb-1">Satuan Ukur / Beli Fisik</label>
+                  <label className="text-xs font-bold text-muted-foreground block mb-1">Satuan Stok</label>
                   <select
                     value={formUnit}
                     onChange={(e) => {
@@ -1961,17 +1940,14 @@ export function InventoryManagement() {
               <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-bold text-primary flex items-center gap-1.5">
-                    <Boxes className="size-4" /> Harga Beli Patokan &amp; Konversi Resep ({formUnit})
-                  </span>
-                  <span className="text-[10px] bg-primary/10 text-primary font-bold px-2 py-0.5 rounded-full">
-                    Standar POS F&amp;B
+                    <Boxes className="size-4" /> Konversi Resep ({formUnit})
                   </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="text-[11px] font-bold text-foreground">
-                      Harga Beli / Patokan Tabungan per 1 {formUnit} (Rp) *
+                      Harga Beli / Satuan ({formUnit}) *
                     </label>
                     <Input
                       type="text"
@@ -1987,7 +1963,7 @@ export function InventoryManagement() {
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-[11px] font-bold text-foreground">
-                            Isi / Kapasitas per 1 {formUnit}
+                            Isi Konversi Resep
                           </label>
                           <Input
                             type="text"
@@ -2002,7 +1978,7 @@ export function InventoryManagement() {
                         </div>
                         <div>
                           <label className="text-[11px] font-bold text-foreground">
-                            Satuan Takaran Resep
+                            Satuan Resep
                           </label>
                           <select
                             value={formYieldUnit}
@@ -2031,22 +2007,13 @@ export function InventoryManagement() {
                 </div>
 
                 {/* Ringkasan HPP Otomatis */}
-                <div className="rounded-xl bg-background/80 p-2.5 border border-primary/20">
-                  <p className="text-xs text-foreground font-semibold">
-                    💡 Harga Patokan: <span className="font-bold text-primary">{formatRupiah(formCostPrice || 0)}</span> / {formUnit}
-                    {Number(formYieldPerUnit) > 0 && formUnit !== "gram" && formUnit !== "ml" && (
-                      <span>
-                        {" "}| HPP dasar:{" "}
-                        <strong className="text-emerald-600 dark:text-emerald-400">
-                          {formatRupiah(Math.round((formCostPrice || 0) / (Number(formYieldPerUnit) || 1)))}
-                        </strong>{" "}
-                        / {formYieldUnit}
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Saat menu kebab terjual di POS kasir, stok {formUnit} akan berkurang otomatis sesuai takaran resep ({formYieldUnit}).
-                  </p>
+                <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-background/80 p-2.5 border border-primary/20">
+                  <span className="text-xs text-foreground font-semibold">
+                    Harga: <span className="font-bold text-primary">{formatRupiah(formCostPrice || 0)}</span> / {formUnit}
+                  </span>
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2.5 py-1 rounded-lg border border-emerald-500/20">
+                    Modal Resep: {formatRupiah(Math.round((formCostPrice || 0) / (Number(formYieldPerUnit) || 1)))} / {formYieldUnit}
+                  </span>
                 </div>
               </div>
 
@@ -2222,18 +2189,15 @@ export function InventoryManagement() {
                       Rp {(stockInQty * stockInUnitCost).toLocaleString("id-ID")}
                     </span>
                   </div>
-                  <p className="text-[10px] text-muted-foreground leading-relaxed">
-                    💡 Saldo Tabungan Bahan Baku cabang ini akan terpotong sebesar total belanja ini.
-                  </p>
-                  <label className="flex items-start gap-2 pt-1 border-t border-amber-500/10 cursor-pointer">
+                  <label className="flex items-center gap-2 pt-1 border-t border-amber-500/10 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={updateBenchmarkCost}
                       onChange={(e) => setUpdateBenchmarkCost(e.target.checked)}
-                      className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
                     />
-                    <span className="text-[11px] font-medium text-foreground">
-                      Update juga Harga Patokan HPP dengan harga belanja ini (Jika tidak dicentang, patokan HPP tetap aman sebagai buffer tabungan).
+                    <span className="text-xs font-medium text-foreground">
+                      Update harga patokan HPP dengan harga belanja ini
                     </span>
                   </label>
                 </div>
@@ -2582,21 +2546,8 @@ export function InventoryManagement() {
             </div>
 
             <div className="mt-4 space-y-4">
-              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 text-xs space-y-2">
-                <p className="font-bold text-foreground">
-                  💡 Cara Kerja Sinkronisasi Master Bahan:
-                </p>
-                <ul className="list-disc pl-4 space-y-1 text-muted-foreground text-[11px]">
-                  <li>
-                    Sistem menduplikasi seluruh nama bahan, SKU, kategori, satuan, patokan harga modal (HPP buffer), batas minimum stok, dan pengaturan kapasitas konversi (yield) ke cabang tujuan.
-                  </li>
-                  <li>
-                    <strong>Stok awal otomatis diset ke 0</strong>, sehingga cabang tujuan siap mencatat stok fisik nyata melalui menu Restock / Pembelian.
-                  </li>
-                  <li>
-                    Bahan baku yang sudah ada di cabang tujuan tidak akan diduplikasi ulang (aman dari duplikasi ganda).
-                  </li>
-                </ul>
+              <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                Menduplikasi master bahan (nama, SKU, harga patokan, konversi) ke cabang tujuan dengan stok awal 0. Bahan yang sudah ada tidak akan diduplikasi.
               </div>
 
               <div>

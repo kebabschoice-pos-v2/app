@@ -1406,7 +1406,7 @@ export function StaffManagement() {
               }`}
             >
               <SlidersHorizontal className="size-3.5" />
-              <span>5. 🎛️ Hak Akses Manager</span>
+              <span>5. Hak Akses Manager</span>
               <span className="rounded-full bg-primary/20 text-primary px-2 py-0.2 text-[0.65rem] font-black">
                 HQ Control
               </span>
@@ -3112,12 +3112,12 @@ export function StaffManagement() {
           <div className="rounded-[2rem] border border-border bg-card/85 p-6 shadow-soft space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-border/60 pb-4">
               <div>
-                <h3 className="text-xl font-black text-foreground flex items-center gap-2">
+                <h3 className="text-lg font-black text-foreground flex items-center gap-2">
                   <SlidersHorizontal className="size-5 text-primary" />
-                  <span>🎛️ Pengaturan Hak Akses Role Manager (Bisa Di-ON/OFF-kan)</span>
+                  <span>Hak Akses Store Manager</span>
                 </h3>
-                <p className="text-xs text-muted-foreground mt-1">
-                  Kontrol tegas hak akses peran Manager cabang. Nilai disimpan ke database Supabase (outlets.settings) &amp; cache lokal.
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Atur hak akses operasional untuk akun Store Manager.
                 </p>
               </div>
 
@@ -3183,108 +3183,108 @@ export function StaffManagement() {
               </div>
             </div>
 
-            {/* 6 Permission Toggles */}
-            <div className="grid gap-3 sm:grid-cols-2">
+            {/* 6 Permission Rows */}
+            <div className="divide-y divide-border/60 rounded-2xl border border-border bg-card overflow-hidden">
               {/* 1. can_manage_inventory */}
-              <div className="rounded-2xl border border-border bg-card p-4 flex items-start justify-between gap-3 shadow-xs">
-                <div>
-                  <h4 className="text-xs font-black text-foreground">1. Akses Inventaris &amp; Bahan Baku (can_manage_inventory)</h4>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Izinkan Manager mencatat restock masuk, stok keluar, dan stok opname bahan baku di cabang.
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={systemManagerPerms.can_manage_inventory}
-                  onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_manage_inventory: e.target.checked }))}
-                  className="size-5 accent-primary rounded cursor-pointer mt-1"
-                />
+              <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+                <span className="text-xs font-bold text-foreground">Inventaris &amp; Bahan Baku</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className={`text-[11px] font-bold ${systemManagerPerms.can_manage_inventory ? "text-primary" : "text-muted-foreground"}`}>
+                    {systemManagerPerms.can_manage_inventory ? "ON" : "OFF"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={systemManagerPerms.can_manage_inventory}
+                    onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_manage_inventory: e.target.checked }))}
+                    className="size-4 accent-primary rounded cursor-pointer"
+                  />
+                </label>
               </div>
 
               {/* 2. can_manage_staff_shift */}
-              <div className="rounded-2xl border border-border bg-card p-4 flex items-start justify-between gap-3 shadow-xs">
-                <div>
-                  <h4 className="text-xs font-black text-foreground">2. Atur Shift &amp; Jadwal Karyawan (can_manage_staff_shift)</h4>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Izinkan Manager mengedit roster shift mingguan staf dan menyetujui absensi kasir.
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={systemManagerPerms.can_manage_staff_shift}
-                  onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_manage_staff_shift: e.target.checked }))}
-                  className="size-5 accent-primary rounded cursor-pointer mt-1"
-                />
+              <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+                <span className="text-xs font-bold text-foreground">Shift &amp; Jadwal Karyawan</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className={`text-[11px] font-bold ${systemManagerPerms.can_manage_staff_shift ? "text-primary" : "text-muted-foreground"}`}>
+                    {systemManagerPerms.can_manage_staff_shift ? "ON" : "OFF"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={systemManagerPerms.can_manage_staff_shift}
+                    onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_manage_staff_shift: e.target.checked }))}
+                    className="size-4 accent-primary rounded cursor-pointer"
+                  />
+                </label>
               </div>
 
               {/* 3. can_view_branch_reports */}
-              <div className="rounded-2xl border border-border bg-card p-4 flex items-start justify-between gap-3 shadow-xs">
-                <div>
-                  <h4 className="text-xs font-black text-foreground">3. Lihat Laporan Penjualan Cabang (can_view_branch_reports)</h4>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Izinkan Manager melihat ringkasan omzet, analitik produk terlaris, dan riwayat pesanan cabang.
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={systemManagerPerms.can_view_branch_reports}
-                  onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_view_branch_reports: e.target.checked }))}
-                  className="size-5 accent-primary rounded cursor-pointer mt-1"
-                />
+              <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+                <span className="text-xs font-bold text-foreground">Laporan Penjualan Cabang</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className={`text-[11px] font-bold ${systemManagerPerms.can_view_branch_reports ? "text-primary" : "text-muted-foreground"}`}>
+                    {systemManagerPerms.can_view_branch_reports ? "ON" : "OFF"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={systemManagerPerms.can_view_branch_reports}
+                    onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_view_branch_reports: e.target.checked }))}
+                    className="size-4 accent-primary rounded cursor-pointer"
+                  />
+                </label>
               </div>
 
               {/* 4. can_spend_ingredient_pockets */}
-              <div className="rounded-2xl border border-border bg-card p-4 flex items-start justify-between gap-3 shadow-xs">
-                <div>
-                  <h4 className="text-xs font-black text-foreground">4. Pakai Saldo Tabungan Belanja (can_spend_ingredient_pockets)</h4>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Izinkan Manager mencairkan saldo tabungan bahan baku untuk restock fisik langsung.
-                  </p>
-                </div>
-                <input
-                  type="checkbox"
-                  checked={systemManagerPerms.can_spend_ingredient_pockets}
-                  onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_spend_ingredient_pockets: e.target.checked }))}
-                  className="size-5 accent-primary rounded cursor-pointer mt-1"
-                />
+              <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+                <span className="text-xs font-bold text-foreground">Gunakan Saldo Celengan Belanja</span>
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className={`text-[11px] font-bold ${systemManagerPerms.can_spend_ingredient_pockets ? "text-primary" : "text-muted-foreground"}`}>
+                    {systemManagerPerms.can_spend_ingredient_pockets ? "ON" : "OFF"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={systemManagerPerms.can_spend_ingredient_pockets}
+                    onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_spend_ingredient_pockets: e.target.checked }))}
+                    className="size-4 accent-primary rounded cursor-pointer"
+                  />
+                </label>
               </div>
 
-              {/* 5. can_edit_menu_recipes (Default: OFF) */}
-              <div className="rounded-2xl border border-border bg-card p-4 flex items-start justify-between gap-3 shadow-xs">
-                <div>
-                  <h4 className="text-xs font-black text-foreground flex items-center gap-1.5">
-                    <span>5. Edit Resep &amp; Harga Modal HPP (can_edit_menu_recipes)</span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 font-bold">Sensitif</span>
-                  </h4>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Default OFF. Jika dinonaktifkan, Manager dilarang merubah takaran resep dan harga modal HPP menu.
-                  </p>
+              {/* 5. can_edit_menu_recipes */}
+              <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-foreground">Edit Resep &amp; HPP Menu</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 font-bold">Sensitif</span>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={systemManagerPerms.can_edit_menu_recipes}
-                  onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_edit_menu_recipes: e.target.checked }))}
-                  className="size-5 accent-primary rounded cursor-pointer mt-1"
-                />
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className={`text-[11px] font-bold ${systemManagerPerms.can_edit_menu_recipes ? "text-primary" : "text-muted-foreground"}`}>
+                    {systemManagerPerms.can_edit_menu_recipes ? "ON" : "OFF"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={systemManagerPerms.can_edit_menu_recipes}
+                    onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_edit_menu_recipes: e.target.checked }))}
+                    className="size-4 accent-primary rounded cursor-pointer"
+                  />
+                </label>
               </div>
 
-              {/* 6. can_view_owner_net_profit (Default: OFF) */}
-              <div className="rounded-2xl border border-border bg-card p-4 flex items-start justify-between gap-3 shadow-xs">
-                <div>
-                  <h4 className="text-xs font-black text-foreground flex items-center gap-1.5">
-                    <span>6. Lihat Laba Bersih Murni Owner (can_view_owner_net_profit)</span>
-                    <span className="text-[9px] px-1.5 py-0.2 rounded-full bg-rose-500/10 text-rose-600 font-bold">Rahasia Owner</span>
-                  </h4>
-                  <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Default OFF. Jika dinonaktifkan, kartu &quot;Sisa Laba Murni Owner&quot; di Alokasi Keuangan disembunyikan/dikunci untuk Manager.
-                  </p>
+              {/* 6. can_view_owner_net_profit */}
+              <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-foreground">Lihat Laba Bersih Owner</span>
+                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 font-bold">Owner</span>
                 </div>
-                <input
-                  type="checkbox"
-                  checked={systemManagerPerms.can_view_owner_net_profit}
-                  onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_view_owner_net_profit: e.target.checked }))}
-                  className="size-5 accent-primary rounded cursor-pointer mt-1"
-                />
+                <label className="flex items-center gap-2 cursor-pointer select-none">
+                  <span className={`text-[11px] font-bold ${systemManagerPerms.can_view_owner_net_profit ? "text-primary" : "text-muted-foreground"}`}>
+                    {systemManagerPerms.can_view_owner_net_profit ? "ON" : "OFF"}
+                  </span>
+                  <input
+                    type="checkbox"
+                    checked={systemManagerPerms.can_view_owner_net_profit}
+                    onChange={(e) => setSystemManagerPerms((p) => ({ ...p, can_view_owner_net_profit: e.target.checked }))}
+                    className="size-4 accent-primary rounded cursor-pointer"
+                  />
+                </label>
               </div>
             </div>
           </div>

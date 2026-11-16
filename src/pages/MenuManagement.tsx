@@ -2657,9 +2657,7 @@ export function MenuManagement() {
                             </span>
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            Satu tombol untuk semua: Ukuran, Level Pedas, Packaging, maupun Topping.
-                            Kasir dapat memilih Single Select (Radio) atau Multiple Select
-                            (Checkbox).
+                            Pilihan ukuran, level pedas, kemasan, atau topping untuk kasir POS.
                           </p>
                         </div>
 
@@ -3079,8 +3077,7 @@ export function MenuManagement() {
                               Preview Tampilan POS (Live Interactive Simulator)
                             </h4>
                             <p className="text-[11px] text-muted-foreground">
-                              Coba klik opsi di bawah untuk melihat bagaimana kasir berinteraksi dan
-                              total harga otomatis terhitung di POS.
+                              Simulasi interaksi kasir dan perhitungan harga di POS.
                             </p>
                           </div>
                         </div>
@@ -3293,12 +3290,8 @@ export function MenuManagement() {
                         <div>
                           <div className="flex items-center gap-2 text-sm font-black text-purple-600 dark:text-purple-400">
                             <BookOpen className="size-4" />
-                            <span>2. Resep Bahan Baku & Bill of Materials (BOM)</span>
+                            <span>2. Resep Bahan Baku (BOM)</span>
                           </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            Terhubung langsung ke modul Inventory. Satuan otomatis dikonversi
-                            presisi dan stok terpotong saat transaksi POS selesai.
-                          </p>
                         </div>
 
                         <div className="flex items-center gap-2">
@@ -3630,20 +3623,15 @@ export function MenuManagement() {
                                   </div>
                                 )}
 
-                                {/* Connection & Conversion Helper */}
+                                {/* Compact Stock & Conversion Tag */}
                                 {matchedInv && (
-                                  <div className="flex flex-wrap items-center gap-2 pt-0.5 text-[10px]">
-                                    <span className="flex items-center gap-1 font-semibold text-emerald-600 dark:text-emerald-400">
-                                      <Check className="size-3" />
-                                      Terkoneksi: {matchedInv.name} (Stok: {matchedInv.stock}{" "}
-                                      {matchedInv.unit})
+                                  <div className="flex items-center gap-2 pt-0.5 text-[10px]">
+                                    <span className="inline-flex items-center gap-1 font-medium text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">
+                                      Stok: {matchedInv.stock} {matchedInv.unit}
+                                      {matchedInv.yield_per_unit && matchedInv.yield_per_unit > 1
+                                        ? ` (1 ${matchedInv.unit} = ${matchedInv.yield_per_unit} ${matchedInv.yield_unit || r.unit})`
+                                        : ""}
                                     </span>
-                                    {matchedInv.unit.toLowerCase() !== r.unit.toLowerCase() && (
-                                      <span className="rounded-md bg-amber-500/10 px-1.5 py-0.5 font-bold text-amber-600 dark:text-amber-400">
-                                        ⇄ Konversi Satuan: Resep ({r.unit}) ➔ Inventaris (
-                                        {matchedInv.unit})
-                                      </span>
-                                    )}
                                   </div>
                                 )}
                               </div>

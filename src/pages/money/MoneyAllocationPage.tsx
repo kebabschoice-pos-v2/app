@@ -1468,14 +1468,13 @@ export function MoneyAllocationPage({
           <div>
             <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider mb-1">
               <PiggyBank className="size-4" />
-              <span>HQ Smart Financial Vault & Discipline System</span>
+              <span>HQ Smart Financial Vault</span>
             </div>
             <h1 className="text-3xl font-black tracking-normal text-foreground">
-              Alokasi & Celengan Operasional
+              Alokasi &amp; Celengan
             </h1>
             <p className="mt-1 text-xs text-muted-foreground max-w-2xl">
-              Sinkron 100% dengan stok keluar Inventory dan omzet transaksi POS nyata. Pisahkan dana belanja
-              bahan baku (BOM) dan cadangan operasional harian secara otomatis tanpa data dummy.
+              Pembagian otomatis omzet ke modal bahan, operasional, dan laba bersih.
             </p>
           </div>
 
@@ -1533,7 +1532,7 @@ export function MoneyAllocationPage({
           {/* Omzet Masuk */}
           <div className="rounded-2xl border border-border/80 bg-muted/40 p-4 shadow-xs">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-muted-foreground">1. Total Omzet Masuk</span>
+              <span className="text-xs font-bold text-muted-foreground">1. Total Omzet</span>
               <div className="size-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
                 <Receipt className="size-4" />
               </div>
@@ -1541,8 +1540,8 @@ export function MoneyAllocationPage({
             <p className="mt-2 text-2xl font-black font-mono text-foreground">
               {formatRupiah(totalOmzet)}
             </p>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {totalOmzet === 0 ? "Belum ada transaksi di cabang ini" : "Total omzet bersih dari penjualan POS (Non-Void)"}
+            <p className="mt-1 text-[10px] text-muted-foreground font-medium">
+              {normalizedSalesOrders.length > 0 ? `${normalizedSalesOrders.length} Transaksi Lunas` : "0 Transaksi"}
             </p>
           </div>
 
@@ -1559,8 +1558,8 @@ export function MoneyAllocationPage({
             <p className="mt-2 text-2xl font-black font-mono text-amber-600 dark:text-amber-400">
               {formatRupiah(totalBomSavings)}
             </p>
-            <p className="mt-1 text-[10px] text-amber-700/80 dark:text-amber-400/80">
-              {totalBomSavings === 0 ? "Otomatis terkumpul dari stok menu terjual" : "Dana siap untuk belanja restock"}
+            <p className="mt-1 text-[10px] text-amber-700/80 dark:text-amber-400/80 font-medium">
+              Modal bahan terpakai
             </p>
           </div>
 
@@ -1577,11 +1576,8 @@ export function MoneyAllocationPage({
             <p className="mt-2 text-2xl font-black font-mono text-blue-600 dark:text-blue-400">
               {formatRupiah(totalOpSavings)}
             </p>
-            <p className="mt-1 text-[10px] text-blue-700/80 dark:text-blue-400/80">
-              {operationalDaysWithSales > 0
-                ? `Terkumpul dari ${operationalDaysWithSales} Hari Aktif (Target Bulanan: ${formatRupiah(totalMonthlyOpTarget)})`
-                : `Rp 0 jika belum ada hari penjualan aktif (Target Bulanan: ${formatRupiah(totalMonthlyOpTarget)})`}
-              {emergencyFundTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(emergencyFundTransferDeduction)}`}
+            <p className="mt-1 text-[10px] text-blue-700/80 dark:text-blue-400/80 font-medium">
+              30% Laba Kotor (Target: {formatRupiah(totalMonthlyOpTarget)}/bln)
             </p>
           </div>
 
@@ -1589,7 +1585,7 @@ export function MoneyAllocationPage({
           <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 shadow-xs">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-purple-700 dark:text-purple-400">
-                4. Kas Keluar &amp; Gaji Cair
+                4. Kas &amp; Gaji Keluar
               </span>
               <div className="size-7 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
                 <Users className="size-4" />
@@ -1598,18 +1594,17 @@ export function MoneyAllocationPage({
             <p className="mt-2 text-2xl font-black font-mono text-purple-600 dark:text-purple-400">
               {formatRupiah(currentSalaryPaid + totalCashOut)}
             </p>
-            <p className="mt-1 text-[10px] text-purple-700/80 dark:text-purple-400/80">
-              Gaji Cair: {formatRupiah(currentSalaryPaid)} | Kasir: {formatRupiah(totalCashOut)}
-              {totalSalarySavings > 0 && ` | Alokasi Belum Cair: ${formatRupiah(totalSalarySavings)}`}
+            <p className="mt-1 text-[10px] text-purple-700/80 dark:text-purple-400/80 font-medium">
+              Pengeluaran &amp; gaji cair
             </p>
           </div>
 
-          {/* Laba Bersih Murni Owner - Governed by Manager Permission Toggle */}
+          {/* Laba Bersih Murni Owner */}
           {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                  5. Sisa Laba Murni Owner
+                  5. Laba Bersih Owner
                 </span>
                 <div className="size-7 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
                   <TrendingUp className="size-4" />
@@ -1618,17 +1613,9 @@ export function MoneyAllocationPage({
               <p className="mt-2 text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
                 {formatRupiah(labaBersihMurni)}
               </p>
-              <div className="mt-1 space-y-0.5">
-                <p className="text-[10px] text-emerald-700/80 dark:text-emerald-400/80">
-                  Laba Kas Bersih setelah BOM, Operasional, Gaji Cair &amp; Kas Keluar Kasir
-                  {ownerProfitTransferDeduction > 0 && ` | Dialihkan ke Bahan: -${formatRupiah(ownerProfitTransferDeduction)}`}
-                </p>
-                {totalSalarySavings > 0 && (
-                  <p className="text-[10px] font-semibold text-emerald-800 dark:text-emerald-300">
-                    💡 Sisa Setelah Cadangan Gaji Belum Cair: {formatRupiah(Math.max(0, labaBersihMurni - totalSalarySavings))}
-                  </p>
-                )}
-              </div>
+              <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80 font-medium">
+                70% Laba Kotor siap tarik
+              </p>
             </div>
           ) : (
             <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 shadow-xs flex flex-col justify-between opacity-70">
@@ -1643,9 +1630,6 @@ export function MoneyAllocationPage({
               <p className="mt-2 text-sm font-bold text-muted-foreground">
                 🔒 Khusus Hak Akses Owner
               </p>
-              <p className="mt-1 text-[10px] text-muted-foreground">
-                Akses laba murni dinonaktifkan untuk akun Manager oleh Owner
-              </p>
             </div>
           )}
         </div>
@@ -1657,12 +1641,9 @@ export function MoneyAllocationPage({
               <div className="flex items-center gap-2">
                 <Store className="size-4 text-primary" />
                 <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
-                  Rekap Keuangan Cabang Berjalan (Multi-Cabang HQ) - Isolasi Antar Cabang
+                  Ringkasan per Cabang
                 </h3>
               </div>
-              <span className="text-[10px] text-muted-foreground font-medium">
-                Kebutuhan operasional cabang 100% memotong omzet cabang terkait (Tanpa subsidi silang liar)
-              </span>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {outletsList.map((out) => {
@@ -1814,7 +1795,7 @@ export function MoneyAllocationPage({
             {computedBomPockets.map((pocket) => (
               <div
                 key={pocket.item.id}
-                className="rounded-2xl border border-border bg-card/60 hover:bg-card/90 transition-all p-4.5 flex flex-col justify-between shadow-xs"
+                className="rounded-2xl border border-border bg-card/60 hover:bg-card/90 transition-all p-4 flex flex-col justify-between shadow-xs"
               >
                 <div>
                   <div className="flex items-start justify-between gap-2">
@@ -1827,20 +1808,16 @@ export function MoneyAllocationPage({
                           </span>
                         )}
                       </h3>
-                      <span className="text-[10px] font-bold text-muted-foreground block">
-                        Kemasan {pocket.pack_size} {pocket.item.unit} / Pack · {formatRupiah(pocket.pack_price)}
+                      <span className="text-[11px] font-medium text-muted-foreground block mt-0.5">
+                        {formatRupiah(pocket.pack_price)} / {pocket.item.unit || "pack"} • {pocket.item.yield_per_unit || pocket.pack_size || 20} {pocket.item.yield_unit || "pcs"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {pocket.item.stock <= (pocket.item.minimum_stock ?? 5) && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[9.5px] font-black text-amber-700 dark:text-amber-400 whitespace-nowrap">
-                          <AlertCircle className="size-3" />
-                          ⚠️ PERLU RESTOCK
+                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[9px] font-black text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                          Perlu Restock
                         </span>
                       )}
-                      <Badge variant="secondary" className="text-[10px] font-bold">
-                        Stok: {pocket.item.stock} {pocket.item.unit}
-                      </Badge>
                       <button
                         type="button"
                         onClick={() => {
@@ -1849,79 +1826,52 @@ export function MoneyAllocationPage({
                           setEditPackPrice(pocket.pack_price);
                         }}
                         className="text-muted-foreground hover:text-primary p-1 rounded-md"
-                        title="Atur Ukuran Kemasan & Harga Beli"
+                        title="Atur Ukuran Kemasan dan Harga Beli"
                       >
                         <Settings className="size-3.5" />
                       </button>
                     </div>
                   </div>
 
-                  <div className="mt-4 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] font-bold text-amber-700 dark:text-amber-400 block">
-                        Saldo Siap Belanja Saat Ini:
+                  <div className="mt-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 space-y-1.5">
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider block">
+                      Saldo Siap Belanja
+                    </span>
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
+                        {formatRupiah(pocket.accumulated_balance)}
                       </span>
-                      {pocket.canBuyPacks >= 1 && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
-                          🟢 Siap Belanja {pocket.canBuyPacks} {pocket.item.unit || "Pak"}
+                      {pocket.canBuyPacks >= 1 ? (
+                        <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                          (Cukup beli {pocket.canBuyPacks} {pocket.item.unit || "pack"})
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">
+                          (Belum cukup 1 {pocket.item.unit || "pack"})
                         </span>
                       )}
                     </div>
-                    <p className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
-                      {formatRupiah(pocket.accumulated_balance)}
-                    </p>
 
-                    {pocket.item.stock <= (pocket.item.minimum_stock ?? 5) && (
-                      <div className="text-[10.5px] font-bold text-amber-800 dark:text-amber-300 bg-amber-500/15 rounded-lg p-2 border border-amber-500/25">
-                        Saldo Celengan Bahan Ini: {formatRupiah(pocket.accumulated_balance)}{" "}
-                        {pocket.canBuyPacks > 0
-                          ? `(Cukup untuk beli ${pocket.canBuyPacks} ${pocket.item.unit || "Pak"})`
-                          : `(Belum cukup 1 Pak)`}
-                      </div>
-                    )}
-
-                    {/* Transparent Formula Breakdown */}
-                    <div className="pt-2 border-t border-amber-500/20 space-y-1 text-[10px]">
-                      <div className="flex justify-between text-muted-foreground">
-                        <span>Terkumpul Penjualan (Patokan HPP):</span>
-                        <span className="font-semibold text-foreground">
-                          +{formatRupiah(pocket.totalEarned)}
-                        </span>
-                      </div>
-                      {pocket.added > 0 && (
-                        <div className="flex justify-between text-emerald-600 dark:text-emerald-400 font-semibold">
-                          <span>+ Tambahan/Suntikan Saldo:</span>
-                          <span>+{formatRupiah(pocket.added)}</span>
-                        </div>
-                      )}
-                      {pocket.spent > 0 && (
-                        <div className="flex justify-between text-rose-600 dark:text-rose-400 font-semibold">
-                          <span>- Terpakai Belanja Restock:</span>
-                          <span>-{formatRupiah(pocket.spent)}</span>
-                        </div>
-                      )}
-                      <div className="flex items-center justify-between text-[9px] text-muted-foreground pt-1 border-t border-amber-500/10">
-                        <span>
-                          Keluar: <strong>{Number(pocket.usedQty.toFixed(3)).toLocaleString("id-ID", { maximumFractionDigits: 3 })} {pocket.item.unit}</strong>
-                          {Number(pocket.item.yield_per_unit) > 0 && (
-                            <span className="text-[8.5px] opacity-80 block">
-                              (± {Math.round(pocket.usedQty * Number(pocket.item.yield_per_unit)).toLocaleString("id-ID")} {pocket.item.yield_unit || "gram"})
-                            </span>
-                          )}
-                        </span>
-                        <span>
-                          Patokan: <strong>{formatRupiah(pocket.unit_cost)} / {pocket.item.unit}</strong>
-                        </span>
-                      </div>
+                    <div className="text-[10px] text-muted-foreground truncate border-t border-amber-500/15 pt-1.5 flex flex-wrap items-center gap-1.5">
+                      <span>Stok: <strong>{pocket.item.stock} {pocket.item.unit}</strong></span>
+                      <span>•</span>
+                      <span>
+                        Terpakai: <strong>{Number(pocket.usedQty.toFixed(3)).toLocaleString("id-ID", { maximumFractionDigits: 3 })} {pocket.item.unit}</strong>
+                        {Number(pocket.item.yield_per_unit) > 0 && (
+                          <span className="opacity-80"> ({Math.round(pocket.usedQty * Number(pocket.item.yield_per_unit)).toLocaleString("id-ID")} {pocket.item.yield_unit || "pcs"})</span>
+                        )}
+                      </span>
+                      <span>•</span>
+                      <span>Belanja: <strong>{formatRupiah(pocket.spent)}</strong></span>
                     </div>
                   </div>
                 </div>
 
-                <div className="mt-4 pt-3 border-t border-border flex items-center justify-between gap-2">
+                <div className="mt-3 pt-2.5 border-t border-border flex items-center justify-between gap-2">
                   <Button
                     size="sm"
                     variant="outline"
-                    className="rounded-xl font-bold text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10"
+                    className="rounded-xl font-bold text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10 flex-1"
                     onClick={() => {
                       setTopUpItem(pocket);
                       setTopUpAmount(Math.max(100000, pocket.pack_price - pocket.accumulated_balance));
@@ -1929,11 +1879,11 @@ export function MoneyAllocationPage({
                     }}
                   >
                     <Plus className="size-3.5" />
-                    Suntik Saldo
+                    + Saldo
                   </Button>
                   <Button
                     size="sm"
-                    className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-amber-600 hover:bg-amber-700 text-white"
+                    className="rounded-xl font-bold text-xs gap-1 shadow-brand bg-amber-600 hover:bg-amber-700 text-white flex-1"
                     disabled={pocket.accumulated_balance < pocket.pack_price}
                     onClick={() => {
                       setSpendingItem(pocket);
@@ -1941,7 +1891,7 @@ export function MoneyAllocationPage({
                     }}
                   >
                     <ShoppingCart className="size-3.5" />
-                    🛒 Langsung Restock dari Celengan
+                    Restock
                   </Button>
                 </div>
               </div>

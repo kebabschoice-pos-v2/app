@@ -355,18 +355,16 @@ export function MenuManagement() {
   async function loadData() {
     try {
       setLoading(true);
-      if (typeof window !== "undefined") {
-        try {
-          const role = localStorage.getItem("kebabschoicepos_user_role") || "owner";
-          setUserRole(role);
-          const perms = await getManagerPermissions();
-          setManagerPermissions(perms);
-        } catch {}
-      }
+      const role =
+        typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_user_role") || "owner"
+          : "owner";
+      setUserRole(role);
 
-      syncMenuRecipesWithInventory().catch(() => {});
-      const [fetchedCategories, fetchedOutlets, fetchedIngredients, fetchedItems] =
+      // Parallelize all data fetches simultaneously including manager permissions
+      const [perms, fetchedCategories, fetchedOutlets, fetchedIngredients, fetchedItems] =
         await Promise.all([
+          getManagerPermissions().catch(() => null),
           getCategories().catch((err) => {
             console.error("Gagal memuat kategori:", err);
             return [] as MenuCategory[];
@@ -385,6 +383,7 @@ export function MenuManagement() {
           }),
         ]);
 
+      if (perms) setManagerPermissions(perms);
       setCategories(fetchedCategories);
       setOutlets(fetchedOutlets);
       setInventoryIngredients(fetchedIngredients);
@@ -3479,21 +3478,14 @@ export function MenuManagement() {
                                           if (autoHpp > 0) setCostPrice(autoHpp);
                                         }
                                       }}
-                                      className="h-9 w-28 rounded-xl border border-input bg-background px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                                      className="h-9 w-24 rounded-xl border border-input bg-background px-2 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                                     >
-                                      {Array.from(new Set(STANDARD_UNITS.map((u) => u.group))).map(
-                                        (groupName) => (
-                                          <optgroup key={groupName} label={groupName}>
-                                            {STANDARD_UNITS.filter(
-                                              (u) => u.group === groupName,
-                                            ).map((unit) => (
-                                              <option key={unit.value} value={unit.value}>
-                                                {unit.label}
-                                              </option>
-                                            ))}
-                                          </optgroup>
-                                        ),
-                                      )}
+                                      <option value="pcs">pcs</option>
+                                      <option value="gram">gram</option>
+                                      <option value="ml">ml</option>
+                                      <option value="pack">pack</option>
+                                      <option value="lembar">lembar</option>
+                                      <option value="porsi">porsi</option>
                                     </select>
 
                                     {/* Estimasi Biaya BOM Bahan */}

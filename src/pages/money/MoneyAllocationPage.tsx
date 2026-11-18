@@ -237,32 +237,62 @@ export function MoneyAllocationPage({
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "");
 
-      // 1. Fetch Manager Permissions & User Role
-      if (typeof window !== "undefined") {
-        try {
-          const role = localStorage.getItem("kebabschoicepos_user_role") || "owner";
-          setUserRole(role);
-          const perms = await getManagerPermissions(bId, selectedOutletId);
-          setManagerPermissions(perms);
-        } catch {}
-      }
+      const activeRole =
+        typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_user_role") || "owner"
+          : "owner";
 
-      // 2. Fetch Real Analytics using selected dateRange (default: "all")
-      if (bId) {
-        const res = await getComprehensiveAnalytics(bId, {
-          outletId: selectedOutletId,
-          dateRange: dateRange,
-        }).catch(() => null);
-        if (res) setAnalytics(res);
-      }
-
-      // 2. Fetch Real Inventory Items & Movements
-      let [invItems, movements, hrProfiles] = await Promise.all([
+      // 1. Parallel fetch all resources simultaneously to eliminate waterfalls and intermediate re-renders
+      const [
+        perms,
+        resAnalytics,
+        initialInvItems,
+        movements,
+        hrProfiles,
+        dbCmResponse,
+        dbOrdersResponse,
+        dbItemsResponse,
+        outletDataResponse,
+        menuItemsList,
+        branchLedgerData,
+      ] = await Promise.all([
+        getManagerPermissions(bId, selectedOutletId).catch(() => null),
+        bId
+          ? getComprehensiveAnalytics(bId, {
+              outletId: selectedOutletId,
+              dateRange: dateRange,
+            }).catch(() => null)
+          : Promise.resolve(null),
         getInventoryItems(bId || undefined).catch(() => [] as InventoryItemDetail[]),
         getStockMovements(bId || undefined).catch(() => [] as StockMovementRecord[]),
         getHRStaffProfiles().catch(() => [] as StaffProfile[]),
+        Promise.resolve(
+          supabase
+            .from("cash_movements" as any)
+            .select("*"),
+        ).catch(() => ({ data: [] })),
+        Promise.resolve(
+          supabase
+            .from("sales_orders")
+            .select("id, outlet_id, status, total, created_at")
+            .order("created_at", { ascending: false }),
+        ).catch(() => ({ data: [] })),
+        Promise.resolve(
+          supabase
+            .from("sales_order_items")
+            .select("order_id, product_id, name, quantity"),
+        ).catch(() => ({ data: [] })),
+        Promise.resolve(
+          supabase
+            .from("outlets")
+            .select("settings"),
+        ).catch(() => ({ data: [] })),
+        getMenuItems({ businessId: bId || undefined }).catch(() => [] as any[]),
+        loadBranchMoneyLedger(selectedOutletId).catch(() => null),
       ]);
 
+      // Fallback inventory items if empty
+      let invItems = initialInvItems;
       if (invItems.length === 0) {
         invItems = await getInventoryItems().catch(() => [] as InventoryItemDetail[]);
       }
@@ -270,35 +300,27 @@ export function MoneyAllocationPage({
       const branchItems =
         selectedOutletId === "all"
           ? invItems
-          : invItems.filter((i) => {
+          : invItems.filter((i: any) => {
               if (i.outlet_id) return i.outlet_id === selectedOutletId;
               const fallbackPrimary = resolvePrimaryOutletId(outletsList);
               return !fallbackPrimary || fallbackPrimary === selectedOutletId;
             });
 
-      setInventoryList(branchItems);
-      setStockMovements(movements);
-      setStaffProfiles(hrProfiles);
-
-      // 3. Fetch Real Cash Movements (Type "out" / Petty cash)
+      // Cash movements parsing
       let cmList: CashMovementRecord[] = [];
-      try {
-        const { data: dbCm } = await supabase
-          .from("cash_movements" as any)
-          .select("*");
-        if (dbCm && Array.isArray(dbCm)) {
-          cmList = dbCm.map((m: any) => ({
-            id: m.id,
-            shiftId: m.shift_id,
-            type: (m.type === "in" || m.movement_type === "in") ? "in" : "out",
-            amount: Number(m.amount || 0),
-            notes: m.notes || m.description || m.reason || "",
-            timestamp: m.created_at || m.timestamp || new Date().toISOString(),
-            outlet_id: m.outlet_id,
-            outlet_name: m.outlet_name,
-          }));
-        }
-      } catch {}
+      const dbCm = dbCmResponse?.data;
+      if (dbCm && Array.isArray(dbCm)) {
+        cmList = dbCm.map((m: any) => ({
+          id: m.id,
+          shiftId: m.shift_id,
+          type: m.type === "in" || m.movement_type === "in" ? "in" : "out",
+          amount: Number(m.amount || 0),
+          notes: m.notes || m.description || m.reason || "",
+          timestamp: m.created_at || m.timestamp || new Date().toISOString(),
+          outlet_id: m.outlet_id,
+          outlet_name: m.outlet_name,
+        }));
+      }
 
       if (typeof window !== "undefined") {
         try {
@@ -324,37 +346,24 @@ export function MoneyAllocationPage({
           }
         } catch {}
       }
-      setCashMovements(cmList);
 
-      // 4. Fetch Sales Orders and Items for Dual-Engine BOM Calculation
-      let validOrders: any[] = [];
-      try {
-        const { data: dbOrders } = await supabase
-          .from("sales_orders")
-          .select("id, outlet_id, status, total, created_at")
-          .order("created_at", { ascending: false });
+      // Sales orders and items pairing
+      const validOrders: any[] = [];
+      const dbOrders = dbOrdersResponse?.data || [];
+      const dbItems = dbItemsResponse?.data || [];
 
-        let dbItems: any[] = [];
-        try {
-          const { data: itms } = await supabase
-            .from("sales_order_items")
-            .select("order_id, product_id, name, quantity");
-          if (itms) dbItems = itms;
-        } catch {}
+      const itemsByOrder = new Map<string, any[]>();
+      for (const it of dbItems) {
+        if (!itemsByOrder.has(it.order_id)) itemsByOrder.set(it.order_id, []);
+        itemsByOrder.get(it.order_id)!.push(it);
+      }
 
-        const itemsByOrder = new Map<string, any[]>();
-        for (const it of dbItems) {
-          if (!itemsByOrder.has(it.order_id)) itemsByOrder.set(it.order_id, []);
-          itemsByOrder.get(it.order_id)!.push(it);
-        }
-
-        for (const ord of dbOrders || []) {
-          validOrders.push({
-            ...ord,
-            items: itemsByOrder.get(ord.id) || [],
-          });
-        }
-      } catch {}
+      for (const ord of dbOrders) {
+        validOrders.push({
+          ...ord,
+          items: itemsByOrder.get(ord.id) || [],
+        });
+      }
 
       if (typeof window !== "undefined") {
         try {
@@ -372,7 +381,6 @@ export function MoneyAllocationPage({
         } catch {}
       }
 
-      // Filter out void / refunded / cancelled orders
       const cleanOrders = validOrders.filter(
         (o) =>
           o.status !== "void" &&
@@ -381,48 +389,32 @@ export function MoneyAllocationPage({
           o.status !== "refunded" &&
           o.status !== "cancelled",
       );
-      setSalesOrders(cleanOrders);
 
-      // Fetch recipes and order_metadata from outlets settings and menu_items catalog
+      // Recipe maps and metadata
       const recipes: Record<string, any> = {};
       const extractedOrderMeta: Record<string, any> = {};
-      try {
-        const { data: outletData } = await supabase.from("outlets").select("settings");
-        if (outletData) {
-          for (const o of outletData) {
-            const s = (o.settings as any) || {};
-            if (s.menu_recipes) Object.assign(recipes, s.menu_recipes);
-            if (s.order_metadata) Object.assign(extractedOrderMeta, s.order_metadata);
-          }
+      const outletData = outletDataResponse?.data;
+      if (outletData && Array.isArray(outletData)) {
+        for (const o of outletData) {
+          const s = (o.settings as any) || {};
+          if (s.menu_recipes) Object.assign(recipes, s.menu_recipes);
+          if (s.order_metadata) Object.assign(extractedOrderMeta, s.order_metadata);
         }
-        setOrderMetaMap(extractedOrderMeta);
-      } catch {}
-
-      try {
-        const menuItems = await getMenuItems({ businessId: bId || undefined }).catch(() => []);
-        setMenuProducts(menuItems);
-        for (const m of menuItems) {
-          const rec = m.recipe || (m.recipe_items && m.recipe_items.length > 0 ? { items: m.recipe_items } : null);
-          if (rec) {
-            recipes[m.id] = rec;
-            if (m.name) {
-              recipes[m.name] = rec;
-              recipes[m.name.toLowerCase().trim()] = rec;
-            }
-          }
-        }
-      } catch {}
-      setMenuRecipes(recipes);
-
-      // 5. Load persistent configurations (pack configs, expenses, history) via loadBranchMoneyLedger
-      let loadedConfigs: MoneyAllocationSettings | null = null;
-      try {
-        const branchLedger = await loadBranchMoneyLedger(selectedOutletId);
-        if (branchLedger) loadedConfigs = branchLedger as MoneyAllocationSettings;
-      } catch (err) {
-        console.warn("[MoneyAllocationPage] loadBranchMoneyLedger warning:", err);
       }
 
+      for (const m of menuItemsList || []) {
+        const rec = m.recipe || (m.recipe_items && m.recipe_items.length > 0 ? { items: m.recipe_items } : null);
+        if (rec) {
+          recipes[m.id] = rec;
+          if (m.name) {
+            recipes[m.name] = rec;
+            recipes[m.name.toLowerCase().trim()] = rec;
+          }
+        }
+      }
+
+      // Money Ledger / Settings
+      let loadedConfigs: MoneyAllocationSettings | null = branchLedgerData as MoneyAllocationSettings | null;
       if (!loadedConfigs && typeof window !== "undefined") {
         try {
           const raw = localStorage.getItem(STORAGE_KEY);
@@ -446,6 +438,19 @@ export function MoneyAllocationPage({
           }
         } catch {}
       }
+
+      // Single batched state commit: All states update synchronously together
+      setUserRole(activeRole);
+      if (perms) setManagerPermissions(perms);
+      if (resAnalytics) setAnalytics(resAnalytics);
+      setInventoryList(branchItems);
+      setStockMovements(movements || []);
+      setStaffProfiles(hrProfiles || []);
+      setCashMovements(cmList);
+      setSalesOrders(cleanOrders);
+      setOrderMetaMap(extractedOrderMeta);
+      setMenuProducts(menuItemsList || []);
+      setMenuRecipes(recipes);
 
       if (loadedConfigs) {
         if (loadedConfigs.pack_configs) setPackConfigs(loadedConfigs.pack_configs);
@@ -528,7 +533,7 @@ export function MoneyAllocationPage({
     } finally {
       setLoading(false);
     }
-  }, [snapshot?.businessId, selectedOutletId, dateRange]);
+  }, [snapshot?.businessId, selectedOutletId, dateRange, outletsList]);
 
   useEffect(() => {
     loadData();
@@ -1530,104 +1535,104 @@ export function MoneyAllocationPage({
         {/* 2. Top Summary KPI Cards: Omzet -> (-) BOM -> (-) OP -> (-) Gaji/Kas -> (=) Laba Bersih */}
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 border-t border-border/60 pt-5">
           {/* Omzet Masuk */}
-          <div className="rounded-2xl border border-border/80 bg-muted/40 p-4 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-muted-foreground">1. Total Omzet</span>
-              <div className="size-7 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+          <div className="rounded-2xl border border-border/80 bg-muted/40 p-4 shadow-xs overflow-hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-muted-foreground truncate">1. Total Omzet</span>
+              <div className="size-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
                 <Receipt className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-2xl font-black font-mono text-foreground">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate font-mono text-foreground">
               {formatRupiah(totalOmzet)}
             </p>
-            <p className="mt-1 text-[10px] text-muted-foreground font-medium">
+            <p className="mt-1 text-[10px] text-muted-foreground font-medium truncate">
               {normalizedSalesOrders.length > 0 ? `${normalizedSalesOrders.length} Transaksi Lunas` : "0 Transaksi"}
             </p>
           </div>
 
           {/* Tabungan BOM */}
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-amber-700 dark:text-amber-400">
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 shadow-xs overflow-hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-amber-700 dark:text-amber-400 truncate">
                 2. Celengan Bahan (BOM)
               </span>
-              <div className="size-7 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
+              <div className="size-8 shrink-0 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
                 <Boxes className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-2xl font-black font-mono text-amber-600 dark:text-amber-400">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate font-mono text-amber-600 dark:text-amber-400">
               {formatRupiah(totalBomSavings)}
             </p>
-            <p className="mt-1 text-[10px] text-amber-700/80 dark:text-amber-400/80 font-medium">
+            <p className="mt-1 text-[10px] text-amber-700/80 dark:text-amber-400/80 font-medium truncate">
               Modal bahan terpakai
             </p>
           </div>
 
           {/* Tabungan Operasional Harian */}
-          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-blue-700 dark:text-blue-400">
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 shadow-xs overflow-hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-blue-700 dark:text-blue-400 truncate">
                 3. Celengan Operasional
               </span>
-              <div className="size-7 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-300 flex items-center justify-center font-bold">
+              <div className="size-8 shrink-0 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-300 flex items-center justify-center font-bold">
                 <Zap className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-2xl font-black font-mono text-blue-600 dark:text-blue-400">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate font-mono text-blue-600 dark:text-blue-400">
               {formatRupiah(totalOpSavings)}
             </p>
-            <p className="mt-1 text-[10px] text-blue-700/80 dark:text-blue-400/80 font-medium">
+            <p className="mt-1 text-[10px] text-blue-700/80 dark:text-blue-400/80 font-medium truncate">
               30% Laba Kotor (Target: {formatRupiah(totalMonthlyOpTarget)}/bln)
             </p>
           </div>
 
           {/* Kas Keluar & Realisasi Gaji Cair */}
-          <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 shadow-xs">
-            <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-purple-700 dark:text-purple-400">
+          <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 shadow-xs overflow-hidden">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-bold text-purple-700 dark:text-purple-400 truncate">
                 4. Kas &amp; Gaji Keluar
               </span>
-              <div className="size-7 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
+              <div className="size-8 shrink-0 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
                 <Users className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-2xl font-black font-mono text-purple-600 dark:text-purple-400">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate font-mono text-purple-600 dark:text-purple-400">
               {formatRupiah(currentSalaryPaid + totalCashOut)}
             </p>
-            <p className="mt-1 text-[10px] text-purple-700/80 dark:text-purple-400/80 font-medium">
+            <p className="mt-1 text-[10px] text-purple-700/80 dark:text-purple-400/80 font-medium truncate">
               Pengeluaran &amp; gaji cair
             </p>
           </div>
 
           {/* Laba Bersih Murni Owner */}
           {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
+            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs overflow-hidden">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 truncate">
                   5. Laba Bersih Owner
                 </span>
-                <div className="size-7 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
+                <div className="size-8 shrink-0 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
                   <TrendingUp className="size-4" />
                 </div>
               </div>
-              <p className="mt-2 text-2xl font-black font-mono text-emerald-600 dark:text-emerald-400">
+              <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate font-mono text-emerald-600 dark:text-emerald-400">
                 {formatRupiah(labaBersihMurni)}
               </p>
-              <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80 font-medium">
+              <p className="mt-1 text-[10px] text-emerald-700/80 dark:text-emerald-400/80 font-medium truncate">
                 70% Laba Kotor siap tarik
               </p>
             </div>
           ) : (
-            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 shadow-xs flex flex-col justify-between opacity-70">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-muted-foreground">
+            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4 shadow-xs overflow-hidden flex flex-col justify-between opacity-70">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-muted-foreground truncate">
                   5. Laba Bersih Owner
                 </span>
-                <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full font-bold text-muted-foreground">
+                <span className="text-[10px] bg-muted px-2 py-0.5 rounded-full font-bold text-muted-foreground shrink-0">
                   Terkunci
                 </span>
               </div>
-              <p className="mt-2 text-sm font-bold text-muted-foreground">
+              <p className="mt-2 text-sm font-bold text-muted-foreground truncate">
                 🔒 Khusus Hak Akses Owner
               </p>
             </div>
@@ -1761,7 +1766,7 @@ export function MoneyAllocationPage({
                 Tambah Bahan Baku &amp; Setting Kemasan
               </Button>
             )}
-            <Badge variant="outline" className="text-xs font-bold font-mono">
+            <Badge variant="outline" className="text-xs font-bold font-mono whitespace-nowrap shrink-0">
               Total Saldo BOM: {formatRupiah(totalBomSavings)}
             </Badge>
           </div>

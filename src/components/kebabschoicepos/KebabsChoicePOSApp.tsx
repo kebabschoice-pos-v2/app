@@ -1052,16 +1052,16 @@ function StatCard({
     <motion.div
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2 }}
-      className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl"
+      className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl overflow-hidden"
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-sm font-medium text-muted-foreground">{label}</p>
-          <p className="mt-3 text-2xl font-black tracking-normal">{value}</p>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-medium text-muted-foreground truncate">{label}</p>
+          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate">{value}</p>
         </div>
         <div
           className={cn(
-            "flex size-11 items-center justify-center rounded-2xl",
+            "flex size-8 shrink-0 items-center justify-center rounded-xl",
             tone === "success"
               ? "bg-success-soft text-success-foreground"
               : tone === "ai"
@@ -1069,12 +1069,12 @@ function StatCard({
                 : "bg-primary-soft text-primary",
           )}
         >
-          <Icon className="size-5" />
+          <Icon className="size-4" />
         </div>
       </div>
-      <div className="mt-5 flex items-center gap-2 text-sm font-semibold text-success-foreground">
-        <TrendingUp className="size-4" />
-        {trend}
+      <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-success-foreground truncate">
+        <TrendingUp className="size-3.5 shrink-0" />
+        <span className="truncate">{trend}</span>
       </div>
     </motion.div>
   );
@@ -5387,15 +5387,15 @@ function PosPage({
           {/* Status Kiri: Online, Kasir & Shift, Cabang */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             {/* Status Online */}
-            {typeof window !== "undefined" && typeof navigator !== "undefined" && navigator.onLine === false ? (
+            {typeof navigator !== "undefined" && navigator.onLine === false ? (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-[11px] font-bold text-amber-600 dark:text-amber-400">
                 <WifiOff className="size-3" />
-                Offline
+                <span>Offline</span>
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                <span className="size-2 rounded-full bg-emerald-500 animate-pulse" />
-                🟢 Online
+                <Wifi className="size-3 text-emerald-500" />
+                <span>🟢 Online</span>
               </span>
             )}
 
@@ -5518,7 +5518,7 @@ function PosPage({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.03 }}
                 onClick={() => handleFastAddToCart(product)}
-                className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all"
+                className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all overflow-hidden"
               >
                 <div className="relative mb-4 flex aspect-[4/3] items-end overflow-hidden rounded-[1.25rem] bg-primary p-4 text-primary-foreground">
                   {product.image_url ? (
@@ -5548,8 +5548,8 @@ function PosPage({
                     </p>
                   </div>
                 </div>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
+                <div className="flex items-center justify-between gap-1.5 mt-2 min-w-0">
+                  <div className="min-w-0 flex-1">
                     {product.promo_price && product.promo_price < product.price ? (
                       <div className="flex items-baseline gap-1.5">
                         <p className="font-black text-rose-600 dark:text-rose-400">
@@ -5562,15 +5562,15 @@ function PosPage({
                     ) : (
                       <p className="font-black text-primary">{formatRupiah(product.price)}</p>
                     )}
-                    <p className="text-xs text-muted-foreground">Stok {product.stock}</p>
+                    <p className="text-xs text-muted-foreground truncate">Stok {product.stock}</p>
                   </div>
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 shrink-0">
                     {((product.variant_groups && product.variant_groups.length > 0) ||
                       (product.modifiers && product.modifiers.length > 0)) && (
                       <Button
                         size="sm"
                         variant="outline"
-                        className="rounded-xl px-2 h-8 text-[10px] font-bold text-muted-foreground hover:text-foreground"
+                        className="rounded-xl h-8 px-2.5 text-xs font-bold text-muted-foreground hover:text-foreground shrink-0"
                         onClick={(e) => {
                           e.stopPropagation();
                           handleOpenCustomize(product);
@@ -5582,15 +5582,14 @@ function PosPage({
                     )}
                     <Button
                       size="sm"
-                      className="rounded-xl gap-1 font-bold text-xs shadow-xs"
+                      className="rounded-xl h-8 w-8 p-0 font-bold text-xs shadow-xs shrink-0 flex items-center justify-center"
                       onClick={(e) => {
                         e.stopPropagation();
                         handleFastAddToCart(product);
                       }}
                       aria-label={`Tambah ${product.name}`}
                     >
-                      <Plus className="size-3.5" />
-                      +1
+                      <Plus className="size-4" />
                     </Button>
                   </div>
                 </div>
@@ -5688,9 +5687,9 @@ function PosPage({
         {/* Customer / CRM Member Selector (Umum / Member CRM / Pelanggan Baru) */}
         <div className="mb-4 rounded-2xl border border-border bg-background/80 p-3 shadow-xs space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+            <span className="text-[11px] font-bold text-muted-foreground flex items-center gap-1.5">
               <UserRound className="size-3.5 text-primary" />
-              {t("cart.crm_member", "Data Pelanggan")}
+              <span>Pelanggan</span>
             </span>
             {(selectedCustomerId || newCustomerName) && (
               <button
@@ -5992,8 +5991,8 @@ function PosPage({
             </button>
           </div>
 
-          {/* 6 Channel Pesanan dalam 1 Baris Horizontal Kompak */}
-          <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
+          {/* 6 Channel Pesanan dalam 2 Baris x 3 Kolom Grid Proporsional */}
+          <div className="grid grid-cols-3 gap-1.5 py-0.5">
             {[
               { id: "dine_in", label: "Dine In" },
               { id: "take_away", label: "Bungkus" },
@@ -6013,7 +6012,7 @@ function PosPage({
                   }
                 }}
                 className={cn(
-                  "px-2.5 py-1 rounded-xl text-xs font-bold whitespace-nowrap transition-all border shrink-0 cursor-pointer",
+                  "h-8 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1",
                   orderType === tItem.id
                     ? (tItem.activeClass || "bg-primary text-primary-foreground border-primary shadow-xs")
                     : "bg-background border-border text-muted-foreground hover:bg-secondary",
@@ -6263,12 +6262,12 @@ function PosPage({
 
           <Button
             variant="hero"
-            className="h-14 flex-1 rounded-2xl text-base shadow-brand"
+            className="h-14 flex-1 rounded-2xl text-base shadow-brand font-bold"
             disabled={cart.length === 0}
             onClick={checkout}
           >
-            {t("cart.checkout_pay", "Bayar")} {formatRupiah(total)}
-            <Send className="size-4" />
+            Bayar {formatRupiah(total)}
+            <Send className="size-4 ml-1.5" />
           </Button>
         </div>
       </aside>

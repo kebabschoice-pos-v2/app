@@ -3313,24 +3313,33 @@ async function depleteIngredientStock({
 }): Promise<{ inventoryId: string; deductedQuantity: number } | null> {
   let origInvRow: any = null;
   if (ingredient.inventory_item_id) {
-    const { data } = await (supabase.from("inventory_items" as any) as any)
-      .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
+    const { data, error: lookupErr } = await (supabase.from("inventory_items" as any) as any)
+      .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, cost_price, category, sku, min_stock")
       .eq("id", ingredient.inventory_item_id)
+      .eq("business_id", businessId)
       .maybeSingle();
+    if (lookupErr) {
+      console.error("[BOM Depletion] Gagal membaca inventory_items by id:", lookupErr.message);
+    }
     origInvRow = data;
   }
 
-  // Fallback: search by ingredient_name if not found by id
+  // Fallback: search by ingredient_name if not found by id — MUST stay inside the same business
   if (!origInvRow && ingredient.ingredient_name) {
-    try {
-      const { data: nameMatch } = await (supabase.from("inventory_items" as any) as any)
-        .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
-        .ilike("name", ingredient.ingredient_name.trim())
-        .limit(1);
-      if (nameMatch && nameMatch.length > 0) {
-        origInvRow = nameMatch[0];
-      }
-    } catch {}
+    let nameQuery = (supabase.from("inventory_items" as any) as any)
+      .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, cost_price, category, sku, min_stock")
+      .eq("business_id", businessId)
+      .ilike("name", ingredient.ingredient_name.trim());
+    if (chosenOutletId) {
+      nameQuery = nameQuery.eq("outlet_id", chosenOutletId);
+    }
+    const { data: nameMatch, error: nameErr } = await nameQuery.limit(1);
+    if (nameErr) {
+      console.error("[BOM Depletion] Gagal membaca inventory_items by name:", nameErr.message);
+    }
+    if (nameMatch && nameMatch.length > 0) {
+      origInvRow = nameMatch[0];
+    }
   }
 
   if (!origInvRow) return null;
@@ -3359,20 +3368,28 @@ async function depleteIngredientStock({
     try {
       let branchSpecificRows: any[] | null = null;
       if (origInvRow.sku) {
-        const { data: skuMatch } = await (supabase.from("inventory_items" as any) as any)
-          .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
+        const { data: skuMatch, error: skuErr } = await (supabase.from("inventory_items" as any) as any)
+          .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, cost_price, category, sku, min_stock")
+          .eq("business_id", businessId)
           .eq("outlet_id", chosenOutletId)
           .eq("sku", origInvRow.sku)
           .limit(1);
+        if (skuErr) {
+          console.error("[BOM Depletion] Gagal membaca item cabang by SKU:", skuErr.message);
+        }
         branchSpecificRows = skuMatch;
       }
 
       if (!branchSpecificRows || branchSpecificRows.length === 0) {
-        const { data: nameMatch } = await (supabase.from("inventory_items" as any) as any)
-          .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, category, sku, min_stock")
+        const { data: nameMatch, error: branchNameErr } = await (supabase.from("inventory_items" as any) as any)
+          .select("id, stock, name, unit, outlet_id, yield_per_unit, yield_unit, cost_per_unit, cost_price, category, sku, min_stock")
+          .eq("business_id", businessId)
           .eq("outlet_id", chosenOutletId)
           .ilike("name", origInvRow.name.trim())
           .limit(1);
+        if (branchNameErr) {
+          console.error("[BOM Depletion] Gagal membaca item cabang by nama:", branchNameErr.message);
+        }
         branchSpecificRows = nameMatch;
       }
 
@@ -3380,15 +3397,16 @@ async function depleteIngredientStock({
         targetInvRow = branchSpecificRows[0];
       } else {
         // Fallback: create branch-specific item in chosenOutletId with 0 initial stock so we NEVER bleed other branches!
+        // Never send a fake non-UUID id: let the database generate it, otherwise stock updates target a phantom row.
         const newBranchItem: any = {
-          id: `inv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           business_id: businessId,
           outlet_id: chosenOutletId,
           name: origInvRow.name,
           sku: origInvRow.sku || null,
           category: origInvRow.category || "Bahan Baku",
           unit: origInvRow.unit || "kg",
-          cost_per_unit: Number(origInvRow.cost_per_unit) || 0,
+          cost_per_unit: Number(origInvRow.cost_per_unit) || Number(origInvRow.cost_price) || 0,
+          cost_price: Number(origInvRow.cost_price) || Number(origInvRow.cost_per_unit) || 0,
           yield_per_unit: origInvRow.yield_per_unit || null,
           yield_unit: origInvRow.yield_unit || null,
           stock: 0,
@@ -3397,15 +3415,18 @@ async function depleteIngredientStock({
           updated_at: new Date().toISOString(),
         };
 
-        try {
-          const { data: createdRow } = await (supabase.from("inventory_items" as any) as any)
-            .insert(newBranchItem)
-            .select()
-            .maybeSingle();
-          targetInvRow = createdRow || newBranchItem;
-        } catch {
-          targetInvRow = newBranchItem;
+        const { data: createdRow, error: createErr } = await (supabase.from("inventory_items" as any) as any)
+          .insert(newBranchItem)
+          .select()
+          .maybeSingle();
+        if (createErr || !createdRow) {
+          console.error(
+            "[BOM Depletion] Gagal membuat item inventori cabang:",
+            createErr?.message || "insert tidak mengembalikan row",
+          );
+          return null;
         }
+        targetInvRow = createdRow;
       }
     } catch {
       // Safe fallback - avoid depleting other branch
@@ -3421,14 +3442,35 @@ async function depleteIngredientStock({
     targetInvRow.yield_unit,
   );
 
+  if (convertedQuantity <= 0) {
+    console.warn(
+      `[BOM Depletion] Konversi tidak aman (${rawQuantityNeeded} ${ingredient.unit || "gram"} -> ${targetInvRow.unit || "kg"} untuk ${targetInvRow.name}); deplesi dilewati agar stok tidak rusak.`,
+    );
+    return null;
+  }
+
   const prevStock = Number(targetInvRow.stock) || 0;
   const calculatedStock = prevStock - convertedQuantity;
   const newStock = Math.max(0, Math.round(calculatedStock * 10000) / 10000);
 
-  await (supabase.from("inventory_items" as any) as any)
+  const { error: stockUpdateErr } = await (supabase.from("inventory_items" as any) as any)
     .update({ stock: newStock, updated_at: new Date().toISOString() })
     .eq("id", targetInvRow.id);
+  if (stockUpdateErr) {
+    console.error(
+      `[BOM Depletion] Gagal update stok ${targetInvRow.name} (${targetInvRow.id}):`,
+      stockUpdateErr.message,
+    );
+    return null;
+  }
 
+  const movementNote = `${prefixNote} #${orderNumber}: ${cartItemQuantity}x ${cartItemName}`;
+  const historicUnitCost =
+    Number(targetInvRow.cost_price) || Number(targetInvRow.cost_per_unit) || 0;
+  const movementCreatedAt = new Date().toISOString();
+
+  // Local record keeps the rich cost snapshot for localStorage analytics.
+  // The `id` here is LOCAL ONLY and is never sent to Supabase (UUID column).
   const movementRecord: any = {
     id: `mov-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     business_id: businessId,
@@ -3443,18 +3485,77 @@ async function depleteIngredientStock({
     quantity: convertedQuantity,
     unit: targetInvRow.unit || ingredient.unit || "gram",
     remaining_stock: newStock,
-    unit_cost: Number(targetInvRow.cost_price || 0),
-    cost_per_unit: Number(targetInvRow.cost_price || 0),
-    cost_price: Number(targetInvRow.cost_price || 0),
+    unit_cost: Number(targetInvRow.cost_price || 0) || historicUnitCost,
+    cost_per_unit: historicUnitCost,
+    cost_price: historicUnitCost,
     yield_per_unit: Number(targetInvRow.yield_per_unit) || null,
     yield_unit: targetInvRow.yield_unit || null,
-    notes: `${prefixNote} #${orderNumber}: ${cartItemQuantity}x ${cartItemName}`,
-    created_at: new Date().toISOString(),
+    notes: movementNote,
+    created_at: movementCreatedAt,
   };
 
-  try {
-    await supabase.from("stock_movements" as any).insert(movementRecord);
-  } catch {}
+  // stock_movements has NO cost/metadata columns, so the historic snapshot is
+  // stored as parseable JSON inside `notes` (rehydrated by getStockMovements).
+  const movementSnapshotNotes = JSON.stringify({
+    note: movementNote,
+    item_name: targetInvRow.name || null,
+    unit_cost: historicUnitCost,
+    cost_per_unit: historicUnitCost,
+    cost_price: historicUnitCost,
+    yield_per_unit: Number(targetInvRow.yield_per_unit) || null,
+    yield_unit: targetInvRow.yield_unit || null,
+    recipe_quantity: rawQuantityNeeded,
+    recipe_unit: ingredient.unit || "gram",
+    inventory_unit: targetInvRow.unit || null,
+    order_number: orderNumber,
+    product_name: cartItemName,
+  });
+
+  // Full payload without the fake `mov-...` id and without non-existent columns.
+  const movementDbPayload: Record<string, any> = {
+    business_id: businessId,
+    inventory_item_id: targetInvRow.id,
+    outlet_id: chosenOutletId || targetInvRow.outlet_id || null,
+    order_id: orderId || null,
+    reference_id: orderId || orderNumber,
+    reference_type: "pos_order",
+    type: "pos_sale",
+    movement_type: "pos_sale",
+    quantity: convertedQuantity,
+    unit: targetInvRow.unit || ingredient.unit || "gram",
+    remaining_stock: newStock,
+    notes: movementSnapshotNotes,
+    created_at: movementCreatedAt,
+  };
+
+  const { error: movementError } = await (supabase.from("stock_movements" as any) as any)
+    .insert(movementDbPayload);
+  if (movementError) {
+    console.error(
+      "[BOM Depletion] Gagal insert stock_movements:",
+      movementError.message,
+      movementError.details || "",
+    );
+    // Retry with the minimal schema shared by every environment.
+    const { error: retryError } = await (supabase.from("stock_movements" as any) as any).insert({
+      business_id: businessId,
+      inventory_item_id: targetInvRow.id,
+      outlet_id: chosenOutletId || targetInvRow.outlet_id || null,
+      reference_id: orderId || orderNumber,
+      reference_type: "pos_order",
+      type: "pos_sale",
+      quantity: convertedQuantity,
+      notes: movementSnapshotNotes,
+      created_at: movementCreatedAt,
+    });
+    if (retryError) {
+      console.error(
+        "[BOM Depletion] Retry insert stock_movements juga gagal:",
+        retryError.message,
+        retryError.details || "",
+      );
+    }
+  }
 
   // Also persist to procurement_store in localStorage & outlets.settings
   if (typeof window !== "undefined") {

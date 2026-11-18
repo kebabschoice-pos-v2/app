@@ -1,5 +1,9 @@
 import { supabase } from "@/integrations/supabase/client";
-import { resolveActiveBusinessId, resolveAllUserBusinessIds } from "./menu.service";
+import {
+  convertRecipeToInventoryQuantity,
+  resolveActiveBusinessId,
+  resolveAllUserBusinessIds,
+} from "./menu.service";
 import { resolveInventoryIngredientParams } from "@/lib/bom-analytics";
 
 async function insertStockMovementClientDb(mov: Record<string, any>) {
@@ -21,6 +25,35 @@ async function insertStockMovementClientDb(mov: Record<string, any>) {
       created_at: mov.created_at || new Date().toISOString(),
     });
   } catch {}
+}
+
+/**
+ * Rehydrates the cost/metadata snapshot that POS depletion stores inside
+ * stock_movements.notes as JSON (the table itself has no cost columns).
+ * Keeps human-readable notes while exposing snapshot fields to movement
+ * readers such as MoneyAllocationPage.
+ */
+function parseStockMovementSnapshotRow(row: any): any {
+  const notes = row?.notes;
+  if (typeof notes !== "string") return row;
+  const trimmed = notes.trim();
+  if (!trimmed.startsWith("{")) return row;
+  try {
+    const snapshot = JSON.parse(trimmed);
+    if (!snapshot || typeof snapshot !== "object") return row;
+    return {
+      ...row,
+      item_name: row.item_name ?? snapshot.item_name ?? undefined,
+      unit_cost: row.unit_cost ?? snapshot.unit_cost ?? undefined,
+      cost_per_unit: row.cost_per_unit ?? snapshot.cost_per_unit ?? undefined,
+      cost_price: row.cost_price ?? snapshot.cost_price ?? undefined,
+      yield_per_unit: row.yield_per_unit ?? snapshot.yield_per_unit ?? undefined,
+      yield_unit: row.yield_unit ?? snapshot.yield_unit ?? undefined,
+      notes: typeof snapshot.note === "string" ? snapshot.note : row.notes,
+    };
+  } catch {
+    return row;
+  }
 }
 
 export interface InventoryItemDetail {
@@ -625,6 +658,10 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
 /**
  * Helper: Computes portion HPP cost for a given recipe usage
  * If inventory item is 1 tiang = 2200 gram @ Rp 110.000, 20 gram = (20/2200) * 110.000 = Rp 1.000
+ *
+ * Uses the shared BOM converter so incompatible units without a valid yield
+ * return 0 instead of multiplying raw recipe qty by the inventory unit cost
+ * (which would wildly inflate HPP).
  */
 export function calculateIngredientPortionCost(
   item: InventoryItemDetail,
@@ -634,27 +671,15 @@ export function calculateIngredientPortionCost(
   const cost = item.cost_price || 0;
   if (cost <= 0) return 0;
 
-  const yieldCap = Number(item.yield_per_unit) > 0 ? Number(item.yield_per_unit) : 0;
-  if (yieldCap > 0) {
-    let normalizedQty = recipeQuantity;
-    const rUnit = (recipeUnit || "").toLowerCase().trim();
-    const yUnit = (item.yield_unit || "gram").toLowerCase().trim();
-    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g")) {
-      normalizedQty = recipeQuantity * 1000;
-    }
-    return (normalizedQty / yieldCap) * cost;
-  }
+  const inventoryQty = convertRecipeToInventoryQuantity(
+    recipeQuantity,
+    recipeUnit,
+    item.unit || "",
+    item.yield_per_unit,
+    item.yield_unit,
+  );
 
-  const rUnit = (recipeUnit || "").toLowerCase().trim();
-  const iUnit = (item.unit || "").toLowerCase().trim();
-  if ((rUnit === "gram" || rUnit === "g") && (iUnit === "kg" || iUnit === "kilogram")) {
-    return (recipeQuantity / 1000) * cost;
-  }
-  if ((rUnit === "ml" || rUnit === "mililiter") && (iUnit === "liter" || iUnit === "l")) {
-    return (recipeQuantity / 1000) * cost;
-  }
-
-  return recipeQuantity * cost;
+  return inventoryQty * cost;
 }
 
 /**
@@ -1330,7 +1355,10 @@ export async function getStockMovements(
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        return itemId ? json.data.filter((m: any) => m.inventory_item_id === itemId) : json.data;
+        const movements = json.data.map((m: any) => parseStockMovementSnapshotRow(m));
+        return itemId
+          ? movements.filter((m: any) => m.inventory_item_id === itemId)
+          : movements;
       }
     }
   } catch (err) {
@@ -1338,7 +1366,9 @@ export async function getStockMovements(
   }
 
   const store = await loadProcurementStore(bid);
-  const movements: StockMovementRecord[] = store.stock_movements || [];
+  const movements: StockMovementRecord[] = (store.stock_movements || []).map((m: any) =>
+    parseStockMovementSnapshotRow(m),
+  );
   return itemId ? movements.filter((m) => m.inventory_item_id === itemId) : movements;
 }
 

@@ -78,6 +78,28 @@ export const STANDARD_UNITS = [
   { value: "lembar", label: "lembar (tortilla/keju)", group: "Kemasan / Packaging" },
 ] as const;
 
+const UNIT_ALIASES: Record<string, string> = {
+  g: "gram",
+  gr: "gram",
+  gram: "gram",
+  kg: "kg",
+  kilo: "kg",
+  kilogram: "kg",
+  ml: "ml",
+  mililiter: "ml",
+  milliliter: "ml",
+  l: "liter",
+  liter: "liter",
+  litre: "liter",
+  pcs: "pcs",
+  pc: "pcs",
+};
+
+function normalizeInventoryUnit(value?: string | null): string {
+  const unit = (value || "").toLowerCase().trim();
+  return UNIT_ALIASES[unit] || unit;
+}
+
 export function convertRecipeToInventoryQuantity(
   recipeQty: number,
   recipeUnit: string,
@@ -85,54 +107,66 @@ export function convertRecipeToInventoryQuantity(
   yieldPerUnit?: number | null,
   yieldUnit?: string | null,
 ): number {
-  const rUnit = (recipeUnit || "").toLowerCase().trim();
-  const iUnit = (inventoryUnit || "").toLowerCase().trim();
-  const yUnit = (yieldUnit || "").toLowerCase().trim();
+  const rUnit = normalizeInventoryUnit(recipeUnit);
+  const iUnit = normalizeInventoryUnit(inventoryUnit);
+  const yUnit = normalizeInventoryUnit(yieldUnit);
+  const rawQty = Number(recipeQty);
+  const qty = Number.isFinite(rawQty) ? rawQty : 0;
   const yieldCapacity = Number(yieldPerUnit) > 0 ? Number(yieldPerUnit) : 0;
 
-  if (!rUnit || !iUnit) return recipeQty;
+  if (!rUnit || !iUnit) {
+    console.warn(
+      `[BOM Conversion] Unit resep/gudang tidak lengkap ("${recipeUnit}" -> "${inventoryUnit}"). Qty ${qty} dikembalikan 0 agar stok tidak rusak.`,
+    );
+    return 0;
+  }
 
   // 1. Same unit directly
-  if (rUnit === iUnit) return recipeQty;
+  if (rUnit === iUnit) return qty;
 
   // 2. Standard metric weight conversion: gram <-> kg
-  if ((rUnit === "gram" || rUnit === "g" || rUnit === "gr") && (iUnit === "kg" || iUnit === "kilogram")) {
-    return recipeQty / 1000;
+  if (rUnit === "gram" && iUnit === "kg") {
+    return qty / 1000;
   }
-  if ((rUnit === "kg" || rUnit === "kilogram") && (iUnit === "gram" || iUnit === "g" || iUnit === "gr")) {
-    return recipeQty * 1000;
+  if (rUnit === "kg" && iUnit === "gram") {
+    return qty * 1000;
   }
 
   // 3. Standard metric volume conversion: ml <-> liter
-  if ((rUnit === "ml" || rUnit === "mililiter") && (iUnit === "liter" || iUnit === "l")) {
-    return recipeQty / 1000;
+  if (rUnit === "ml" && iUnit === "liter") {
+    return qty / 1000;
   }
-  if ((rUnit === "liter" || rUnit === "l") && (iUnit === "ml" || iUnit === "mililiter")) {
-    return recipeQty * 1000;
+  if (rUnit === "liter" && iUnit === "ml") {
+    return qty * 1000;
   }
 
   // 4. Large package/pcs/tiang conversion using yield capacity
   // Example 1: Tortilla (inventoryUnit = "pack", yieldPerUnit = 20, recipeUnit = "pcs") -> 1 pcs = 1 / 20 = 0.05 pack
   // Example 2: Daging (inventoryUnit = "pcs", yieldPerUnit = 2000, recipeUnit = "gram") -> 20 gram = 20 / 2000 = 0.01 pcs
   if (yieldCapacity > 1) {
-    let normalizedRecipeQty = recipeQty;
+    let normalizedRecipeQty = qty;
     // Normalize if recipe is in kg/liter but yield is in gram/ml
-    if ((rUnit === "kg" || rUnit === "kilogram") && (yUnit === "gram" || yUnit === "g" || yUnit === "gr" || !yUnit)) {
-      normalizedRecipeQty = recipeQty * 1000;
-    } else if ((rUnit === "liter" || rUnit === "l") && (yUnit === "ml" || yUnit === "mililiter" || !yUnit)) {
-      normalizedRecipeQty = recipeQty * 1000;
-    } else if ((rUnit === "gram" || rUnit === "g" || rUnit === "gr") && (yUnit === "kg" || yUnit === "kilogram")) {
-      normalizedRecipeQty = recipeQty / 1000;
-    } else if ((rUnit === "ml" || rUnit === "mililiter") && (yUnit === "liter" || yUnit === "l")) {
-      normalizedRecipeQty = recipeQty / 1000;
+    if (rUnit === "kg" && (yUnit === "gram" || !yUnit)) {
+      normalizedRecipeQty = qty * 1000;
+    } else if (rUnit === "liter" && (yUnit === "ml" || !yUnit)) {
+      normalizedRecipeQty = qty * 1000;
+    } else if (rUnit === "gram" && yUnit === "kg") {
+      normalizedRecipeQty = qty / 1000;
+    } else if (rUnit === "ml" && yUnit === "liter") {
+      normalizedRecipeQty = qty / 1000;
     }
 
     return normalizedRecipeQty / yieldCapacity;
   } else if (yieldCapacity > 0) {
-    return recipeQty / yieldCapacity;
+    return qty / yieldCapacity;
   }
 
-  return recipeQty;
+  // 5. Incompatible units without a valid yield: never fall back to raw recipe qty
+  //    (e.g. 100 gram must never deduct 100 pack from warehouse stock).
+  console.warn(
+    `[BOM Conversion] Satuan resep "${recipeUnit}" tidak kompatibel dengan satuan gudang "${inventoryUnit}" dan yield_per_unit tidak valid (${yieldPerUnit == null ? "null" : yieldPerUnit}). Qty ${qty} dikembalikan 0 agar stok gudang tidak rusak.`,
+  );
+  return 0;
 }
 
 export interface MenuModifier {

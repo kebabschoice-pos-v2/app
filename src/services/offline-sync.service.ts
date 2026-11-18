@@ -476,20 +476,48 @@ export async function syncPendingTransactions(
         if (Array.isArray(tx.stock_depletions) && tx.stock_depletions.length > 0) {
           for (const dep of tx.stock_depletions) {
             try {
-              const { data: currentInv } = await supabase
-                .from("inventory_items")
-                .select("id, stock")
+              let invQuery = (supabase.from("inventory_items") as any)
+                .select("id, stock, name, unit, cost_price, yield_per_unit, yield_unit")
                 .eq("id", dep.inventory_item_id)
-                .maybeSingle();
+                .eq("business_id", tx.business_id);
+              if (tx.outlet_id) {
+                invQuery = invQuery.eq("outlet_id", tx.outlet_id);
+              }
+              const { data: currentInv, error: invLookupErr } = await invQuery.maybeSingle();
+              if (invLookupErr) {
+                console.error("[OfflineSync] Inventory lookup failed:", invLookupErr.message);
+                continue;
+              }
 
               if (currentInv) {
-                const updatedStock = Math.max(0, (Number(currentInv.stock) || 0) - dep.quantity);
-                await supabase
+                const invRow = currentInv as any;
+                const updatedStock = Math.max(0, (Number(invRow.stock) || 0) - dep.quantity);
+
+                const { error: stockUpdateErr } = await supabase
                   .from("inventory_items")
                   .update({ stock: updatedStock, updated_at: new Date().toISOString() })
                   .eq("id", dep.inventory_item_id);
+                if (stockUpdateErr) {
+                  console.error("[OfflineSync] Inventory stock update failed:", stockUpdateErr.message);
+                  continue;
+                }
 
-                await supabase.from("stock_movements" as any).insert({
+                const movementNote = `Offline Sync POS #${tx.order_number}: ${dep.product_name}`;
+                const historicUnitCost = Number(invRow.cost_price) || 0;
+                const movementCreatedAt = new Date().toISOString();
+                const snapshotNotes = JSON.stringify({
+                  note: movementNote,
+                  item_name: invRow.name || null,
+                  unit_cost: historicUnitCost,
+                  cost_per_unit: historicUnitCost,
+                  cost_price: historicUnitCost,
+                  yield_per_unit: Number(invRow.yield_per_unit) || null,
+                  yield_unit: invRow.yield_unit || null,
+                  product_name: dep.product_name,
+                  order_number: tx.order_number,
+                });
+
+                const { error: movementError } = await supabase.from("stock_movements" as any).insert({
                   business_id: tx.business_id,
                   inventory_item_id: dep.inventory_item_id,
                   outlet_id: tx.outlet_id,
@@ -501,14 +529,30 @@ export async function syncPendingTransactions(
                   quantity: dep.quantity,
                   unit: dep.unit,
                   remaining_stock: updatedStock,
-                  unit_cost: Number((currentInv as any).cost_price || 0),
-                  cost_per_unit: Number((currentInv as any).cost_price || 0),
-                  cost_price: Number((currentInv as any).cost_price || 0),
-                  yield_per_unit: Number((currentInv as any).yield_per_unit) || null,
-                  yield_unit: (currentInv as any).yield_unit || null,
-                  notes: `Offline Sync POS #${tx.order_number}: ${dep.product_name}`,
-                  created_at: new Date().toISOString(),
+                  notes: snapshotNotes,
+                  created_at: movementCreatedAt,
                 });
+                if (movementError) {
+                  console.error(
+                    "[OfflineSync] stock_movements insert failed:",
+                    movementError.message,
+                    movementError.details || "",
+                  );
+                  const { error: retryError } = await supabase.from("stock_movements" as any).insert({
+                    business_id: tx.business_id,
+                    inventory_item_id: dep.inventory_item_id,
+                    outlet_id: tx.outlet_id,
+                    reference_id: orderId,
+                    reference_type: "pos_order",
+                    type: "pos_sale",
+                    quantity: dep.quantity,
+                    notes: snapshotNotes,
+                    created_at: movementCreatedAt,
+                  });
+                  if (retryError) {
+                    console.error("[OfflineSync] stock_movements retry failed:", retryError.message);
+                  }
+                }
               }
             } catch (invErr) {
               console.warn("[OfflineSync] Inventory stock depletion warning:", invErr);

@@ -1,61 +1,52 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { authenticateRequest, isUuid, resolveUserBusinessIds } from "@/lib/server-auth";
 
 export const Route = createFileRoute("/api/list-staff")({
   server: {
     handlers: {
       GET: async ({ request }) => {
         try {
-          const authorization = request.headers.get("authorization");
-          const token = authorization?.replace(/^Bearer\s+/i, "");
-
-          if (!token) {
-            return Response.json({ error: "Authorization token missing" }, { status: 401 });
-          }
-
-          const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-          const supabaseKey =
-            process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-          if (!supabaseUrl || !supabaseKey) {
-            return Response.json({ error: "Supabase config missing" }, { status: 500 });
-          }
-
-          const authClient = createClient<Database>(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false, autoRefreshToken: false },
-          });
-
-          const { data: authData, error: authError } = await authClient.auth.getUser(token);
-          if (authError || !authData.user) {
-            return Response.json({ error: "Session tidak valid" }, { status: 401 });
+          const auth = await authenticateRequest(request);
+          if (!auth.ok) {
+            return Response.json({ error: auth.error }, { status: auth.status });
           }
 
           // 1. Current User -> Get Auth User ID & Email
-          const callerId = authData.user.id;
-          const callerEmail = (authData.user.email || "").toLowerCase();
+          const callerId = auth.user.id;
+          const callerEmail = (auth.user.email || "").toLowerCase();
           console.log("CURRENT USER ID:", callerId, "EMAIL:", callerEmail);
 
-          // 2. Global check: check if caller belongs to an outlet directly (via outlet_login_email / outlet_login_account)
-          const { data: allOutletsGlobal } = await supabaseAdmin
+          const url = new URL(request.url);
+          const requestedBusinessId = url.searchParams.get("businessId");
+
+          const { allIds } = await resolveUserBusinessIds(callerId, requestedBusinessId);
+
+          if (allIds.length === 0) {
+            console.log("BUSINESS FOUND: NOT_FOUND");
+            console.log("STAFF QUERY RESULT:", []);
+            return Response.json([], { status: 200 });
+          }
+
+          // 2. Check if caller belongs to an outlet directly.
+          //    Scoped to the caller's businesses only (no global outlet scan).
+          const { data: scopedOutlets } = await supabaseAdmin
             .from("outlets")
             .select("id, name, code, business_id, settings")
+            .in("business_id", allIds)
             .order("created_at", { ascending: true });
 
           let directOutletMatch: any = null;
-          if (allOutletsGlobal && allOutletsGlobal.length > 0) {
-            for (const out of allOutletsGlobal) {
-              const s = (out.settings && typeof out.settings === "object") ? (out.settings as any) : {};
-              const loginEmail = (s.outlet_login_email || s.outlet_login_account?.email || "").toLowerCase();
-              const isAssigned = Array.isArray(s.assigned_staff_ids) && s.assigned_staff_ids.includes(callerId);
-              const isManager = s.manager_user_id === callerId;
-              const isAccountUser = s.outlet_login_account?.user_id === callerId;
+          for (const out of scopedOutlets ?? []) {
+            const s = (out.settings && typeof out.settings === "object") ? (out.settings as any) : {};
+            const loginEmail = (s.outlet_login_email || s.outlet_login_account?.email || "").toLowerCase();
+            const isAssigned = Array.isArray(s.assigned_staff_ids) && s.assigned_staff_ids.includes(callerId);
+            const isManager = s.manager_user_id === callerId;
+            const isAccountUser = s.outlet_login_account?.user_id === callerId;
 
-              if ((callerEmail && loginEmail === callerEmail) || isAccountUser || isAssigned || isManager) {
-                directOutletMatch = out;
-                break;
-              }
+            if ((callerEmail && loginEmail === callerEmail) || isAccountUser || isAssigned || isManager) {
+              directOutletMatch = out;
+              break;
             }
           }
 
@@ -89,6 +80,7 @@ export const Route = createFileRoute("/api/list-staff")({
               .select("business_id, role, outlet_id")
               .eq("user_id", callerId)
               .neq("role", "owner")
+              .in("business_id", allIds)
               .order("created_at", { ascending: false })
               .limit(1) as any);
 
@@ -121,6 +113,7 @@ export const Route = createFileRoute("/api/list-staff")({
                   .from("business_members")
                   .select("business_id, role")
                   .eq("user_id", callerId)
+                  .in("business_id", allIds)
                   .order("created_at", { ascending: false })
                   .limit(1);
 
@@ -202,12 +195,22 @@ export const Route = createFileRoute("/api/list-staff")({
           const outletList = outlets ?? [];
           const outletMap = new Map(outletList.map((o) => [o.id, o]));
 
-          // 7. Fetch auth users to get emails securely
-          const { data: usersData } = await supabaseAdmin.auth.admin.listUsers({
-            perPage: 100,
-          });
-
-          const emailMap = new Map((usersData?.users ?? []).map((u) => [u.id, u.email]));
+          // 7. Fetch auth users to get emails securely.
+          //    Only the caller's staff ids are looked up (no global user listing).
+          const emailMap = new Map<string, string>();
+          await Promise.all(
+            userIds
+              .filter((id) => isUuid(id))
+              .map(async (id) => {
+                try {
+                  const { data } = await supabaseAdmin.auth.admin.getUserById(id);
+                  const email = data?.user?.email;
+                  if (email) emailMap.set(id, email);
+                } catch {
+                  // Ignore users that no longer exist in auth
+                }
+              }),
+          );
 
           // 8. Build staff list from members + outlets.settings.outlet_staff_roster
           const staffMap = new Map<string, any>();

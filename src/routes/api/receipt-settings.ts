@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { outletBelongsToBusinesses, requireBusinessAccess } from "@/lib/server-auth";
 
 export const Route = createFileRoute("/api/receipt-settings")({
   server: {
@@ -12,48 +11,19 @@ export const Route = createFileRoute("/api/receipt-settings")({
           const requestedBusinessId = url.searchParams.get("businessId");
           const outletId = url.searchParams.get("outletId");
 
-          const authHeader = request.headers.get("authorization");
-          const token = authHeader?.replace(/^Bearer\s+/i, "");
-
-          let activeBusinessId = requestedBusinessId;
-
-          // Resolve business ID from session if not provided
-          if (!activeBusinessId && token) {
-            const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-            const supabaseKey =
-              process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-            if (supabaseUrl && supabaseKey) {
-              const authClient = createClient<Database>(supabaseUrl, supabaseKey, {
-                auth: { persistSession: false, autoRefreshToken: false },
-              });
-              const { data: authData } = await authClient.auth.getUser(token);
-              if (authData?.user) {
-                const { data: member } = await supabaseAdmin
-                  .from("business_members")
-                  .select("business_id")
-                  .eq("user_id", authData.user.id)
-                  .order("created_at", { ascending: false })
-                  .limit(1)
-                  .maybeSingle();
-
-                if (member?.business_id) {
-                  activeBusinessId = member.business_id;
-                } else {
-                  const { data: owned } = await supabaseAdmin
-                    .from("businesses")
-                    .select("id")
-                    .eq("owner_id", authData.user.id)
-                    .order("created_at", { ascending: false })
-                    .limit(1)
-                    .maybeSingle();
-                  if (owned?.id) activeBusinessId = owned.id;
-                }
-              }
-            }
+          // Verifies the JWT and that the requested business belongs to the caller.
+          const access = await requireBusinessAccess(request, requestedBusinessId);
+          if (!access.ok) {
+            return Response.json({ error: access.error }, { status: access.status });
           }
 
-          if (!activeBusinessId) {
-            return Response.json({ error: "business_id wajib disertakan" }, { status: 400 });
+          const activeBusinessId = access.businessId;
+
+          if (outletId && !(await outletBelongsToBusinesses(outletId, [activeBusinessId]))) {
+            return Response.json(
+              { error: "Anda tidak memiliki akses ke outlet ini" },
+              { status: 403 },
+            );
           }
 
           // Fetch business info
@@ -180,36 +150,28 @@ export const Route = createFileRoute("/api/receipt-settings")({
 
       POST: async ({ request }) => {
         try {
-          const authHeader = request.headers.get("authorization");
-          const token = authHeader?.replace(/^Bearer\s+/i, "");
-
-          if (!token) {
-            return Response.json({ error: "Authorization token missing" }, { status: 401 });
-          }
-
-          const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-          const supabaseKey =
-            process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-          if (!supabaseUrl || !supabaseKey) {
-            return Response.json({ error: "Supabase configuration missing" }, { status: 500 });
-          }
-
-          const authClient = createClient<Database>(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false, autoRefreshToken: false },
-          });
-
-          const { data: authData, error: authError } = await authClient.auth.getUser(token);
-          if (authError || !authData.user) {
-            return Response.json({ error: "Session tidak valid" }, { status: 401 });
-          }
-
           const body = await request.json();
           const targetBusinessId = body.business_id;
           const targetOutletId = body.outlet_id || null;
 
           if (!targetBusinessId) {
             return Response.json({ error: "business_id wajib disertakan" }, { status: 400 });
+          }
+
+          // Verifies the JWT and that the target business belongs to the caller.
+          const access = await requireBusinessAccess(request, targetBusinessId);
+          if (!access.ok) {
+            return Response.json({ error: access.error }, { status: access.status });
+          }
+
+          if (
+            targetOutletId &&
+            !(await outletBelongsToBusinesses(targetOutletId, [access.businessId]))
+          ) {
+            return Response.json(
+              { error: "Anda tidak memiliki akses ke outlet ini" },
+              { status: 403 },
+            );
           }
 
           const cleanPayload = {

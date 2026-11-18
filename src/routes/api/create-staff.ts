@@ -1,94 +1,27 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { isUuid, outletBelongsToBusinesses, requireBusinessRole } from "@/lib/server-auth";
 
 export const Route = createFileRoute("/api/create-staff")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          const authorization = request.headers.get("authorization");
-          const token = authorization?.replace(/^Bearer\s+/i, "");
-
-          if (!token) {
-            console.error("CREATE STAFF REQUEST: Authorization token missing");
-            return Response.json(
-              { error: "Sesi login tidak ditemukan. Silakan login kembali." },
-              { status: 401 },
-            );
-          }
-
-          const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-          const supabaseKey =
-            process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-          if (!supabaseUrl || !supabaseKey) {
-            console.error("CREATE STAFF REQUEST: Supabase env configuration missing");
-            return Response.json(
-              { error: "Konfigurasi server database tidak lengkap" },
-              { status: 500 },
-            );
-          }
-
-          const authClient = createClient<Database>(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false, autoRefreshToken: false },
-          });
-
-          const { data: authData, error: authError } = await authClient.auth.getUser(token);
-          if (authError || !authData.user) {
-            console.error("CREATE STAFF REQUEST: Invalid user token", authError?.message);
-            return Response.json({ error: "Sesi pengguna tidak valid" }, { status: 401 });
-          }
-
-          const creatorId = authData.user.id;
-
-          // Lookup creator business and role
-          let creatorBusinessId: string | null = null;
-          let creatorRole: string | null = null;
-
-          const { data: ownedBusinesses } = await supabaseAdmin
-            .from("businesses")
-            .select("id")
-            .eq("owner_id", creatorId)
-            .order("created_at", { ascending: true });
-
-          const firstOwned = ownedBusinesses?.[0];
-          if (firstOwned) {
-            creatorBusinessId = firstOwned.id;
-            creatorRole = "owner";
-          } else {
-            const { data: memberships } = await supabaseAdmin
-              .from("business_members")
-              .select("business_id, role")
-              .eq("user_id", creatorId)
-              .order("created_at", { ascending: false })
-              .limit(1);
-
-            const firstMember = memberships?.[0];
-            if (firstMember) {
-              creatorBusinessId = firstMember.business_id;
-              creatorRole = String(firstMember.role || "").toLowerCase();
-            }
-          }
-
-          if (!creatorBusinessId) {
-            console.error("CREATE STAFF REQUEST: Business not found for creator", creatorId);
-            return Response.json(
-              { error: "Bisnis belum ditemukan untuk akun ini" },
-              { status: 400 },
-            );
-          }
-
-          if (!creatorRole || !["owner", "admin", "manager"].includes(creatorRole)) {
-            console.error("CREATE STAFF REQUEST: Forbidden creator role", creatorRole);
-            return Response.json(
-              { error: "Hanya Owner, Admin, atau Manager yang diizinkan menambah staff" },
-              { status: 403 },
-            );
-          }
-
           const body = await request.json();
+          const requestedBusinessId =
+            typeof body.business_id === "string" && body.business_id ? body.business_id : null;
+
+          // Verifies the JWT and that the caller is at least Manager in the target business.
+          const access = await requireBusinessRole(request, requestedBusinessId, "manager");
+          if (!access.ok) {
+            console.error("CREATE STAFF REQUEST: Forbidden", access.error);
+            return Response.json({ error: access.error }, { status: access.status });
+          }
+
+          const creatorId = access.user.id;
+          const creatorBusinessId = access.businessId;
+          const creatorRole = access.role;
+
           const {
             name,
             email,
@@ -133,6 +66,31 @@ export const Route = createFileRoute("/api/create-staff")({
               },
               { status: 400 },
             );
+          }
+
+          // Only a real Owner may create another Owner account.
+          if (mappedRole === "owner" && creatorRole !== "owner") {
+            console.error("CREATE STAFF REQUEST: Non-owner attempted to create owner", creatorId);
+            return Response.json(
+              { error: "Hanya Owner yang dapat membuat akun dengan role Owner" },
+              { status: 403 },
+            );
+          }
+
+          // A provided outlet_id must belong to the creator's business.
+          if (mappedRole !== "owner" && outlet_id) {
+            const requestedOutletId = String(outlet_id);
+            const outletAllowed =
+              isUuid(requestedOutletId) &&
+              (await outletBelongsToBusinesses(requestedOutletId, [creatorBusinessId]));
+
+            if (!outletAllowed) {
+              console.error("CREATE STAFF REQUEST: Invalid outlet for business", outlet_id);
+              return Response.json(
+                { error: "Outlet tidak valid atau bukan milik bisnis Anda" },
+                { status: 403 },
+              );
+            }
           }
 
           console.log("CREATE STAFF REQUEST:", {

@@ -1,9 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { requireBusinessAccess } from "@/lib/server-auth";
 import { generateInternalAiInsight } from "@/services/ai-assistant.service";
 
 export interface KitaposAiRequest {
   prompt?: string;
   messages?: Array<{ role: string; content?: string; parts?: Array<{ text?: string }> }>;
+  businessId?: string;
   businessName?: string;
   metrics?: Record<string, unknown>;
   products?: any[];
@@ -19,55 +21,43 @@ export interface KitaposAiResponse {
   success: boolean;
 }
 
-/**
- * Lightweight Auth & Origin Verifier for KitaPOS AI API
- */
-function verifyLightweightAuth(request: Request): { valid: boolean; error?: string } {
-  const authHeader = request.headers.get("authorization");
-  const apiKey = request.headers.get("apikey") || request.headers.get("x-api-key");
-  const origin = request.headers.get("origin");
-  const referer = request.headers.get("referer");
-  const host = request.headers.get("host");
-
-  // Accept Bearer JWT or Supabase API Key
-  if (authHeader?.startsWith("Bearer ") || apiKey) {
-    return { valid: true };
-  }
-
-  // Accept same-origin browser calls from POS client
-  if (host && (origin?.includes(host) || referer?.includes(host))) {
-    return { valid: true };
-  }
-
-  // Accept local development environments
-  if (!host || host.includes("localhost") || host.includes("127.0.0.1") || host.includes("::1")) {
-    return { valid: true };
-  }
-
-  // Fallback permissive for POS operations
-  return { valid: true };
-}
-
 export const Route = createFileRoute("/api/kitapos-ai")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          const authCheck = verifyLightweightAuth(request);
-          if (!authCheck.valid) {
+          // Real Supabase JWT verification: the caller must belong to a business.
+          const access = await requireBusinessAccess(request);
+          if (!access.ok) {
             return new Response(
               JSON.stringify({
                 success: false,
-                message: authCheck.error || "Akses tidak diizinkan",
+                message: access.error,
               }),
               {
-                status: 401,
+                status: access.status,
                 headers: { "Content-Type": "application/json" },
               },
             );
           }
 
           const body = (await request.json().catch(() => ({}))) as KitaposAiRequest;
+
+          // When the client names a business, it must be one of the caller's businesses.
+          if (body.businessId && !access.businessIds.includes(body.businessId)) {
+            return new Response(
+              JSON.stringify({
+                success: false,
+                message: "Anda tidak memiliki akses ke bisnis ini",
+              }),
+              {
+                status: 403,
+                headers: { "Content-Type": "application/json" },
+              },
+            );
+          }
+
+          const scopedBusinessId = body.businessId || access.businessId;
 
           // Input validation: limits on prompt and messages
           if (body.prompt && typeof body.prompt === "string" && body.prompt.length > 5000) {
@@ -123,6 +113,7 @@ export const Route = createFileRoute("/api/kitapos-ai")({
             message: answer,
             data: {
               prompt: userPrompt,
+              businessId: scopedBusinessId,
               businessName: body.businessName,
               metrics: body.metrics,
               timestamp: new Date().toISOString(),
@@ -153,15 +144,15 @@ export const Route = createFileRoute("/api/kitapos-ai")({
         }
       },
       GET: async ({ request }) => {
-        const authCheck = verifyLightweightAuth(request);
-        if (!authCheck.valid) {
+        const access = await requireBusinessAccess(request);
+        if (!access.ok) {
           return new Response(
             JSON.stringify({
               success: false,
-              message: "Akses tidak diizinkan",
+              message: access.error,
             }),
             {
-              status: 401,
+              status: access.status,
               headers: { "Content-Type": "application/json" },
             },
           );
@@ -171,7 +162,7 @@ export const Route = createFileRoute("/api/kitapos-ai")({
           JSON.stringify({
             success: true,
             message: "Kita AI Assistant Endpoint Active",
-            data: { status: "online" },
+            data: { status: "online", businessId: access.businessId },
           }),
           {
             status: 200,

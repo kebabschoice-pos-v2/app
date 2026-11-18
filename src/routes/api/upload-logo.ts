@@ -1,35 +1,44 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/integrations/supabase/types";
 import { supabaseAdmin } from "@/integrations/supabase/client.server";
+import { isUuid, requireBusinessAccess } from "@/lib/server-auth";
+
+const ALLOWED_LOGO_TYPES: Record<string, string> = {
+  "image/png": "png",
+  "image/jpeg": "jpg",
+  "image/webp": "webp",
+};
+
+function detectImageMime(buffer: Buffer): string | null {
+  if (
+    buffer.length >= 8 &&
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47
+  ) {
+    return "image/png";
+  }
+  if (buffer.length >= 3 && buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return "image/jpeg";
+  }
+  if (
+    buffer.length >= 12 &&
+    buffer.toString("ascii", 0, 4) === "RIFF" &&
+    buffer.toString("ascii", 8, 12) === "WEBP"
+  ) {
+    return "image/webp";
+  }
+  return null;
+}
 
 export const Route = createFileRoute("/api/upload-logo")({
   server: {
     handlers: {
       POST: async ({ request }) => {
         try {
-          const authHeader = request.headers.get("authorization");
-          const token = authHeader?.replace(/^Bearer\s+/i, "");
-
-          if (!token) {
-            return Response.json({ error: "Authorization token missing" }, { status: 401 });
-          }
-
-          const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-          const supabaseKey =
-            process.env.SUPABASE_PUBLISHABLE_KEY || process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
-          if (!supabaseUrl || !supabaseKey) {
-            return Response.json({ error: "Supabase configuration missing" }, { status: 500 });
-          }
-
-          const authClient = createClient<Database>(supabaseUrl, supabaseKey, {
-            auth: { persistSession: false, autoRefreshToken: false },
-          });
-
-          const { data: authData, error: authError } = await authClient.auth.getUser(token);
-          if (authError || !authData.user) {
-            return Response.json({ error: "Session tidak valid" }, { status: 401 });
+          const access = await requireBusinessAccess(request);
+          if (!access.ok) {
+            return Response.json({ error: access.error }, { status: access.status });
           }
 
           const formData = await request.formData();
@@ -43,9 +52,22 @@ export const Route = createFileRoute("/api/upload-logo")({
             );
           }
 
-          if (!file.type.startsWith("image/")) {
+          if (!isUuid(businessId)) {
+            return Response.json({ error: "Business ID tidak valid" }, { status: 400 });
+          }
+
+          if (!access.businessIds.includes(businessId)) {
             return Response.json(
-              { error: "File harus berupa format gambar (PNG, JPG, WEBP, SVG)" },
+              { error: "Anda tidak memiliki akses ke bisnis ini" },
+              { status: 403 },
+            );
+          }
+
+          // SVG sengaja ditolak: hanya raster PNG/JPEG/WEBP yang diizinkan.
+          const safeExt = ALLOWED_LOGO_TYPES[file.type];
+          if (!safeExt) {
+            return Response.json(
+              { error: "Format logo harus PNG, JPEG, atau WEBP" },
               { status: 400 },
             );
           }
@@ -55,8 +77,14 @@ export const Route = createFileRoute("/api/upload-logo")({
             return Response.json({ error: "Ukuran gambar logo maksimal 5MB" }, { status: 400 });
           }
 
-          const rawExt = file.name.split(".").pop() || "png";
-          const safeExt = rawExt.toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+          const buffer = Buffer.from(await file.arrayBuffer());
+          if (detectImageMime(buffer) !== file.type) {
+            return Response.json(
+              { error: "Isi file tidak cocok dengan format gambar yang diizinkan" },
+              { status: 400 },
+            );
+          }
+
           const filename = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}.${safeExt}`;
 
           const folderParam = (formData.get("folder") as string | null)?.toLowerCase().trim();
@@ -68,19 +96,10 @@ export const Route = createFileRoute("/api/upload-logo")({
           }
           const filePath = `${businessId}/${targetFolder}/${filename}`;
 
-          console.log("UPLOAD LOGO START:");
-          console.log("UPLOAD PATH:", filePath);
-          console.log("BUCKET:", "business-assets");
-          console.log("USER ID:", authData.user.id);
-          console.log("BUSINESS ID:", businessId);
-
-          const arrayBuffer = await file.arrayBuffer();
-          const buffer = Buffer.from(arrayBuffer);
-
           const { error: uploadError } = await supabaseAdmin.storage
             .from("business-assets")
             .upload(filePath, buffer, {
-              contentType: file.type || "image/png",
+              contentType: file.type,
               cacheControl: "3600",
               upsert: true,
             });
@@ -93,8 +112,6 @@ export const Route = createFileRoute("/api/upload-logo")({
           const { data: publicData } = supabaseAdmin.storage
             .from("business-assets")
             .getPublicUrl(filePath);
-
-          console.log("STORAGE RESPONSE: SUCCESS", publicData.publicUrl);
 
           return Response.json({
             success: true,

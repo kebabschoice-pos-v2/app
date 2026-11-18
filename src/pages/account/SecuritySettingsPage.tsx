@@ -17,11 +17,12 @@ export function SecuritySettingsPage() {
   const [sessionTimeout, setSessionTimeout] = useState("60");
   const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions>(DEFAULT_MANAGER_PERMISSIONS);
   const [savingPerms, setSavingPerms] = useState(false);
+  // No default PIN: the Owner must explicitly set one before POS supervisor actions work.
   const [managerPin, setManagerPin] = useState(() => {
     if (typeof window !== "undefined") {
-      return localStorage.getItem("kebabschoicepos_supervisor_pin") || "123456";
+      return localStorage.getItem("kebabschoicepos_supervisor_pin") || "";
     }
-    return "123456";
+    return "";
   });
   const [isSaving, setIsSaving] = useState(false);
 
@@ -34,9 +35,20 @@ export function SecuritySettingsPage() {
   }, []);
 
   const handleSave = async () => {
+    const cleanPin = managerPin.trim();
+
+    if (!cleanPin) {
+      toast.error("PIN Supervisor wajib diisi sebelum menyimpan.");
+      return;
+    }
+
+    if (!/^\d{4,6}$/.test(cleanPin)) {
+      toast.error("PIN Supervisor harus 4 - 6 digit angka.");
+      return;
+    }
+
     setIsSaving(true);
     try {
-      const cleanPin = managerPin.trim();
       localStorage.setItem("kebabschoicepos_supervisor_pin", cleanPin);
 
       await saveManagerPermissions(managerPermissions);
@@ -109,18 +121,26 @@ export function SecuritySettingsPage() {
             <h2 className="text-base font-bold">PIN Otorisasi Kasir (Manager Override)</h2>
           </div>
           <p className="text-xs text-muted-foreground">
-            PIN 6-digit untuk otorisasi pembatalan transaksi (void), diskon manual khusus, dan
-            refund di POS.
+            PIN 4-6 digit untuk otorisasi pembatalan transaksi (void), diskon manual khusus, dan
+            refund di POS. PIN ini juga dipakai sebagai PIN Supervisor di halaman kasir.
           </p>
           <div className="max-w-xs">
-            <label className="text-xs font-bold text-foreground/80">PIN Supervisor (6 Digit)</label>
+            <label className="text-xs font-bold text-foreground/80">PIN Supervisor (4-6 Digit)</label>
             <Input
               type="password"
+              inputMode="numeric"
               maxLength={6}
               className="mt-1.5 rounded-xl font-mono tracking-widest text-center text-lg font-bold"
               value={managerPin}
               onChange={(e) => setManagerPin(e.target.value)}
+              placeholder="Belum diatur"
             />
+            {!managerPin.trim() && (
+              <p className="mt-1.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                PIN belum diatur. Refund / void di POS akan ditolak sampai Owner menyimpan PIN di
+                halaman ini.
+              </p>
+            )}
           </div>
         </div>
 

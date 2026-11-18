@@ -158,6 +158,7 @@ import {
   generateDynamicQris,
   checkQrisPaymentStatus,
   simulateQrisPayment,
+  logStaticQrisConfirmation,
   subscribeQrisStatus,
   type QrisTransactionResponse,
 } from "@/services/qris.service";
@@ -3797,6 +3798,17 @@ function PosPage({
   const [qrisPendingOrder, setQrisPendingOrder] = useState<any>(null);
   const [isSettlingQris, setIsSettlingQris] = useState(false);
 
+  // QR source for the modal: the store's official static QRIS image when available,
+  // otherwise a QR encoded from the (real) transaction payload.
+  const qrisDisplayQrSrc = qrisModalData
+    ? qrisModalData.qr_image_url ||
+      (qrisModalData.qris_payload
+        ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+            qrisModalData.qris_payload,
+          )}`
+        : "")
+    : "";
+
   // Customization Modal State
   const [customizingProduct, setCustomizingProduct] = useState<Product | null>(null);
   const [selectedGroupOptions, setSelectedGroupOptions] = useState<
@@ -4721,8 +4733,12 @@ function PosPage({
     }
   };
 
-  // Handle QRIS Simulation (Demo & Testing Mode)
+  // Handle QRIS Simulation (Demo & Testing Mode) — development builds only
   const handleSimulateQrisPayment = async () => {
+    if (!import.meta.env.DEV) {
+      toast.error("Simulasi pembayaran hanya tersedia di mode development.");
+      return;
+    }
     if (!qrisModalData?.external_reference_id) return;
     try {
       const sim = await simulateQrisPayment(qrisModalData.external_reference_id);
@@ -4733,6 +4749,39 @@ function PosPage({
       }
     } catch {
       toast.error("Gagal menjalankan simulasi QRIS");
+    }
+  };
+
+  /**
+   * QRIS Statis resmi toko: kasir mengonfirmasi dana sudah masuk.
+   * Tidak ada NMID/payload palsu yang dibuat — hanya audit trail konfirmasi manual.
+   */
+  const handleConfirmStaticQrisPayment = async () => {
+    if (!qrisModalData || !qrisPendingOrder) return;
+    if (!snapshot.businessId) {
+      toast.error("Bisnis tidak terdeteksi. Muat ulang halaman lalu coba lagi.");
+      return;
+    }
+
+    setIsCheckingQris(true);
+    try {
+      const settlementReference = `CASHIER-${Date.now()}`;
+      await logStaticQrisConfirmation({
+        businessId: snapshot.businessId,
+        outletId: qrisPendingOrder.chosenOutletId || null,
+        orderNumber: qrisModalData.order_number,
+        amount: Number(qrisModalData.amount) || Number(qrisPendingOrder.total) || 0,
+        referenceId: qrisModalData.external_reference_id,
+        confirmedBy: null,
+      });
+      setQrisSettlementRef(settlementReference);
+      setQrisStatus("PAID");
+      toast.success("Pembayaran QRIS Statis dikonfirmasi diterima kasir");
+    } catch (err) {
+      console.error("[QRIS] Gagal konfirmasi QRIS statis:", err);
+      toast.error("Gagal mengonfirmasi pembayaran QRIS");
+    } finally {
+      setIsCheckingQris(false);
     }
   };
 
@@ -4859,7 +4908,14 @@ function PosPage({
         return;
       } catch (err: any) {
         console.error("[QRIS] Error creating QRIS:", err);
-        toast.error("Gagal membuat pembayaran QRIS Dinamis");
+        toast.error("QRIS tidak dapat diproses", {
+          description:
+            err?.message ||
+            "Periksa pengaturan QRIS outlet (NMID resmi / QRIS Statis) lalu coba lagi.",
+          duration: 8000,
+        });
+        // Jangan lanjut membuat order tanpa QR: transaksi QRIS batal.
+        return;
       }
     }
 
@@ -6638,7 +6694,9 @@ function PosPage({
                   QRIS
                 </div>
                 <span className="text-xs font-semibold text-muted-foreground">
-                  Dinamis • ASPI / BI
+                  {qrisModalData.mode === "static"
+                    ? "Statis • QRIS Resmi Toko"
+                    : "Dinamis • ASPI / BI"}
                 </span>
               </div>
               <Badge
@@ -6675,7 +6733,9 @@ function PosPage({
                     PEMBAYARAN QRIS LUNAS
                   </h2>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Verifikasi pembayaran realtime webhook berhasil.
+                    {qrisModalData.mode === "static"
+                      ? "Pembayaran QRIS Statis dikonfirmasi diterima oleh kasir."
+                      : "Verifikasi pembayaran realtime webhook berhasil."}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-border bg-muted/30 p-4 text-xs space-y-2 text-left font-mono">
@@ -6734,55 +6794,102 @@ function PosPage({
 
                 {/* QR Code Container */}
                 <div className="relative mx-auto size-60 overflow-hidden rounded-2xl border-2 border-primary/20 bg-white p-3 shadow-inner flex items-center justify-center">
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-                      qrisModalData.qris_payload,
-                    )}`}
-                    alt="QRIS Dinamis"
-                    className="h-full w-full object-contain"
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="rounded-md border border-neutral-300 bg-white px-1.5 py-0.5 shadow-sm">
-                      <span className="text-[10px] font-black text-red-600 tracking-tighter">QRIS</span>
+                  {qrisDisplayQrSrc ? (
+                    <img
+                      src={qrisDisplayQrSrc}
+                      alt={
+                        qrisModalData.mode === "static"
+                          ? "QRIS Statis Resmi Toko"
+                          : "QRIS Dinamis"
+                      }
+                      className="h-full w-full object-contain"
+                    />
+                  ) : (
+                    <p className="px-4 text-center text-[11px] font-semibold text-muted-foreground">
+                      QRIS toko belum diunggah. Atur QRIS Statis atau NMID resmi di Pengaturan
+                      Pembayaran outlet.
+                    </p>
+                  )}
+                  {!qrisModalData.qr_image_url && qrisDisplayQrSrc && (
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                      <div className="rounded-md border border-neutral-300 bg-white px-1.5 py-0.5 shadow-sm">
+                        <span className="text-[10px] font-black text-red-600 tracking-tighter">QRIS</span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
 
                 <div className="rounded-2xl bg-muted/40 p-3 text-center text-xs text-muted-foreground space-y-1">
                   <p className="font-semibold text-foreground flex items-center justify-center gap-1.5">
                     <RadioTower className="size-3.5 text-primary animate-pulse" />
-                    Menunggu Pelanggan Memindai QRIS
+                    {qrisModalData.mode === "static"
+                      ? "Pindai QRIS Statis Toko & Pastikan Nominal Sesuai"
+                      : "Menunggu Pelanggan Memindai QRIS"}
                   </p>
                   <p className="text-[11px]">
-                    Dapat dipindai via GoPay, OVO, ShopeePay, Dana, BCA, Mandiri, & Semua m-Banking.
+                    {qrisModalData.mode === "static"
+                      ? "Setelah dana benar-benar masuk, kasir menekan tombol Konfirmasi Pembayaran Diterima."
+                      : "Dapat dipindai via GoPay, OVO, ShopeePay, Dana, BCA, Mandiri, & Semua m-Banking."}
                   </p>
                 </div>
 
-                {/* Fallback & Simulation Action Buttons */}
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-10 rounded-xl text-xs font-semibold gap-1.5"
-                    disabled={isCheckingQris}
-                    onClick={handleCheckQrisStatus}
+                {/* Action Buttons */}
+                {qrisModalData.mode === "static" ? (
+                  <div className={cn("grid gap-2 pt-1", "grid-cols-1")}>
+                    <Button
+                      type="button"
+                      className="h-11 rounded-xl text-xs font-bold gap-1.5 shadow-brand"
+                      disabled={isCheckingQris}
+                      onClick={handleConfirmStaticQrisPayment}
+                    >
+                      <CheckCircle2 className="size-4" />
+                      Konfirmasi Pembayaran Diterima
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-10 rounded-xl text-xs font-semibold gap-1.5"
+                      disabled={isCheckingQris}
+                      onClick={handleCheckQrisStatus}
+                    >
+                      <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
+                      Cek Status Pembayaran
+                    </Button>
+                  </div>
+                ) : (
+                  <div
+                    className={cn(
+                      "grid gap-2 pt-1",
+                      import.meta.env.DEV ? "grid-cols-2" : "grid-cols-1",
+                    )}
                   >
-                    <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
-                    Cek Status Pembayaran
-                  </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-10 rounded-xl text-xs font-semibold gap-1.5"
+                      disabled={isCheckingQris}
+                      onClick={handleCheckQrisStatus}
+                    >
+                      <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
+                      Cek Status Pembayaran
+                    </Button>
 
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-10 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 gap-1.5"
-                    onClick={handleSimulateQrisPayment}
-                  >
-                    <Zap className="size-3.5 text-amber-500" />
-                    Simulasi Bayar (Test)
-                  </Button>
-                </div>
+                    {import.meta.env.DEV && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-10 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 gap-1.5"
+                        onClick={handleSimulateQrisPayment}
+                      >
+                        <Zap className="size-3.5 text-amber-500" />
+                        Simulasi Bayar (Test)
+                      </Button>
+                    )}
+                  </div>
+                )}
 
                 <Button
                   type="button"
@@ -7550,10 +7657,8 @@ function OrdersPage({
       businessId: snapshot.businessId,
     });
 
-    // Default supervisor PIN: 1234, 0000, or admin123
-    const validPins = ["1234", "0000", "admin123"];
-    if (!authResult.isValid && !validPins.includes(supervisorPin.trim())) {
-      toast.error(authResult.error || "PIN Supervisor tidak valid! (Default PIN: 1234)");
+    if (!authResult.isValid) {
+      toast.error(authResult.error || "PIN Supervisor tidak valid.");
       setIsActionSubmitting(false);
       return;
     }
@@ -8436,13 +8541,16 @@ function OrdersPage({
                 </label>
                 <Input
                   type="password"
+                  inputMode="numeric"
+                  maxLength={6}
                   value={supervisorPin}
                   onChange={(e) => setSupervisorPin(e.target.value)}
-                  placeholder="Masukkan PIN Supervisor (Default: 1234)"
+                  placeholder="Masukkan PIN Supervisor"
                   className="rounded-xl text-xs bg-background h-10"
                 />
                 <p className="text-[10px] text-muted-foreground mt-1">
                   Otorisasi diperlukan untuk mengubah status transaksi dan menyesuaikan kas shift.
+                  PIN diatur Owner di menu Keamanan (/security).
                 </p>
               </div>
             </div>

@@ -1,37 +1,51 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { supabaseAdmin } from "@/integrations/supabase/client.server";
 import {
+  authenticateRequest,
+  requireBusinessAccess,
+  resolveUserBusinessIds,
+  outletBelongsToBusinesses,
+} from "@/lib/server-auth";
+import {
+  QrisConfigurationError,
   generateDynamicQris,
   checkQrisPaymentStatus,
   simulateQrisPayment,
 } from "@/services/qris.service";
 
+function isProductionRuntime(): boolean {
+  try {
+    return typeof process !== "undefined" && process.env?.NODE_ENV === "production";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Lightweight Auth & Origin Verifier for QRIS API
+ * Loads a QRIS transaction row so the caller's ownership of its business can be verified.
  */
-function verifyLightweightAuth(request: Request): { valid: boolean; error?: string } {
-  const authHeader = request.headers.get("authorization");
-  const apiKey = request.headers.get("apikey") || request.headers.get("x-api-key");
-  const origin = request.headers.get("origin");
-  const referer = request.headers.get("referer");
-  const host = request.headers.get("host");
-
-  // Accept Bearer JWT or Supabase API Key
-  if (authHeader?.startsWith("Bearer ") || apiKey) {
-    return { valid: true };
+async function loadQrisTransaction(referenceId: string): Promise<any | null> {
+  try {
+    const { data } = await supabaseAdmin
+      .from("qris_transactions" as any)
+      .select("external_reference_id, business_id, order_number, amount, status")
+      .eq("external_reference_id", referenceId)
+      .maybeSingle();
+    return (data as any) || null;
+  } catch (err) {
+    console.error("[API QRIS] Gagal membaca transaksi QRIS:", err);
+    return null;
   }
+}
 
-  // Accept same-origin browser calls from POS client
-  if (host && (origin?.includes(host) || referer?.includes(host))) {
-    return { valid: true };
-  }
-
-  // Accept local development environments
-  if (!host || host.includes("localhost") || host.includes("127.0.0.1") || host.includes("::1")) {
-    return { valid: true };
-  }
-
-  // Permissive fallback while logging unknown remote calls
-  return { valid: true };
+async function callerOwnsTransaction(
+  userId: string,
+  transaction: any,
+): Promise<boolean> {
+  const businessId = String(transaction?.business_id || "");
+  if (!businessId) return false;
+  const { allIds } = await resolveUserBusinessIds(userId, businessId);
+  return allIds.includes(businessId);
 }
 
 export const Route = createFileRoute("/api/qris")({
@@ -39,12 +53,9 @@ export const Route = createFileRoute("/api/qris")({
     handlers: {
       GET: async ({ request }) => {
         try {
-          const authCheck = verifyLightweightAuth(request);
-          if (!authCheck.valid) {
-            return Response.json(
-              { error: authCheck.error || "Akses tidak diizinkan" },
-              { status: 401 },
-            );
+          const auth = await authenticateRequest(request);
+          if (!auth.ok) {
+            return Response.json({ error: auth.error }, { status: auth.status });
           }
 
           const url = new URL(request.url);
@@ -64,6 +75,21 @@ export const Route = createFileRoute("/api/qris")({
             );
           }
 
+          const transaction = await loadQrisTransaction(referenceId);
+          if (!transaction) {
+            return Response.json(
+              { error: "Transaksi QRIS tidak ditemukan" },
+              { status: 404 },
+            );
+          }
+
+          if (!(await callerOwnsTransaction(auth.user.id, transaction))) {
+            return Response.json(
+              { error: "Anda tidak memiliki akses ke transaksi QRIS ini" },
+              { status: 403 },
+            );
+          }
+
           const statusData = await checkQrisPaymentStatus(referenceId);
           return Response.json({
             success: true,
@@ -80,16 +106,55 @@ export const Route = createFileRoute("/api/qris")({
 
       POST: async ({ request }) => {
         try {
-          const authCheck = verifyLightweightAuth(request);
-          if (!authCheck.valid) {
-            return Response.json(
-              { error: authCheck.error || "Akses tidak diizinkan" },
-              { status: 401 },
-            );
-          }
-
           const body = await request.json().catch(() => ({}));
           const { action = "create" } = body;
+
+          // Action: Simulate Settlement (Test / Cashier Demo Mode) — DEV ONLY
+          if (action === "simulate") {
+            if (isProductionRuntime()) {
+              return Response.json(
+                { error: "Simulasi pembayaran QRIS dinonaktifkan di produksi" },
+                { status: 403 },
+              );
+            }
+
+            const auth = await authenticateRequest(request);
+            if (!auth.ok) {
+              return Response.json({ error: auth.error }, { status: auth.status });
+            }
+
+            const { external_reference_id, settlement_reference } = body;
+
+            if (!external_reference_id || typeof external_reference_id !== "string") {
+              return Response.json(
+                { error: "external_reference_id wajib disertakan untuk simulasi" },
+                { status: 400 },
+              );
+            }
+
+            const referenceId = external_reference_id.trim();
+            const transaction = await loadQrisTransaction(referenceId);
+            if (!transaction) {
+              return Response.json(
+                { error: "Transaksi QRIS tidak ditemukan" },
+                { status: 404 },
+              );
+            }
+
+            if (!(await callerOwnsTransaction(auth.user.id, transaction))) {
+              return Response.json(
+                { error: "Anda tidak memiliki akses ke transaksi QRIS ini" },
+                { status: 403 },
+              );
+            }
+
+            const simResult = await simulateQrisPayment(
+              referenceId,
+              settlement_reference ? String(settlement_reference).trim() : undefined,
+            );
+
+            return Response.json(simResult);
+          }
 
           // Action: Create Dynamic QRIS
           if (action === "create") {
@@ -132,9 +197,28 @@ export const Route = createFileRoute("/api/qris")({
               );
             }
 
+            // Verifies the Supabase JWT and that business_id belongs to the caller.
+            const access = await requireBusinessAccess(request, business_id.trim());
+            if (!access.ok) {
+              return Response.json({ error: access.error }, { status: access.status });
+            }
+
+            const trimmedOutletId = outlet_id ? String(outlet_id).trim() : null;
+            if (trimmedOutletId) {
+              const outletAllowed = await outletBelongsToBusinesses(trimmedOutletId, [
+                access.businessId,
+              ]);
+              if (!outletAllowed) {
+                return Response.json(
+                  { error: "Outlet tidak termasuk dalam bisnis ini" },
+                  { status: 403 },
+                );
+              }
+            }
+
             const qrisData = await generateDynamicQris({
-              businessId: String(business_id).trim(),
-              outletId: outlet_id ? String(outlet_id).trim() : undefined,
+              businessId: access.businessId,
+              outletId: trimmedOutletId || undefined,
               orderId: order_id ? String(order_id).trim() : undefined,
               orderNumber: String(order_number).trim(),
               amount,
@@ -149,31 +233,15 @@ export const Route = createFileRoute("/api/qris")({
             });
           }
 
-          // Action: Simulate Settlement (Test / Cashier Demo Mode)
-          if (action === "simulate") {
-            const { external_reference_id, settlement_reference } = body;
-
-            if (!external_reference_id || typeof external_reference_id !== "string") {
-              return Response.json(
-                { error: "external_reference_id wajib disertakan untuk simulasi" },
-                { status: 400 },
-              );
-            }
-
-            const simResult = await simulateQrisPayment(
-              String(external_reference_id).trim(),
-              settlement_reference ? String(settlement_reference).trim() : undefined,
-            );
-
-            return Response.json(simResult);
-          }
-
           return Response.json(
             { error: `Action '${action}' tidak dikenali` },
             { status: 400 },
           );
         } catch (error: any) {
           console.error("[API QRIS POST] Error:", error);
+          if (error instanceof QrisConfigurationError) {
+            return Response.json({ error: error.message }, { status: 400 });
+          }
           return Response.json(
             { error: error.message || "Gagal memproses QRIS request" },
             { status: 500 },

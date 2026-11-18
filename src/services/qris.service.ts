@@ -27,6 +27,158 @@ export interface QrisTransactionResponse {
   expires_at: string;
   merchant_name: string;
   qr_svg?: string;
+  /** "static" = QRIS Statis Resmi Toko (konfirmasi kasir), "dynamic" = payload per transaksi */
+  mode?: "dynamic" | "static";
+  /** Tampilan gambar QRIS statis milik toko (jika diunggah Owner) */
+  qr_image_url?: string;
+}
+
+/**
+ * Thrown when QRIS cannot be generated because the merchant has no valid
+ * official configuration (no real NMID and no official static QRIS).
+ */
+export class QrisConfigurationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QrisConfigurationError";
+  }
+}
+
+export interface StaticQrisSettings {
+  payload: string;
+  imageUrl: string;
+  merchantName: string;
+}
+
+function isProductionRuntime(): boolean {
+  try {
+    if (typeof process !== "undefined" && process.env?.NODE_ENV === "production") return true;
+  } catch {
+    /* ignore */
+  }
+  try {
+    if (import.meta.env?.PROD === true) return true;
+  } catch {
+    /* ignore */
+  }
+  return false;
+}
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuidLike(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+/** Sample/placeholder NMIDs shipped by older builds — never treated as real configuration. */
+const PLACEHOLDER_NMIDS = new Set(["ID1020023456789", "ID1020304050607"]);
+
+/**
+ * Returns a valid merchant NMID, or null when nothing valid is configured.
+ * Never substitutes a fabricated NMID.
+ */
+export function normalizeNmid(value: unknown): string | null {
+  const raw = String(value || "").trim().toUpperCase();
+  if (!raw) return null;
+  if (PLACEHOLDER_NMIDS.has(raw)) return null;
+  if (!/^[A-Z0-9]{6,32}$/.test(raw)) return null;
+  return raw;
+}
+
+async function loadOutletPaymentSettings(outletId?: string | null): Promise<any | null> {
+  if (!outletId) return null;
+  try {
+    const { data } = await (supabase.from("outlets" as any) as any)
+      .select("settings")
+      .eq("id", outletId)
+      .maybeSingle();
+    return (data?.settings as any)?.payment_settings || null;
+  } catch (err) {
+    console.warn("[QRIS] Gagal membaca payment_settings outlet:", err);
+    return null;
+  }
+}
+
+function extractStaticQris(cfg: any): StaticQrisSettings | null {
+  if (!cfg) return null;
+  if (String(cfg.qrisMode || "").toLowerCase() === "dynamic") return null;
+  if (cfg.qrisStaticEnabled === false) return null;
+  const payload = String(cfg.qrisStaticPayload || "").trim();
+  const imageUrl = String(cfg.qrisStaticImageUrl || "").trim();
+  if (!payload && !imageUrl) return null;
+  return {
+    payload,
+    imageUrl,
+    merchantName: String(cfg.qrisMerchantName || "").trim(),
+  };
+}
+
+/** Device-level payment settings saved from the outlet payment settings screen. */
+function loadLocalPaymentSettings(): any | null {
+  try {
+    if (typeof localStorage === "undefined") return null;
+    const raw = localStorage.getItem("kebabschoicepos_payment_settings");
+    return raw ? JSON.parse(raw) : null;
+  } catch (err) {
+    console.warn("[QRIS] Gagal membaca payment settings lokal:", err);
+    return null;
+  }
+}
+
+/**
+ * Resolves the merchant's OFFICIAL static QRIS (from outlets.settings.payment_settings,
+ * falling back to this device's saved payment settings).
+ * Returns null when the merchant has not configured one — callers must not invent a QR.
+ */
+export async function loadStaticQrisSettings(
+  outletId?: string | null,
+): Promise<StaticQrisSettings | null> {
+  const fromDb = extractStaticQris(await loadOutletPaymentSettings(outletId));
+  if (fromDb) return fromDb;
+
+  return extractStaticQris(loadLocalPaymentSettings());
+}
+
+/**
+ * Audit trail for a cashier-confirmed static QRIS payment.
+ * Best-effort: a logging failure must never block a real sale.
+ */
+export async function logStaticQrisConfirmation(params: {
+  businessId: string;
+  outletId?: string | null;
+  orderNumber: string;
+  amount: number;
+  referenceId?: string | null;
+  confirmedBy?: string | null;
+}): Promise<void> {
+  const now = new Date().toISOString();
+  const reference = params.referenceId || `QRIS-STATIC-${Date.now()}`;
+  try {
+    const { error } = await (supabase.from("qris_transactions" as any) as any).insert({
+      business_id: params.businessId,
+      outlet_id: params.outletId || null,
+      order_number: params.orderNumber,
+      external_reference_id: reference,
+      amount: params.amount,
+      qris_payload: "STATIC_QRIS_OFFICIAL",
+      status: "PAID",
+      payment_time: now,
+      settlement_reference: `CASHIER-${Date.now()}`,
+      metadata: {
+        mode: "static",
+        source: "cashier_confirmation",
+        confirmed_by: params.confirmedBy || null,
+      },
+      created_at: now,
+      updated_at: now,
+    });
+    if (error) {
+      console.warn("[QRIS] Gagal mencatat konfirmasi QRIS statis:", error.message);
+    }
+  } catch (err) {
+    console.warn("[QRIS] Network error mencatat konfirmasi QRIS statis:", err);
+  }
 }
 
 // In-memory & fallback cache for offline resilience and integration tests
@@ -93,12 +245,17 @@ export function generateQrisPayload(params: {
   amount: number;
   orderNumber: string;
   merchantName?: string;
-  nmid?: string;
+  nmid: string;
   city?: string;
 }): string {
   const merchantName = (params.merchantName || "KEBABS CHOICE").toUpperCase().slice(0, 25);
   const city = (params.city || "JAKARTA").toUpperCase().slice(0, 15);
-  const nmid = params.nmid || "ID1020023456789";
+  const nmid = normalizeNmid(params.nmid);
+  if (!nmid) {
+    throw new QrisConfigurationError(
+      "NMID QRIS merchant belum diatur atau tidak valid. Atur NMID resmi di Pengaturan Pembayaran outlet.",
+    );
+  }
   const amountStr = Math.round(params.amount).toString();
 
   // 1. Tag 00: Payload Format Indicator
@@ -166,16 +323,56 @@ export async function generateDynamicQris(params: {
 
   const timestamp = Date.now();
   const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+  const expiresAt = new Date(timestamp + 15 * 60 * 1000).toISOString(); // 15 mins expiry
+
+  const outletSettings = await loadOutletPaymentSettings(params.outletId);
+  const localSettings = loadLocalPaymentSettings();
+  const configuredMerchantName = String(
+    outletSettings?.qrisMerchantName || localSettings?.qrisMerchantName || "",
+  ).trim();
+  const merchantName = configuredMerchantName || params.merchantName || "KEBABS CHOICE";
+
+  // Official static QRIS of the store (uploaded/configured by the Owner for this outlet).
+  // When present it is shown as-is — no fabricated NMID, no generated payload.
+  const staticQris = extractStaticQris(outletSettings) || extractStaticQris(localSettings);
+  if (staticQris) {
+    return {
+      external_reference_id: `QRIS-STATIC-${timestamp}-${randomSuffix}`,
+      qris_payload: staticQris.payload,
+      amount: params.amount,
+      order_number: params.orderNumber,
+      status: "PENDING",
+      expires_at: expiresAt,
+      merchant_name: staticQris.merchantName || merchantName,
+      mode: "static",
+      qr_image_url: staticQris.imageUrl || undefined,
+    };
+  }
+
+  // Dynamic QRIS requires the merchant's real NMID. Never substitute a fake one.
+  const nmid = normalizeNmid(
+    outletSettings?.qrisNmid ??
+      outletSettings?.qris_nmid ??
+      outletSettings?.nmid ??
+      localSettings?.qrisNmid ??
+      localSettings?.qris_nmid ??
+      localSettings?.nmid,
+  );
+  if (!nmid) {
+    throw new QrisConfigurationError(
+      "QRIS belum dikonfigurasi. Atur NMID QRIS resmi atau unggah QRIS Statis toko di Pengaturan Pembayaran outlet terlebih dahulu.",
+    );
+  }
+
   const externalReferenceId = `QRIS-${timestamp}-${randomSuffix}`;
 
   const qrisPayload = generateQrisPayload({
     amount: params.amount,
     orderNumber: params.orderNumber,
-    merchantName: params.merchantName || "KEBABS CHOICE",
+    merchantName,
     city: params.city || "JAKARTA",
+    nmid,
   });
-
-  const expiresAt = new Date(timestamp + 15 * 60 * 1000).toISOString(); // 15 mins expiry
 
   const txData: QrisTransaction = {
     business_id: params.businessId,
@@ -190,7 +387,7 @@ export async function generateDynamicQris(params: {
     metadata: {
       ...params.metadata,
       expires_at: expiresAt,
-      merchant_name: params.merchantName || "KEBABS CHOICE",
+      merchant_name: merchantName,
     },
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -216,7 +413,7 @@ export async function generateDynamicQris(params: {
     order_number: params.orderNumber,
     status: "PENDING",
     expires_at: expiresAt,
-    merchant_name: params.merchantName || "KEBABS CHOICE",
+    merchant_name: merchantName,
   };
 }
 

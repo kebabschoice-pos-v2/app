@@ -1,11 +1,17 @@
 import { supabase } from "@/integrations/supabase/client";
 
-export const DEFAULT_SUPERVISOR_PINS = ["1234", "0000", "admin123"];
+/**
+ * Local mirror of the PIN saved by the Owner from the Security settings page.
+ * It is never a default — it only exists once the Owner has actually set a PIN.
+ */
+export const SUPERVISOR_PIN_STORAGE_KEY = "kebabschoicepos_supervisor_pin";
+
+const PIN_PATTERN = /^\d{4,6}$/;
 
 export interface VerifyPinResult {
   isValid: boolean;
   authorizedBy: string;
-  source: "default" | "outlet" | "manager" | "staff";
+  source: "outlet" | "local" | "default";
   error?: string;
 }
 
@@ -14,8 +20,33 @@ export interface CashShiftAdjustment {
   expectedEndingCash: number;
 }
 
+function isValidPinFormat(pin: string): boolean {
+  return PIN_PATTERN.test(pin);
+}
+
+function readLocalSupervisorPin(): string {
+  try {
+    if (typeof localStorage === "undefined") return "";
+    return String(localStorage.getItem(SUPERVISOR_PIN_STORAGE_KEY) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+function readOutletSupervisorPin(settings: unknown): string {
+  if (!settings || typeof settings !== "object" || Array.isArray(settings)) return "";
+  const record = settings as Record<string, unknown>;
+  const raw = record.supervisor_pin ?? record.manager_pin ?? record.pin;
+  return raw === undefined || raw === null ? "" : String(raw).trim();
+}
+
 /**
- * Verify supervisor / manager PIN with dynamic DB lookup and safe fallback to default PINs.
+ * Verifies the supervisor / manager PIN against the PIN configured by the Owner.
+ *
+ * There are no default or hardcoded PINs: the only accepted values are the PIN saved
+ * in outlets.settings (per outlet) or, when no outlet PIN exists, the PIN saved on this
+ * device from the Security settings page. When nothing has been configured the caller
+ * is told to set a PIN first at /security.
  */
 export async function verifySupervisorPin(
   pin: string,
@@ -34,10 +65,20 @@ export async function verifySupervisorPin(
     };
   }
 
-  const outletId = options?.outletId;
-  const businessId = options?.businessId;
+  if (!isValidPinFormat(cleanPin)) {
+    return {
+      isValid: false,
+      authorizedBy: "",
+      source: "default",
+      error: "Format PIN Supervisor tidak valid (4 - 6 digit angka).",
+    };
+  }
 
-  // 1. Check Outlet-Specific Dynamic PIN from outlets.settings
+  const outletId = options?.outletId;
+  let outletPin = "";
+  let outletName = "";
+
+  // 1. PIN saved by the Owner on the outlet (outlets.settings.supervisor_pin).
   if (outletId && outletId !== "all" && !outletId.startsWith("out-temp")) {
     try {
       const { data: outlet } = await supabase
@@ -46,87 +87,54 @@ export async function verifySupervisorPin(
         .eq("id", outletId)
         .maybeSingle();
 
-      if (outlet?.settings && typeof outlet.settings === "object") {
-        const settings = outlet.settings as Record<string, unknown>;
-        const customPin = settings.supervisor_pin || settings.manager_pin || settings.pin;
-        if (customPin && String(customPin).trim() === cleanPin) {
-          return {
-            isValid: true,
-            authorizedBy: outlet.name ? `Supervisor (${outlet.name})` : "Supervisor Outlet",
-            source: "outlet",
-          };
-        }
-      }
+      outletPin = readOutletSupervisorPin(outlet?.settings);
+      outletName = outlet?.name || "";
     } catch (err) {
       console.warn("[verifySupervisorPin] Error checking outlet settings:", err);
     }
   }
 
-  // 2. Check Staff Profiles for Outlet / Business Manager or Supervisor
-  try {
-    let staffQuery = supabase
-      .from("staff_profiles")
-      .select("id, full_name, role, phone, outlet_id, business_id")
-      .in("role", ["manager", "supervisor", "admin", "owner"]);
-
-    if (outletId && outletId !== "all") {
-      staffQuery = staffQuery.eq("outlet_id", outletId);
-    } else if (businessId) {
-      staffQuery = staffQuery.eq("business_id", businessId);
+  if (outletPin) {
+    if (outletPin === cleanPin) {
+      return {
+        isValid: true,
+        authorizedBy: outletName ? `Supervisor (${outletName})` : "Supervisor Outlet",
+        source: "outlet",
+      };
     }
-
-    const { data: staffList } = await staffQuery;
-
-    if (staffList && staffList.length > 0) {
-      // Check phone last 4 digits as quick supervisor PIN
-      for (const staff of staffList) {
-        const cleanPhone = (staff.phone || "").replace(/\D/g, "");
-        if (cleanPhone.length >= 4 && cleanPhone.slice(-4) === cleanPin) {
-          return {
-            isValid: true,
-            authorizedBy: `${staff.full_name} (${staff.role.toUpperCase()})`,
-            source: "staff",
-          };
-        }
-      }
-
-      // Check default PIN fallback with real manager/supervisor name resolution
-      if (DEFAULT_SUPERVISOR_PINS.includes(cleanPin)) {
-        const manager = staffList.find(
-          (s) =>
-            s.role === "manager" ||
-            s.role === "supervisor" ||
-            s.role === "admin" ||
-            s.role === "owner",
-        );
-        const authorizedBy = manager?.full_name
-          ? `${manager.full_name} (${manager.role.toUpperCase()})`
-          : "Supervisor";
-        return {
-          isValid: true,
-          authorizedBy,
-          source: "default",
-        };
-      }
-    }
-  } catch (err) {
-    console.warn("[verifySupervisorPin] Error querying staff profiles:", err);
-  }
-
-  // 3. Guaranteed Default Fallback PINs (1234, 0000, admin123)
-  if (DEFAULT_SUPERVISOR_PINS.includes(cleanPin)) {
     return {
-      isValid: true,
-      authorizedBy: "Supervisor",
+      isValid: false,
+      authorizedBy: "",
       source: "default",
+      error: "PIN Supervisor tidak valid.",
     };
   }
 
+  // 2. No outlet PIN configured — fall back to the PIN this device saved from /security.
+  const localPin = readLocalSupervisorPin();
+  if (localPin) {
+    if (localPin === cleanPin) {
+      return {
+        isValid: true,
+        authorizedBy: "Supervisor (Pengaturan Keamanan)",
+        source: "local",
+      };
+    }
+    return {
+      isValid: false,
+      authorizedBy: "",
+      source: "default",
+      error: "PIN Supervisor tidak valid.",
+    };
+  }
+
+  // 3. Nothing configured yet — never accept a guessable default.
   return {
     isValid: false,
     authorizedBy: "",
     source: "default",
-    error: "PIN Supervisor tidak valid! (Default PIN: 1234)",
+    error:
+      "PIN Supervisor belum diatur. Atur PIN terlebih dahulu di menu Keamanan (/security).",
   };
 }
 
@@ -137,6 +145,16 @@ export async function setOutletSupervisorPin(
   outletId: string,
   newPin: string,
 ): Promise<{ success: boolean; error?: string }> {
+  const cleanPin = (newPin || "").trim();
+
+  if (!outletId) {
+    return { success: false, error: "Outlet belum dipilih" };
+  }
+
+  if (!isValidPinFormat(cleanPin)) {
+    return { success: false, error: "PIN Supervisor harus 4 - 6 digit angka" };
+  }
+
   try {
     const { data: outlet, error: fetchErr } = await supabase
       .from("outlets")
@@ -153,7 +171,7 @@ export async function setOutletSupervisorPin(
 
     const updatedSettings = {
       ...existingSettings,
-      supervisor_pin: newPin.trim(),
+      supervisor_pin: cleanPin,
     };
 
     const { error: updateErr } = await supabase

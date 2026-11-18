@@ -8,7 +8,7 @@ import { supabase } from "@/integrations/supabase/client";
 export function PaymentSettingsPage() {
   const [cashEnabled, setCashEnabled] = useState(true);
   const [qrisEnabled, setQrisEnabled] = useState(true);
-  const [qrisNmid, setQrisNmid] = useState("ID1020304050607");
+  const [qrisNmid, setQrisNmid] = useState("");
   const [cardEnabled, setCardEnabled] = useState(true);
   const [transferEnabled, setTransferEnabled] = useState(false);
   const [bankName, setBankName] = useState("BCA");
@@ -167,8 +167,12 @@ export function PaymentSettingsPage() {
                   className="mt-1.5 rounded-xl"
                   value={qrisNmid}
                   onChange={(e) => setQrisNmid(e.target.value)}
-                  placeholder="ID1020304050607"
+                  placeholder="Contoh: ID1020xxxxxxxxx"
                 />
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Isi NMID resmi dari penyedia QRIS Anda. Tanpa NMID resmi, gunakan QRIS Statis
+                  toko — kasir akan meminta konfirmasi pembayaran manual.
+                </p>
               </div>
               <div>
                 <label className="text-xs font-bold text-foreground/80">Mode Tampilan di POS</label>

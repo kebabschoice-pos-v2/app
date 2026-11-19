@@ -1073,8 +1073,8 @@ function StatCard({
     >
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0 flex-1">
-          <p className="text-xs xl:text-sm font-medium text-muted-foreground truncate">{label}</p>
-          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate">
+          <p className="text-xs xl:text-sm font-medium text-muted-foreground leading-snug">{label}</p>
+          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap">
             {value}
           </p>
         </div>
@@ -1091,9 +1091,9 @@ function StatCard({
           <Icon className="size-4" />
         </div>
       </div>
-      <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-success-foreground truncate">
+      <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-success-foreground">
         <TrendingUp className="size-3.5 shrink-0" />
-        <span className="truncate">{trend}</span>
+        <span>{trend}</span>
       </div>
     </motion.div>
   );
@@ -2462,7 +2462,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
         <StatCard
           label={t("dashboard.revenue_today", "Revenue Hari Ini")}
           value={formatRupiah(metrics.todayRevenue || 0)}
@@ -3774,14 +3774,31 @@ function PosPage({
     return () => unsub();
   }, []);
 
-  // Offline-First Network & Sync Status (Tahap 3)
+  // Offline-First Network & Sync Status (Tahap 3 & Full UX Sweep)
   const [networkStatus, setNetworkStatus] = useState<NetworkSyncStatus>(getNetworkStatus());
+  const [browserOnline, setBrowserOnline] = useState<boolean>(() =>
+    typeof window === "undefined" || window.navigator.onLine !== false,
+  );
 
   useEffect(() => {
     const unsub = subscribeNetworkStatus((status) => {
       setNetworkStatus(status);
     });
-    return () => unsub();
+    const syncBrowserOnline = () => {
+      setBrowserOnline(typeof window === "undefined" || window.navigator.onLine !== false);
+    };
+    syncBrowserOnline();
+    if (typeof window !== "undefined") {
+      window.addEventListener("online", syncBrowserOnline);
+      window.addEventListener("offline", syncBrowserOnline);
+    }
+    return () => {
+      unsub();
+      if (typeof window !== "undefined") {
+        window.removeEventListener("online", syncBrowserOnline);
+        window.removeEventListener("offline", syncBrowserOnline);
+      }
+    };
   }, []);
 
   // Collapsible POS Header Bar (Tablet Space Optimization)
@@ -5624,9 +5641,9 @@ function PosPage({
           {/* Status Kiri: Online, Kasir & Shift, Cabang */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             {/* Status Online + Indikator Antrean Sinkronisasi */}
-            {typeof window === "undefined" || window.navigator.onLine !== false ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap shrink-0">
-                <Wifi className="size-3 text-emerald-500 shrink-0" />
+            {typeof window === "undefined" || window.navigator.onLine !== false || browserOnline ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap shrink-0">
+                <Wifi className="size-3.5 text-emerald-500 shrink-0" />
                 <span>
                   {networkStatus.pendingCount > 0
                     ? `🟢 Online (${networkStatus.pendingCount} antrean)`
@@ -5634,8 +5651,8 @@ function PosPage({
                 </span>
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-[11px] font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap shrink-0">
-                <WifiOff className="size-3 shrink-0" />
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-xs font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap shrink-0">
+                <WifiOff className="size-3.5 shrink-0" />
                 <span>
                   {networkStatus.pendingCount > 0
                     ? `Offline (${networkStatus.pendingCount} antrean)`
@@ -5755,17 +5772,21 @@ function PosPage({
             </p>
           </div>
         ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {displayedProducts.map((product, index) => (
+          <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
+            {displayedProducts.map((product, index) => {
+              const hasVariantsOrMods =
+                (product.variant_groups && product.variant_groups.length > 0) ||
+                (product.modifiers && product.modifiers.length > 0);
+              return (
               <motion.div
                 key={product.id}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.03 }}
                 onClick={() => handleFastAddToCart(product)}
-                className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-3.5 sm:p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all overflow-hidden"
+                className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-3.5 sm:p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all overflow-hidden flex flex-col justify-between"
               >
-                <div className="relative mb-3.5 flex aspect-[4/3] items-end overflow-hidden rounded-[1.25rem] bg-primary p-4 text-primary-foreground">
+                <div className="relative mb-3 flex aspect-[4/3] items-end overflow-hidden rounded-[1.25rem] bg-primary p-3.5 text-primary-foreground">
                   {product.image_url ? (
                     <img
                       src={product.image_url}
@@ -5785,59 +5806,82 @@ function PosPage({
                     </div>
                   )}
                   <div className="relative z-10 rounded-xl bg-black/60 px-3 py-1.5 backdrop-blur-md max-w-full">
-                    <p className="text-[10px] font-bold opacity-90 text-white/80 truncate">
+                    <p className="text-xs font-bold opacity-90 text-white/80 truncate">
                       {product.category}
                     </p>
-                    <p className="text-base font-black tracking-normal leading-tight text-white truncate">
+                    <p className="text-base font-black tracking-normal leading-tight text-white">
                       {product.name}
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center justify-between gap-1.5 mt-2 min-w-0">
-                  <div className="min-w-0 flex-1">
-                    {product.promo_price && product.promo_price < product.price ? (
-                      <div className="flex flex-wrap items-baseline gap-1 min-w-0">
-                        <p className="text-sm sm:text-base font-black text-rose-600 dark:text-rose-400 whitespace-nowrap truncate">
-                          {formatRupiah(product.promo_price)}
-                        </p>
-                        <p className="text-[11px] text-muted-foreground line-through whitespace-nowrap">
+
+                {/* Footer Kartu Produk 2 Baris Bersih (Harga + Stok di Baris 1, Varian + Tombol + di Baris 2) */}
+                <div className="space-y-2.5 mt-1">
+                  {/* Baris 1: Harga penuh tanpa truncate + Badge Stok */}
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex flex-wrap items-baseline gap-1.5">
+                      {product.promo_price && product.promo_price < product.price ? (
+                        <>
+                          <p className="text-base font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
+                            {formatRupiah(product.promo_price)}
+                          </p>
+                          <p className="text-xs text-muted-foreground line-through whitespace-nowrap">
+                            {formatRupiah(product.price)}
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-base font-black text-primary whitespace-nowrap">
                           {formatRupiah(product.price)}
                         </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm sm:text-base font-black text-primary whitespace-nowrap truncate">
-                        {formatRupiah(product.price)}
-                      </p>
-                    )}
-                    <p className="text-xs text-muted-foreground truncate">Stok {product.stock}</p>
+                      )}
+                    </div>
+                    <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground whitespace-nowrap shrink-0">
+                      Stok {product.stock}
+                    </span>
                   </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    {((product.variant_groups && product.variant_groups.length > 0) ||
-                      (product.modifiers && product.modifiers.length > 0)) && (
+
+                  {/* Baris 2: Tombol Varian (flex-1) + Tombol + oranye (shrink-0) */}
+                  <div className="flex items-center gap-1.5">
+                    {hasVariantsOrMods ? (
+                      <>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="flex-1 rounded-xl h-8 px-2.5 text-xs font-bold text-muted-foreground hover:text-foreground"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleOpenCustomize(product);
+                          }}
+                          title="Atur Varian, Level Pedas, dan Topping"
+                        >
+                          Varian
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="rounded-xl h-8 w-8 p-0 font-bold text-xs shadow-xs shrink-0 flex items-center justify-center"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleFastAddToCart(product);
+                          }}
+                          aria-label={`Tambah ${product.name}`}
+                        >
+                          <Plus className="size-4" />
+                        </Button>
+                      </>
+                    ) : (
                       <Button
                         size="sm"
-                        variant="outline"
-                        className="rounded-xl h-8 px-2.5 text-xs font-bold text-muted-foreground hover:text-foreground shrink-0"
+                        className="flex-1 rounded-xl h-8 px-3 font-bold text-xs shadow-xs flex items-center justify-center gap-1.5"
                         onClick={(e) => {
                           e.stopPropagation();
-                          handleOpenCustomize(product);
+                          handleFastAddToCart(product);
                         }}
-                        title="Atur Varian, Level Pedas, dan Topping"
+                        aria-label={`Tambah ${product.name}`}
                       >
-                        Varian
+                        <Plus className="size-4 shrink-0" />
+                        <span>Tambah</span>
                       </Button>
                     )}
-                    <Button
-                      size="sm"
-                      className="rounded-xl h-8 w-8 p-0 font-bold text-xs shadow-xs shrink-0 flex items-center justify-center"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleFastAddToCart(product);
-                      }}
-                      aria-label={`Tambah ${product.name}`}
-                    >
-                      <Plus className="size-4" />
-                    </Button>
                   </div>
                 </div>
                 {product.ai_badge && (
@@ -5846,7 +5890,8 @@ function PosPage({
                   </p>
                 )}
               </motion.div>
-            ))}
+              );
+            })}
           </div>
         )}
       </section>
@@ -8581,7 +8626,7 @@ function OrdersPage({
                     <p className="text-[11px] text-muted-foreground capitalize">
                       Channel: {order.channel || "POS Kasir"}
                     </p>
-                    <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
                       <Button
                         variant="outline"
                         size="sm"

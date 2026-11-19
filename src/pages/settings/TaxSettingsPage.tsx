@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 export function TaxSettingsPage() {
   const [taxEnabled, setTaxEnabled] = useState(true);
@@ -135,12 +136,14 @@ export function TaxSettingsPage() {
                   </label>
                   <div className="mt-1.5 flex items-center gap-2">
                     <Input
-                      type="number"
-                      className="rounded-xl"
-                      value={taxRate}
-                      onChange={(e) => setTaxRate(Number(e.target.value))}
-                      min={0}
-                      max={100}
+                      type="text"
+                      inputMode="numeric"
+                      className="rounded-xl font-mono"
+                      value={stripLeadingZeros(taxRate)}
+                      onChange={(e) =>
+                        setTaxRate(Math.min(100, sanitizeQuantityInput(e.target.value)))
+                      }
+                      placeholder="10"
                     />
                     <div className="flex gap-1.5">
                       {[10, 11, 12].map((pct) => (
@@ -226,12 +229,14 @@ export function TaxSettingsPage() {
                 Persentase Service Charge (%)
               </label>
               <Input
-                type="number"
-                className="mt-1.5 rounded-xl"
-                value={serviceRate}
-                onChange={(e) => setServiceRate(Number(e.target.value))}
-                min={0}
-                max={50}
+                type="text"
+                inputMode="numeric"
+                className="mt-1.5 rounded-xl font-mono"
+                value={stripLeadingZeros(serviceRate)}
+                onChange={(e) =>
+                  setServiceRate(Math.min(50, sanitizeQuantityInput(e.target.value)))
+                }
+                placeholder="5"
               />
             </div>
           )}

@@ -260,15 +260,17 @@ export function SupplierManagementPage() {
 
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+            <table className="w-full min-w-[740px] text-left text-xs sm:text-sm">
               <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 font-bold">Nama Vendor</th>
-                  <th className="py-3.5 px-4 font-bold">Kategori Pasokan</th>
-                  <th className="py-3.5 px-4 font-bold">Kontak Telepon</th>
-                  <th className="py-3.5 px-4 font-bold">Email</th>
-                  <th className="py-3.5 px-4 font-bold">Alamat</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Aksi</th>
+                  <th className="py-2.5 px-3 font-bold">Nama Vendor</th>
+                  <th className="py-2.5 px-3 font-bold">Kategori Pasokan</th>
+                  <th className="py-2.5 px-3 font-bold">Kontak Telepon</th>
+                  <th className="py-2.5 px-3 font-bold">Email</th>
+                  <th className="py-2.5 px-3 font-bold">Alamat</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -338,7 +340,7 @@ export function SupplierManagementPage() {
                       <td className="py-3.5 px-4 text-muted-foreground text-xs max-w-xs truncate">
                         {s.address || "-"}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"

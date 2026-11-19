@@ -34,6 +34,12 @@ import {
   type InventoryItemDetail,
 } from "@/services/inventory.service";
 import { getBusinessOutlets, type MenuOutletInfo } from "@/services/menu.service";
+import {
+  formatRupiahInput,
+  parseNumberFromDots,
+  sanitizeQuantityInput,
+  stripLeadingZeros,
+} from "@/lib/input-formatters";
 
 export function PurchaseOrderPage() {
   const [purchaseOrders, setPurchaseOrders] = useState<PurchaseOrderRecord[]>([]);
@@ -384,17 +390,19 @@ export function PurchaseOrderPage() {
 
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+            <table className="w-full min-w-[780px] text-left text-xs sm:text-sm">
               <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 font-bold">No. PO</th>
-                  <th className="py-3.5 px-4 font-bold">Supplier</th>
-                  <th className="py-3.5 px-4 font-bold">Outlet Tujuan</th>
-                  <th className="py-3.5 px-4 font-bold">Tanggal Order</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Item</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Total Nilai</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Status</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Aksi</th>
+                  <th className="py-2.5 px-3 font-bold">No. PO</th>
+                  <th className="py-2.5 px-3 font-bold">Supplier</th>
+                  <th className="py-2.5 px-3 font-bold">Outlet Tujuan</th>
+                  <th className="py-2.5 px-3 font-bold">Tanggal Order</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Item</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Total Nilai</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Status</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -416,17 +424,17 @@ export function PurchaseOrderPage() {
                 ) : (
                   filteredPOs.map((po) => (
                     <tr key={po.id} className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-bold text-foreground">{po.po_number}</td>
-                      <td className="py-3.5 px-4 font-medium">{po.supplier_name || "-"}</td>
-                      <td className="py-3.5 px-4 text-muted-foreground">
+                      <td className="py-2.5 px-3 font-bold text-foreground whitespace-nowrap">{po.po_number}</td>
+                      <td className="py-2.5 px-3 font-medium">{po.supplier_name || "-"}</td>
+                      <td className="py-2.5 px-3 text-muted-foreground">
                         {po.outlet_name || "Pusat"}
                       </td>
-                      <td className="py-3.5 px-4 text-muted-foreground">{po.order_date}</td>
-                      <td className="py-3.5 px-4 text-center font-bold">{po.items?.length || 0}</td>
-                      <td className="py-3.5 px-4 text-right font-black">
+                      <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">{po.order_date}</td>
+                      <td className="py-2.5 px-3 text-center font-bold whitespace-nowrap">{po.items?.length || 0}</td>
+                      <td className="py-2.5 px-3 text-right font-black whitespace-nowrap">
                         {formatRupiah(po.total_amount)}
                       </td>
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {po.status === "received" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600">
                             <CheckCircle2 className="size-3" />
@@ -453,7 +461,7 @@ export function PurchaseOrderPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Contextual Action Buttons */}
                           {po.status === "draft" && (
@@ -615,8 +623,8 @@ export function PurchaseOrderPage() {
                 </Button>
               </div>
 
-              <div className="rounded-2xl border border-border overflow-hidden">
-                <table className="w-full text-left text-xs">
+              <div className="rounded-2xl border border-border overflow-x-auto">
+                <table className="w-full min-w-[640px] text-left text-xs">
                   <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
                     <tr>
                       <th className="py-2.5 px-3">Bahan Baku</th>
@@ -624,7 +632,9 @@ export function PurchaseOrderPage() {
                       <th className="py-2.5 px-3 w-20">Satuan</th>
                       <th className="py-2.5 px-3 w-36 text-right">Harga Satuan (Rp)</th>
                       <th className="py-2.5 px-3 w-36 text-right">Subtotal</th>
-                      <th className="py-2.5 px-3 w-12 text-center">Hapus</th>
+                      <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 w-12 text-center">
+                        Hapus
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border">
@@ -651,12 +661,17 @@ export function PurchaseOrderPage() {
                           </td>
                           <td className="py-2 px-3 text-right">
                             <Input
-                              type="number"
-                              min="1"
-                              value={item.quantity}
+                              type="text"
+                              inputMode="numeric"
+                              value={item.quantity > 0 ? stripLeadingZeros(item.quantity) : ""}
                               onChange={(e) =>
-                                handleLineItemChange(idx, "quantity", Number(e.target.value))
+                                handleLineItemChange(
+                                  idx,
+                                  "quantity",
+                                  sanitizeQuantityInput(e.target.value),
+                                )
                               }
+                              placeholder="1"
                               className="h-8 text-right rounded-xl font-bold text-xs"
                             />
                           </td>
@@ -665,19 +680,25 @@ export function PurchaseOrderPage() {
                           </td>
                           <td className="py-2 px-3 text-right">
                             <Input
-                              type="number"
-                              min="0"
-                              value={item.unit_cost}
-                              onChange={(e) =>
-                                handleLineItemChange(idx, "unit_cost", Number(e.target.value))
-                              }
-                              className="h-8 text-right rounded-xl text-xs"
+                              type="text"
+                              inputMode="numeric"
+                              value={item.unit_cost > 0 ? formatRupiahInput(item.unit_cost) : ""}
+                              onChange={(e) => {
+                                const formatted = formatRupiahInput(e.target.value);
+                                handleLineItemChange(
+                                  idx,
+                                  "unit_cost",
+                                  formatted ? parseNumberFromDots(formatted) : 0,
+                                );
+                              }}
+                              placeholder="0"
+                              className="h-8 text-right rounded-xl text-xs font-mono"
                             />
                           </td>
-                          <td className="py-2 px-3 text-right font-black">
+                          <td className="py-2 px-3 text-right font-black whitespace-nowrap">
                             {formatRupiah(lineSubtotal)}
                           </td>
-                          <td className="py-2 px-3 text-center">
+                          <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2 px-3 text-center">
                             <Button
                               type="button"
                               variant="ghost"

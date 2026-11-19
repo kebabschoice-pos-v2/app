@@ -3220,10 +3220,9 @@ test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, 
     "POS status bar must strictly display green 🟢 Online (or 🟢 Online (X antrean)) whenever window.navigator.onLine !== false",
   );
 
-  // 1B. POS product card overflow-hidden + compact Varian & + buttons
+  // 1B. POS product card overflow-hidden + 2-row clean footer with Varian & + buttons
   assert.ok(
-    posAppCode.includes("flex items-center justify-between gap-1.5 mt-2 min-w-0") &&
-      posAppCode.includes("rounded-xl h-8 px-2.5 text-xs") &&
+    posAppCode.includes("rounded-xl h-8 px-2.5 text-xs") &&
       posAppCode.includes("rounded-xl h-8 w-8 p-0") &&
       posAppCode.includes("overflow-hidden"),
     "POS product cards must clip overflow and size Varian & + buttons compactly",
@@ -3281,6 +3280,116 @@ test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, 
   assert.ok(
     gitignore.includes(".claude/"),
     ".gitignore must exclude .claude/",
+  );
+});
+
+// --- TEST 108: Full UX Sweep — Responsive KPI Grids (No Truncate), 2-Row POS Cards, Sticky AKSI Columns & Unified Secondary Number/Rupiah Inputs ---
+console.log("\n▶ 108. FULL UX SWEEP: RESPONSIVE KPI GRIDS (NO TRUNCATE), 2-ROW POS CARDS, STICKY AKSI COLUMNS & UNIFIED INPUTS");
+test("Enforces responsive 1/2/3/5 KPI grids without truncation, >=12px fonts in MoneyAllocation, 2-row POS card footer, sticky AKSI columns, and formatted number/Rupiah inputs", () => {
+  const posAppCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf8",
+  );
+  const moneyPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf8",
+  );
+  const invPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf8",
+  );
+  const staffCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/StaffManagement.tsx"),
+    "utf8",
+  );
+  const poCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/PurchaseOrderPage.tsx"),
+    "utf8",
+  );
+  const transferCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/StockTransferPage.tsx"),
+    "utf8",
+  );
+  const wasteCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/WastePage.tsx"),
+    "utf8",
+  );
+  const opnameCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/StockOpnamePage.tsx"),
+    "utf8",
+  );
+  const taxCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/settings/TaxSettingsPage.tsx"),
+    "utf8",
+  );
+
+  // 1. Responsive KPI grids + no truncation on titles/nominals + zero text-[9px]/text-[10px] in MoneyAllocationPage
+  assert.ok(
+    posAppCode.includes("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4") &&
+      moneyPageCode.includes("grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4") &&
+      !moneyPageCode.includes("text-[9px]") &&
+      !moneyPageCode.includes("text-[10px]") &&
+      !moneyPageCode.includes("whitespace-nowrap truncate font-mono"),
+    "Dashboard & MoneyAllocation must use responsive 1/2/3/5 KPI grids without title/nominal truncation and zero 9px/10px micro-fonts",
+  );
+
+  // 2. POS product card 2-row footer (no price truncate) & reactive online guard
+  assert.ok(
+    posAppCode.includes("Footer Kartu Produk 2 Baris Bersih") &&
+      posAppCode.includes("text-base font-black text-primary whitespace-nowrap") &&
+      posAppCode.includes("flex-1 rounded-xl h-8 px-2.5 text-xs") &&
+      posAppCode.includes("const [browserOnline, setBrowserOnline]"),
+    "POS product cards must use 2-row footer with untruncated bold price + stock badge and Varian (flex-1) + + (shrink-0), plus reactive online badge guard",
+  );
+
+  // 3. Sticky right AKSI column & compact padding across Inventory + all wide HQ tables
+  const stickyShadow = "shadow-[-4px_0_8px_rgba(0,0,0,0.04)]";
+  assert.ok(
+    invPageCode.includes("hidden 2xl:table-cell") &&
+      invPageCode.includes("py-2.5 px-3") &&
+      invPageCode.includes(`sticky right-0 bg-card ${stickyShadow}`),
+    "InventoryManagement table must use compact py-2.5 px-3 cells, hide Supplier below 2xl, and pin AKSI column sticky right-0",
+  );
+  for (const [name, code] of [
+    ["StaffManagement", staffCode],
+    ["PurchaseOrderPage", poCode],
+    ["StockTransferPage", transferCode],
+    ["WastePage", wasteCode],
+    ["StockOpnamePage", opnameCode],
+  ]) {
+    assert.ok(
+      code.includes("overflow-x-auto") && code.includes(`sticky right-0 bg-card ${stickyShadow}`),
+      `${name} table must wrap with overflow-x-auto and pin its rightmost column sticky right-0`,
+    );
+  }
+
+  // 4. Unified formatRupiahInput & sanitizeQuantityInput across secondary forms (zero raw type="number")
+  assert.ok(
+    poCode.includes("formatRupiahInput") &&
+      poCode.includes("sanitizeQuantityInput") &&
+      !poCode.includes('type="number"'),
+    "PurchaseOrderPage must format unit_cost with formatRupiahInput and sanitize quantity with sanitizeQuantityInput",
+  );
+  assert.ok(
+    transferCode.includes("sanitizeQuantityInput") && !transferCode.includes('type="number"'),
+    "StockTransferPage must sanitize quantity with sanitizeQuantityInput",
+  );
+  assert.ok(
+    wasteCode.includes("sanitizeQuantityInput") && !wasteCode.includes('type="number"'),
+    "WastePage must sanitize wasteQty with sanitizeQuantityInput",
+  );
+  assert.ok(
+    opnameCode.includes("sanitizeQuantityInput") && !opnameCode.includes('type="number"'),
+    "StockOpnamePage must sanitize physical_stock with sanitizeQuantityInput",
+  );
+  assert.ok(
+    taxCode.includes("sanitizeQuantityInput") && !taxCode.includes('type="number"'),
+    "TaxSettingsPage must sanitize taxRate & serviceRate with sanitizeQuantityInput",
+  );
+  assert.ok(
+    invPageCode.includes("formatRupiahInput(stockInUnitCost)") &&
+      !invPageCode.includes('type="number"'),
+    "InventoryManagement modals must format Rupiah and sanitize quantities with zero raw type='number' inputs",
   );
 });
 

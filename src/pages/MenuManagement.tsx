@@ -1820,17 +1820,19 @@ export function MenuManagement() {
         /* TABLE VIEW */
         <div className="rounded-[2rem] border border-border bg-card shadow-soft overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
+            <table className="w-full min-w-[820px] text-left text-sm">
               <thead className="border-b border-border bg-muted/40 text-xs uppercase text-muted-foreground font-bold tracking-wider">
                 <tr>
-                  <th className="py-3.5 pl-6 pr-3">Menu</th>
-                  <th className="px-3 py-3.5">Kategori</th>
-                  <th className="px-3 py-3.5">Harga Jual</th>
-                  <th className="px-3 py-3.5">HPP / Margin</th>
-                  <th className="px-3 py-3.5">Resep BOM</th>
-                  <th className="px-3 py-3.5">Ketersediaan</th>
-                  <th className="px-3 py-3.5 text-center">Status</th>
-                  <th className="py-3.5 pl-3 pr-6 text-right">Aksi</th>
+                  <th className="py-3 pl-4 pr-3">Menu</th>
+                  <th className="px-3 py-3">Kategori</th>
+                  <th className="px-3 py-3">Harga Jual</th>
+                  <th className="px-3 py-3">HPP / Margin</th>
+                  <th className="px-3 py-3">Resep BOM</th>
+                  <th className="px-3 py-3">Ketersediaan</th>
+                  <th className="px-3 py-3 text-center">Status</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-3 pl-3 pr-4 text-right whitespace-nowrap">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
@@ -1934,7 +1936,7 @@ export function MenuManagement() {
                           />
                         </button>
                       </td>
-                      <td className="py-3 pl-3 pr-6 text-right">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-3 pl-3 pr-4 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"

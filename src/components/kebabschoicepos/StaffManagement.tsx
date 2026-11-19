@@ -1599,15 +1599,17 @@ export function StaffManagement() {
           {/* Table List of Staff with HR details */}
           <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
+              <table className="w-full min-w-[780px] text-left text-sm">
                 <thead className="border-b border-border bg-muted/40 text-xs uppercase font-bold text-muted-foreground">
                   <tr>
-                    <th className="px-6 py-4">Karyawan</th>
-                    <th className="px-6 py-4">Jabatan & Role</th>
-                    <th className="px-6 py-4">Cabang Outlet</th>
-                    <th className="px-6 py-4">Status & Masuk</th>
-                    {currentUserRole !== "cashier" && <th className="px-6 py-4">Gaji Pokok</th>}
-                    <th className="px-6 py-4 text-right">Aksi</th>
+                    <th className="px-4 py-3">Karyawan</th>
+                    <th className="px-4 py-3">Jabatan & Role</th>
+                    <th className="px-4 py-3">Cabang Outlet</th>
+                    <th className="px-4 py-3">Status & Masuk</th>
+                    {currentUserRole !== "cashier" && <th className="px-4 py-3">Gaji Pokok</th>}
+                    <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-4 py-3 text-right whitespace-nowrap">
+                      Aksi
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
@@ -1730,7 +1732,7 @@ export function StaffManagement() {
                         )}
 
                         {/* Actions */}
-                        <td className="px-6 py-4 text-right">
+                        <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-4 py-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               variant="ghost"
@@ -2697,7 +2699,9 @@ export function StaffManagement() {
                                   </th>
                                 ))}
                                 {currentUserRole !== "cashier" && (
-                                  <th className="px-2 py-2.5 w-12 text-center">Aksi</th>
+                                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-2 py-2.5 w-12 text-center whitespace-nowrap">
+                                    Aksi
+                                  </th>
                                 )}
                               </tr>
                             </thead>
@@ -2820,7 +2824,7 @@ export function StaffManagement() {
                                     })}
 
                                     {currentUserRole !== "cashier" && (
-                                      <td className="px-2 py-2 text-center">
+                                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-2 py-2 text-center">
                                         <button
                                           type="button"
                                           onClick={() =>
@@ -3001,19 +3005,21 @@ export function StaffManagement() {
 
           {/* Payroll Table */}
           <div className="overflow-x-auto rounded-xl border border-border">
-            <table className="w-full text-left text-xs">
+            <table className="w-full min-w-[920px] text-left text-xs">
               <thead className="bg-muted/40 font-bold text-muted-foreground border-b border-border">
                 <tr>
-                  <th className="px-4 py-3">Nama Karyawan</th>
-                  <th className="px-4 py-3">Outlet</th>
-                  <th className="px-4 py-3">Gaji Pokok</th>
-                  <th className="px-4 py-3">Kehadiran (Absensi)</th>
-                  <th className="px-4 py-3">Tunjangan (+)</th>
-                  <th className="px-4 py-3">Potongan (-)</th>
-                  <th className="px-4 py-3">Bonus (+)</th>
-                  <th className="px-4 py-3">Total Gaji (Net)</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Aksi</th>
+                  <th className="px-3 py-2.5">Nama Karyawan</th>
+                  <th className="px-3 py-2.5">Outlet</th>
+                  <th className="px-3 py-2.5">Gaji Pokok</th>
+                  <th className="px-3 py-2.5">Kehadiran (Absensi)</th>
+                  <th className="px-3 py-2.5">Tunjangan (+)</th>
+                  <th className="px-3 py-2.5">Potongan (-)</th>
+                  <th className="px-3 py-2.5">Bonus (+)</th>
+                  <th className="px-3 py-2.5">Total Gaji (Net)</th>
+                  <th className="px-3 py-2.5">Status</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-3 py-2.5 text-right whitespace-nowrap">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
@@ -3072,7 +3078,7 @@ export function StaffManagement() {
                     </td>
 
                     {/* Action */}
-                    <td className="px-4 py-3 text-right">
+                    <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-3 py-2.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
                         <Button
                           variant="outline"

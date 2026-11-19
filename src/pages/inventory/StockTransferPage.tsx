@@ -29,6 +29,7 @@ import {
   type InventoryItemDetail,
 } from "@/services/inventory.service";
 import { getBusinessOutlets, type MenuOutletInfo } from "@/services/menu.service";
+import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 export function StockTransferPage() {
   const [transfers, setTransfers] = useState<StockTransferRecord[]>([]);
@@ -372,16 +373,18 @@ export function StockTransferPage() {
         {/* Table */}
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+            <table className="w-full min-w-[760px] text-left text-xs sm:text-sm">
               <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 font-bold">No. Transfer</th>
-                  <th className="py-3.5 px-4 font-bold">Outlet Asal</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Arah</th>
-                  <th className="py-3.5 px-4 font-bold">Outlet Tujuan</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Jumlah Item</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Status</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Aksi</th>
+                  <th className="py-2.5 px-3 font-bold">No. Transfer</th>
+                  <th className="py-2.5 px-3 font-bold">Outlet Asal</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Arah</th>
+                  <th className="py-2.5 px-3 font-bold">Outlet Tujuan</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Jumlah Item</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Status</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -405,17 +408,17 @@ export function StockTransferPage() {
                 ) : (
                   filteredTransfers.map((t) => (
                     <tr key={t.id} className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-bold text-foreground">{t.transfer_number}</td>
-                      <td className="py-3.5 px-4 font-medium">
+                      <td className="py-2.5 px-3 font-bold text-foreground whitespace-nowrap">{t.transfer_number}</td>
+                      <td className="py-2.5 px-3 font-medium">
                         {t.origin_outlet_name || (outlets.find((o) => o.id === t.origin_outlet_id)?.name) || "Gudang Utama"}
                       </td>
-                      <td className="py-3.5 px-4 text-center text-muted-foreground">
+                      <td className="py-2.5 px-3 text-center text-muted-foreground">
                         <ArrowRight className="inline-block size-3.5 text-primary" />
                       </td>
-                      <td className="py-3.5 px-4 font-medium">
+                      <td className="py-2.5 px-3 font-medium">
                         {t.destination_outlet_name || (outlets.find((o) => o.id === t.destination_outlet_id)?.name) || "Outlet Cabang"}
                       </td>
-                      <td className="py-3.5 px-4 text-center font-bold">
+                      <td className="py-2.5 px-3 text-center font-bold">
                         {t.items && t.items.length > 0 ? (
                           <div>
                             <span className="font-black text-foreground">{t.items.length} item</span>
@@ -427,7 +430,7 @@ export function StockTransferPage() {
                           "0 item"
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {t.status === "received" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600">
                             <CheckCircle2 className="size-3" />
@@ -448,7 +451,7 @@ export function StockTransferPage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {t.status === "requested" && (
                             <>
@@ -613,14 +616,16 @@ export function StockTransferPage() {
                   </Button>
                 </div>
 
-                <div className="rounded-2xl border border-border overflow-hidden">
-                  <table className="w-full text-left text-xs">
+                <div className="rounded-2xl border border-border overflow-x-auto">
+                  <table className="w-full min-w-[480px] text-left text-xs">
                     <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
                       <tr>
                         <th className="py-2.5 px-3">Bahan Baku</th>
                         <th className="py-2.5 px-3 w-32 text-right">Kuantitas</th>
                         <th className="py-2.5 px-3 w-24">Satuan</th>
-                        <th className="py-2.5 px-3 w-12 text-center">Hapus</th>
+                        <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 w-12 text-center">
+                          Hapus
+                        </th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border">
@@ -644,19 +649,24 @@ export function StockTransferPage() {
                           </td>
                           <td className="py-2 px-3 text-right">
                             <Input
-                              type="number"
-                              min="1"
-                              value={item.quantity}
+                              type="text"
+                              inputMode="numeric"
+                              value={item.quantity > 0 ? stripLeadingZeros(item.quantity) : ""}
                               onChange={(e) =>
-                                handleItemChange(idx, "quantity", Number(e.target.value))
+                                handleItemChange(
+                                  idx,
+                                  "quantity",
+                                  sanitizeQuantityInput(e.target.value),
+                                )
                               }
+                              placeholder="1"
                               className="h-8 text-right rounded-xl font-bold text-xs"
                             />
                           </td>
                           <td className="py-2 px-3 font-semibold text-muted-foreground">
                             {item.unit}
                           </td>
-                          <td className="py-2 px-3 text-center">
+                          <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2 px-3 text-center">
                             <Button
                               type="button"
                               variant="ghost"

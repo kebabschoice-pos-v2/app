@@ -28,6 +28,7 @@ import {
   type StockOpnameItemDetail,
 } from "@/services/inventory.service";
 import { getBusinessOutlets, type MenuOutletInfo } from "@/services/menu.service";
+import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 export function StockOpnamePage() {
   const [opnames, setOpnames] = useState<StockOpnameRecord[]>([]);
@@ -251,16 +252,18 @@ export function StockOpnamePage() {
         <h2 className="text-lg font-bold">Daftar Sesi Stock Opname</h2>
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+            <table className="w-full min-w-[720px] text-left text-xs sm:text-sm">
               <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 font-bold">No. Opname</th>
-                  <th className="py-3.5 px-4 font-bold">Tanggal</th>
-                  <th className="py-3.5 px-4 font-bold">Outlet</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Jumlah Item</th>
-                  <th className="py-3.5 px-4 font-bold">Auditor</th>
-                  <th className="py-3.5 px-4 font-bold text-center">Status</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Aksi</th>
+                  <th className="py-2.5 px-3 font-bold">No. Opname</th>
+                  <th className="py-2.5 px-3 font-bold">Tanggal</th>
+                  <th className="py-2.5 px-3 font-bold">Outlet</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Jumlah Item</th>
+                  <th className="py-2.5 px-3 font-bold">Auditor</th>
+                  <th className="py-2.5 px-3 font-bold text-center">Status</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -284,24 +287,24 @@ export function StockOpnamePage() {
                 ) : (
                   opnames.map((op) => (
                     <tr key={op.id} className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 font-bold text-foreground">{op.opname_number}</td>
-                      <td className="py-3.5 px-4 text-muted-foreground">
+                      <td className="py-2.5 px-3 font-bold text-foreground whitespace-nowrap">{op.opname_number}</td>
+                      <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
                         {new Date(op.date).toLocaleDateString("id-ID", {
                           year: "numeric",
                           month: "short",
                           day: "numeric",
                         })}
                       </td>
-                      <td className="py-3.5 px-4 font-medium">
+                      <td className="py-2.5 px-3 font-medium">
                         {op.outlet_name || "Semua Outlet"}
                       </td>
-                      <td className="py-3.5 px-4 text-center font-bold">
+                      <td className="py-2.5 px-3 text-center font-bold whitespace-nowrap">
                         {op.items?.length || 0} bahan
                       </td>
-                      <td className="py-3.5 px-4 text-muted-foreground">
+                      <td className="py-2.5 px-3 text-muted-foreground">
                         {op.conducted_by || "Admin"}
                       </td>
-                      <td className="py-3.5 px-4 text-center">
+                      <td className="py-2.5 px-3 text-center whitespace-nowrap">
                         {op.status === "approved" ? (
                           <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600">
                             <CheckCircle2 className="size-3" />
@@ -314,7 +317,7 @@ export function StockOpnamePage() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
                         <Button
                           variant="ghost"
                           size="sm"
@@ -409,8 +412,8 @@ export function StockOpnamePage() {
                 </span>
               </div>
 
-              <div className="rounded-2xl border border-border overflow-hidden">
-                <table className="w-full text-left text-xs">
+              <div className="rounded-2xl border border-border overflow-x-auto">
+                <table className="w-full min-w-[600px] text-left text-xs">
                   <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
                     <tr>
                       <th className="py-2.5 px-3">Nama Bahan</th>
@@ -434,12 +437,16 @@ export function StockOpnamePage() {
                           <td className="py-2.5 px-3 text-right">
                             <div className="flex items-center justify-end gap-1">
                               <Input
-                                type="number"
-                                min="0"
-                                value={item.physical_stock}
+                                type="text"
+                                inputMode="numeric"
+                                value={stripLeadingZeros(item.physical_stock)}
                                 onChange={(e) =>
-                                  handleUpdateAuditPhysical(idx, Number(e.target.value))
+                                  handleUpdateAuditPhysical(
+                                    idx,
+                                    sanitizeQuantityInput(e.target.value),
+                                  )
                                 }
+                                placeholder="0"
                                 className="h-8 w-24 text-right rounded-xl font-black text-xs"
                               />
                               <span className="text-[10px] text-muted-foreground">{item.unit}</span>

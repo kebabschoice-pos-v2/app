@@ -61,6 +61,7 @@ import {
 import { getOutletList, type OutletItem } from "@/services/outlet.service";
 import {
   formatNumberWithDots,
+  formatRupiahInput,
   parseNumberFromDots,
   stripLeadingZeros,
   sanitizeQuantityInput,
@@ -1576,18 +1577,20 @@ export function InventoryManagement() {
           {/* Table */}
           <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
             <div className="overflow-x-auto min-w-full">
-              <table className="w-full min-w-[850px] text-left text-xs sm:text-sm">
+              <table className="w-full min-w-[780px] text-left text-xs sm:text-sm">
                 <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
                   <tr>
-                    <th className="py-3.5 px-4 font-bold">Nama Bahan</th>
-                    <th className="py-3.5 px-4 font-bold">Kategori</th>
-                    <th className="py-3.5 px-4 font-bold">Satuan</th>
-                    <th className="py-3.5 px-4 font-bold text-right">Harga Modal</th>
-                    <th className="py-3.5 px-4 font-bold text-right">Stok Saat Ini</th>
-                    <th className="py-3.5 px-4 font-bold text-right">Min. Stok</th>
-                    <th className="py-3.5 px-4 font-bold text-center">Status</th>
-                    <th className="py-3.5 px-4 font-bold">Supplier</th>
-                    <th className="py-3.5 px-4 font-bold text-right min-w-[140px] whitespace-nowrap">Aksi</th>
+                    <th className="py-2.5 px-3 font-bold">Nama Bahan</th>
+                    <th className="py-2.5 px-3 font-bold">Kategori</th>
+                    <th className="py-2.5 px-3 font-bold">Satuan</th>
+                    <th className="py-2.5 px-3 font-bold text-right">Harga Modal</th>
+                    <th className="py-2.5 px-3 font-bold text-right">Stok Saat Ini</th>
+                    <th className="py-2.5 px-3 font-bold text-right">Min. Stok</th>
+                    <th className="py-2.5 px-3 font-bold text-center">Status</th>
+                    <th className="hidden 2xl:table-cell py-2.5 px-3 font-bold">Supplier</th>
+                    <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                      Aksi
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1652,7 +1655,7 @@ export function InventoryManagement() {
                                 : "hover:bg-muted/20"
                           }`}
                         >
-                          <td className="py-3.5 px-4 font-bold text-foreground">
+                          <td className="py-2.5 px-3 font-bold text-foreground">
                             <div>
                               <span>{item.name}</span>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
@@ -1668,18 +1671,18 @@ export function InventoryManagement() {
                               </div>
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 text-muted-foreground">
-                            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold">
+                          <td className="py-2.5 px-3 text-muted-foreground">
+                            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap">
                               {item.category || "Umum"}
                             </span>
                           </td>
-                          <td className="py-3.5 px-4 text-muted-foreground font-medium">
+                          <td className="py-2.5 px-3 text-muted-foreground font-medium whitespace-nowrap">
                             {item.unit}
                           </td>
-                          <td className="py-3.5 px-4 text-right font-semibold">
+                          <td className="py-2.5 px-3 text-right font-semibold whitespace-nowrap">
                             {formatRupiah(item.cost_price || 0)}
                           </td>
-                          <td className="py-3.5 px-4 text-right min-w-[140px] whitespace-nowrap">
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">
                             <div>
                               <span
                                 className={`font-black text-sm ${
@@ -1704,10 +1707,10 @@ export function InventoryManagement() {
                               )}
                             </div>
                           </td>
-                          <td className="py-3.5 px-4 text-right text-muted-foreground">
+                          <td className="py-2.5 px-3 text-right text-muted-foreground whitespace-nowrap">
                             {item.minimum_stock} {item.unit}
                           </td>
-                          <td className="py-3.5 px-4 text-center">
+                          <td className="py-2.5 px-3 text-center">
                             {isCritical ? (
                               <div className="flex flex-col items-center gap-1">
                                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
@@ -1729,16 +1732,16 @@ export function InventoryManagement() {
                                 </span>
                               </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600">
+                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 whitespace-nowrap">
                                 <CheckCircle2 className="size-3" />
                                 Aman
                               </span>
                             )}
                           </td>
-                          <td className="py-3.5 px-4 text-muted-foreground text-xs">
+                          <td className="hidden 2xl:table-cell py-2.5 px-3 text-muted-foreground text-xs">
                             {item.supplier_name || "-"}
                           </td>
-                          <td className="py-3.5 px-4 text-right min-w-[140px] whitespace-nowrap">
+                          <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1">
                               {isCritical && (
                                 <Button
@@ -2433,11 +2436,12 @@ export function InventoryManagement() {
                 <div>
                   <label className="text-xs font-bold text-muted-foreground">Jumlah Masuk *</label>
                   <Input
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    value={stockInQty}
-                    onChange={(e) => setStockInQty(Number(e.target.value))}
+                    value={stockInQty > 0 ? stripLeadingZeros(stockInQty) : ""}
+                    onChange={(e) => setStockInQty(sanitizeQuantityInput(e.target.value))}
+                    placeholder="1"
                     className="mt-1 rounded-2xl font-bold"
                   />
                 </div>
@@ -2446,11 +2450,15 @@ export function InventoryManagement() {
                     Harga Belanja Aktual per Unit (Rp)
                   </label>
                   <Input
-                    type="number"
-                    min="0"
-                    value={stockInUnitCost}
-                    onChange={(e) => setStockInUnitCost(Number(e.target.value))}
-                    className="mt-1 rounded-2xl"
+                    type="text"
+                    inputMode="numeric"
+                    value={stockInUnitCost > 0 ? formatRupiahInput(stockInUnitCost) : ""}
+                    onChange={(e) => {
+                      const formatted = formatRupiahInput(e.target.value);
+                      setStockInUnitCost(formatted ? parseNumberFromDots(formatted) : 0);
+                    }}
+                    placeholder="0"
+                    className="mt-1 rounded-2xl font-mono"
                   />
                 </div>
               </div>
@@ -2591,11 +2599,12 @@ export function InventoryManagement() {
                 <div>
                   <label className="text-xs font-bold text-muted-foreground">Jumlah Keluar *</label>
                   <Input
-                    type="number"
-                    min="1"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    value={stockOutQty}
-                    onChange={(e) => setStockOutQty(Number(e.target.value))}
+                    value={stockOutQty > 0 ? stripLeadingZeros(stockOutQty) : ""}
+                    onChange={(e) => setStockOutQty(sanitizeQuantityInput(e.target.value))}
+                    placeholder="1"
                     className="mt-1 rounded-2xl font-bold"
                   />
                 </div>
@@ -2734,11 +2743,12 @@ export function InventoryManagement() {
                     Stok Fisik Aktual *
                   </label>
                   <Input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
                     required
-                    value={adjActualStock}
-                    onChange={(e) => setAdjActualStock(Number(e.target.value))}
+                    value={stripLeadingZeros(adjActualStock)}
+                    onChange={(e) => setAdjActualStock(sanitizeQuantityInput(e.target.value))}
+                    placeholder="0"
                     className="mt-1 rounded-2xl font-bold"
                   />
                 </div>

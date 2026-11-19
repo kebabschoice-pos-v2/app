@@ -24,6 +24,7 @@ import {
   type WasteRecordDetail,
   type InventoryItemDetail,
 } from "@/services/inventory.service";
+import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 const WASTE_REASONS = ["Expired", "Rusak", "Salah produksi", "Tumpah", "Lainnya"];
 
@@ -41,6 +42,7 @@ export function WastePage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedItemId, setSelectedItemId] = useState("");
   const [wasteQty, setWasteQty] = useState<number>(1);
+  const [wasteQtyInput, setWasteQtyInput] = useState<string>("1");
   const [wasteUnitMode, setWasteUnitMode] = useState<"primary" | "recipe">("primary");
   const [wasteReason, setWasteReason] = useState<string>("Expired");
   const [wasteNotes, setWasteNotes] = useState("");
@@ -115,6 +117,7 @@ export function WastePage() {
   function handleOpenModal() {
     setSelectedItemId(items[0]?.id || "");
     setWasteQty(1);
+    setWasteQtyInput("1");
     setWasteReason("Expired");
     setWasteNotes("");
     setModalOpen(true);
@@ -264,16 +267,18 @@ export function WastePage() {
 
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs sm:text-sm">
+            <table className="w-full min-w-[760px] text-left text-xs sm:text-sm">
               <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
                 <tr>
-                  <th className="py-3.5 px-4 font-bold">Waktu</th>
-                  <th className="py-3.5 px-4 font-bold">Nama Bahan</th>
-                  <th className="py-3.5 px-4 font-bold">Alasan</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Jumlah Terbuang</th>
-                  <th className="py-3.5 px-4 font-bold text-right">Estimasi Kerugian</th>
-                  <th className="py-3.5 px-4 font-bold">Dicatat Oleh</th>
-                  <th className="py-3.5 px-4 font-bold">Catatan</th>
+                  <th className="py-2.5 px-3 font-bold">Waktu</th>
+                  <th className="py-2.5 px-3 font-bold">Nama Bahan</th>
+                  <th className="py-2.5 px-3 font-bold">Alasan</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Jumlah Terbuang</th>
+                  <th className="py-2.5 px-3 font-bold text-right">Estimasi Kerugian</th>
+                  <th className="py-2.5 px-3 font-bold">Dicatat Oleh</th>
+                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold">
+                    Catatan
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -295,28 +300,28 @@ export function WastePage() {
                 ) : (
                   filteredWaste.map((w) => (
                     <tr key={w.id} className="hover:bg-muted/20">
-                      <td className="py-3.5 px-4 text-muted-foreground">
+                      <td className="py-2.5 px-3 text-muted-foreground whitespace-nowrap">
                         {new Date(w.created_at).toLocaleString("id-ID", {
                           dateStyle: "medium",
                           timeStyle: "short",
                         })}
                       </td>
-                      <td className="py-3.5 px-4 font-bold text-foreground">{w.item_name}</td>
-                      <td className="py-3.5 px-4">
+                      <td className="py-2.5 px-3 font-bold text-foreground">{w.item_name}</td>
+                      <td className="py-2.5 px-3 whitespace-nowrap">
                         <span className="rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-600">
                           {w.reason}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 text-right font-black text-rose-600">
+                      <td className="py-2.5 px-3 text-right font-black text-rose-600 whitespace-nowrap">
                         -{w.quantity} {w.unit}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-black">
+                      <td className="py-2.5 px-3 text-right font-black whitespace-nowrap">
                         {formatRupiah(w.cost_loss)}
                       </td>
-                      <td className="py-3.5 px-4 text-muted-foreground">
+                      <td className="py-2.5 px-3 text-muted-foreground">
                         {w.created_by || "Staff"}
                       </td>
-                      <td className="py-3.5 px-4 text-muted-foreground text-xs">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-muted-foreground text-xs">
                         {w.notes || "-"}
                       </td>
                     </tr>
@@ -416,12 +421,17 @@ export function WastePage() {
                     Jumlah Terbuang ({wasteUnitMode === "recipe" && selectedItemDetail?.yield_unit ? selectedItemDetail.yield_unit : (selectedItemDetail?.unit || "Unit")}) *
                   </label>
                   <Input
-                    type="number"
-                    step={wasteUnitMode === "recipe" ? "1" : "0.01"}
-                    min="0.001"
+                    type="text"
+                    inputMode="decimal"
                     required
-                    value={wasteQty}
-                    onChange={(e) => setWasteQty(Number(e.target.value))}
+                    value={wasteQtyInput}
+                    onChange={(e) => {
+                      const raw = e.target.value.replace(",", ".").replace(/[^0-9.]/g, "");
+                      const cleaned = stripLeadingZeros(raw);
+                      setWasteQtyInput(cleaned);
+                      setWasteQty(sanitizeQuantityInput(cleaned));
+                    }}
+                    placeholder="1"
                     className="mt-1 rounded-2xl font-bold"
                   />
                 </div>

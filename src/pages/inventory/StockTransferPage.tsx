@@ -730,7 +730,7 @@ export function StockTransferPage() {
               <div>
                 <h3 className="text-lg font-black">{selectedTransfer.transfer_number}</h3>
                 <p className="text-xs text-muted-foreground">
-                  Dari: {selectedTransfer.origin_outlet_name || "Pusat"} ➔ Ke:{" "}
+                  Dari: {selectedTransfer.origin_outlet_name || "Pusat"} &rarr; Ke:{" "}
                   {selectedTransfer.destination_outlet_name || "Cabang"}
                 </p>
               </div>

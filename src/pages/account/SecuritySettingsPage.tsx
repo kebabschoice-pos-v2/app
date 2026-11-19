@@ -150,7 +150,7 @@ export function SecuritySettingsPage() {
             <div className="flex items-center gap-2">
               <SlidersHorizontal className="size-5 text-primary" />
               <div>
-                <h2 className="text-base font-bold">🎛️ Hak Akses Role Manager (Bisa Di-ON/OFF-kan)</h2>
+                <h2 className="text-base font-bold">Hak Akses Role Manager (Bisa Di-ON/OFF-kan)</h2>
                 <p className="text-xs text-muted-foreground">
                   Kontrol otorisasi fitur untuk akun Manager cabang secara terpusat.
                 </p>

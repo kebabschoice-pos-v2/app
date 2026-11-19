@@ -1670,7 +1670,10 @@ test("IndexedDB stores, idempotency keys, offline queueing, sequential synchroni
   assert.ok(posApp.includes("queueOfflineTransaction"), "POS checkout must queue offline transaction when disconnected");
   assert.ok(posApp.includes("syncPendingTransactions"), "POS cashier must allow manual or auto sync execution");
   assert.ok(posApp.includes("Offline") || posApp.includes("Koneksi Terputus"), "POS header must render disconnected state when offline");
-  assert.ok(posApp.includes("🟢 Online"), "POS header must render green Online status badge");
+  assert.ok(
+    posApp.includes('bg-emerald-500 inline-block shrink-0') && posApp.includes('"Online"'),
+    "POS header must render green CSS-dot Online status badge without emoji",
+  );
 });
 
 // --- TEST 58: Dynamic QRIS Architecture, Realtime Webhook & Auto-Settlement (Tahap 4) ---
@@ -2217,8 +2220,8 @@ test("Validates Master Inventory Cloning, Cashier Outlet Enforcement, and Smart 
 
   // 3. Sync / Clone Master modal & action in InventoryManagement.tsx
   assert.ok(
-    invPageCode.includes("🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain"),
-    "InventoryManagement must provide '🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain' button"
+    invPageCode.includes("Sinkronkan / Salin Master Bahan dari Cabang Lain"),
+    "InventoryManagement must provide 'Sinkronkan / Salin Master Bahan dari Cabang Lain' button"
   );
   assert.ok(
     invPageCode.includes("handleExecuteCloneMaster"),
@@ -2227,16 +2230,16 @@ test("Validates Master Inventory Cloning, Cashier Outlet Enforcement, and Smart 
 
   // 4. Smart Restock Readiness in InventoryManagement.tsx
   assert.ok(
-    invPageCode.includes("⚠️ PERLU RESTOCK"),
-    "InventoryManagement must show '⚠️ PERLU RESTOCK' badge when stock is below or equal to minimum"
+    invPageCode.includes("PERLU RESTOCK"),
+    "InventoryManagement must show 'PERLU RESTOCK' badge when stock is below or equal to minimum"
   );
   assert.ok(
     invPageCode.includes("Saldo Celengan Bahan Ini:"),
     "InventoryManagement must display live 'Saldo Celengan Bahan Ini' buying capacity"
   );
   assert.ok(
-    invPageCode.includes("🛒 Langsung Restock dari Celengan"),
-    "InventoryManagement must display '🛒 Langsung Restock dari Celengan' shortcut button"
+    invPageCode.includes("Langsung Restock dari Celengan"),
+    "InventoryManagement must display 'Langsung Restock dari Celengan' shortcut button"
   );
 
   // 5. Smart Restock Readiness in MoneyAllocationPage.tsx
@@ -2249,7 +2252,7 @@ test("Validates Master Inventory Cloning, Cashier Outlet Enforcement, and Smart 
     "MoneyAllocationPage BOM cards must display balance and purchasing capacity"
   );
   assert.ok(
-    moneyPageCode.includes("Restock") || moneyPageCode.includes("🛒 Langsung Restock dari Celengan"),
+    moneyPageCode.includes("Restock") || moneyPageCode.includes("Langsung Restock dari Celengan"),
     "MoneyAllocationPage BOM cards must display Restock button"
   );
 
@@ -2259,8 +2262,8 @@ test("Validates Master Inventory Cloning, Cashier Outlet Enforcement, and Smart 
     "KebabsChoicePOSApp must permit outlet switching only for owner, admin, or hq roles"
   );
   assert.ok(
-    posAppCode.includes("📍 Cabang Aktif:"),
-    "KebabsChoicePOSApp must render locked '📍 Cabang Aktif:' badge for cashier / staff"
+    posAppCode.includes("Cabang Aktif:"),
+    "KebabsChoicePOSApp must render locked 'Cabang Aktif:' badge for cashier / staff"
   );
   assert.ok(
     posAppCode.includes("Terkunci"),
@@ -2395,8 +2398,8 @@ test("Validates Tortilla pack-to-pcs BOM conversion, inline zero-cost quick fix,
 
   // 4. POS Cashier Status Bar Online Badge
   assert.ok(
-    posAppCode.includes("🟢 Online & Sinkron") || posAppCode.includes("🟢 Online"),
-    "KebabsChoicePOSApp.tsx must render '🟢 Online' badge when connected"
+    posAppCode.includes('bg-emerald-500 inline-block shrink-0') && posAppCode.includes('"Online"'),
+    "KebabsChoicePOSApp.tsx must render green CSS-dot 'Online' badge when connected"
   );
 });
 
@@ -2529,8 +2532,8 @@ test("Validates 12 orders / 38 portions BOM calculation, true POS online badge, 
 
   // 1. Validasi False POS Offline Badge Fix
   assert.ok(
-    posAppCode.includes("navigator.onLine === false") && (posAppCode.includes("🟢 Online & Sinkron") || posAppCode.includes("🟢 Online")),
-    "KebabsChoicePOSApp.tsx must strictly show 🟢 Online whenever navigator.onLine !== false"
+    posAppCode.includes("navigator.onLine === false") && posAppCode.includes('"Online"'),
+    "KebabsChoicePOSApp.tsx must strictly show Online whenever navigator.onLine !== false"
   );
   assert.ok(
     offlineCode.includes("navigator.onLine !== false"),
@@ -2862,8 +2865,8 @@ test("Balances 5-card money allocation equation, binds transferred stock branch 
     "KebabsChoicePOSApp.tsx must not display false 'Mode Offline (Tidak Ada Internet)' badge"
   );
   assert.ok(
-    posAppCode.includes("🟢 Online & Sinkron") || posAppCode.includes("🟢 Online"),
-    "KebabsChoicePOSApp.tsx must always render green '🟢 Online' status badge when online"
+    posAppCode.includes('bg-emerald-500 inline-block shrink-0') && posAppCode.includes('"Online"'),
+    "KebabsChoicePOSApp.tsx must always render green CSS-dot 'Online' status badge when online"
   );
   assert.ok(
     fs.readFileSync(path.join(process.cwd(), "src/services/offline-sync.service.ts"), "utf8").includes("currentNetworkStatus.online = online") ||
@@ -3217,9 +3220,10 @@ test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, 
   // 1A. POS Online badge with window.navigator.onLine !== false + pendingCount queue indicator
   assert.ok(
     posAppCode.includes('typeof window === "undefined" || window.navigator.onLine !== false') &&
-      posAppCode.includes("🟢 Online (${networkStatus.pendingCount} antrean)") &&
-      posAppCode.includes('"🟢 Online"'),
-    "POS status bar must strictly display green 🟢 Online (or 🟢 Online (X antrean)) whenever window.navigator.onLine !== false",
+      posAppCode.includes("Online (${networkStatus.pendingCount} antrean)") &&
+      posAppCode.includes('"Online"') &&
+      posAppCode.includes("w-2 h-2 rounded-full bg-emerald-500"),
+    "POS status bar must strictly display green CSS-dot Online (or Online (X antrean)) whenever window.navigator.onLine !== false",
   );
 
   // 1B. POS product card overflow-hidden + 2-row clean touch-first footer with Varian & + buttons
@@ -3438,7 +3442,7 @@ test("Enforces slim w-20 POS 1-click icon rail, unified top bar with search & gr
   // 4. Spacious Smart Cart 1-line pill controls + Lanjut Bayar CTA + Dedicated Payment Modal with Touch Numpad (1-9, 000, 0, ⌫)
   assert.ok(
     posAppCode.includes("activeCartPopover") &&
-      posAppCode.includes("⏳ Tertahan (") &&
+      posAppCode.includes("Tertahan ({heldOrders.length})") &&
       posAppCode.includes("min-h-[48px]") &&
       posAppCode.includes("Lanjut Bayar • {formatRupiah(total)}") &&
       posAppCode.includes("isPaymentModalOpen && cart.length > 0") &&
@@ -3527,6 +3531,62 @@ test("Enforces streamlined 5-group TOMORO HQ sidebar (Pengaturan closed by defau
       `${label} must have zero text-[9px] or text-[10px] micro-fonts (minimum text-xs / 12px)`,
     );
   }
+});
+
+// --- TEST 111: Strict Design System Overhaul — Zero UI Emojis, Monochrome Neutral + Single Brand Palette, Slim Charts & No DB Jargon ---
+console.log("\n▶ 111. STRICT DESIGN SYSTEM OVERHAUL: ZERO UI EMOJIS, MONOCHROME PALETTE, SLIM BAR CHARTS & NO DB JARGON");
+test("Enforces zero UI emojis across core pages, single Monitor icon on Masuk POS, monochrome neutral icon boxes, slim maxBarSize={48} bars, dynamic HPP % Omzet, and zero DB table jargon on Owner screens", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const coreUiFiles = [
+    "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx",
+    "src/pages/money/MoneyAllocationPage.tsx",
+    "src/pages/inventory/InventoryManagement.tsx",
+    "src/pages/MenuManagement.tsx",
+    "src/pages/reports/PerformanceOutletPage.tsx",
+    "src/pages/reports/PerformanceMenuPage.tsx",
+    "src/pages/reports/InsightAnalyticsPage.tsx",
+    "src/components/kebabschoicepos/StaffManagement.tsx",
+  ];
+  const bannedEmojis = ["🖥️", "🏢", "📍", "📊", "🛒", "⚠️", "🟢", "🔴", "💡", "⏳", "🔄", "🎛️"];
+  for (const rel of coreUiFiles) {
+    const src = read(rel);
+    for (const em of bannedEmojis) {
+      assert.ok(!src.includes(em), `${rel} must not contain banned UI emoji ${em}`);
+    }
+  }
+
+  // 1. Single Monitor icon on Masuk POS button (no duplicate monitor emoji)
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  assert.ok(
+    posAppCode.includes('<Monitor className="w-4 h-4 shrink-0" />') &&
+      posAppCode.includes('<span className="hidden sm:inline">Masuk POS</span>') &&
+      !posAppCode.includes("🖥️ Masuk POS"),
+    "Masuk POS button must render exactly one Lucide Monitor icon without monitor emoji",
+  );
+
+  // 2. PerformanceOutletPage monochrome neutral palette, slim maxBarSize={48} chart, no DB jargon, real HPP %
+  const perfOutletCode = read("src/pages/reports/PerformanceOutletPage.tsx");
+  const perfMenuCode = read("src/pages/reports/PerformanceMenuPage.tsx");
+  const insightCode = read("src/pages/reports/InsightAnalyticsPage.tsx");
+  assert.ok(
+    perfOutletCode.includes("bg-muted text-foreground/70") &&
+      !perfOutletCode.includes("bg-violet-500") &&
+      !perfOutletCode.includes("bg-blue-500") &&
+      !perfOutletCode.includes("bg-orange-500") &&
+      perfOutletCode.includes('outlet.operationalCashOut > 0') &&
+      perfOutletCode.includes("maxBarSize={48}") &&
+      perfMenuCode.includes("maxBarSize={48}") &&
+      insightCode.includes("maxBarSize={48}") &&
+      perfOutletCode.includes("Pendapatan per Cabang") &&
+      !perfOutletCode.includes("(Juta Rupiah)") &&
+      !perfOutletCode.includes("o.name.substring(0, 14)") &&
+      !perfOutletCode.includes("(pos_shifts)") &&
+      !perfOutletCode.includes("(waste_records)") &&
+      !perfOutletCode.includes("(1 s/d 10+ Outlet)") &&
+      !perfOutletCode.includes("~40% Omzet") &&
+      perfOutletCode.includes("{actualHppPct}% Omzet"),
+    "PerformanceOutletPage and report pages must use neutral icon boxes, slim maxBarSize={48} bars, full branch labels, zero DB jargon, neutral Rp 0 colors, and real dynamic HPP % Omzet",
+  );
 });
 
 console.log("\n==================================================");

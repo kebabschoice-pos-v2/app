@@ -179,7 +179,7 @@ export function InsightAnalyticsPage() {
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter Cabang Dropdown */}
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Store className="size-4 text-primary shrink-0" />
+              <Store className="w-4 h-4 text-foreground/70 shrink-0" />
               <div className="text-xs">
                 <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Cabang
@@ -192,7 +192,7 @@ export function InsightAnalyticsPage() {
                   <option value="all">Semua Cabang ({outletsList.length})</option>
                   {outletsList.map((o) => (
                     <option key={o.id} value={o.id}>
-                      📍 {o.name}
+                      {o.name}
                     </option>
                   ))}
                 </select>
@@ -201,7 +201,7 @@ export function InsightAnalyticsPage() {
 
             {/* Filter Rentang Tanggal */}
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Calendar className="size-4 text-primary shrink-0" />
+              <Calendar className="w-4 h-4 text-foreground/70 shrink-0" />
               <div className="text-xs">
                 <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Periode
@@ -268,25 +268,23 @@ export function InsightAnalyticsPage() {
       {/* AI Recommendations Cards */}
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-sm font-black text-foreground">
-          <Sparkles className="size-4 text-primary" />
-          <span>Rekomendasi Cerdas AI (Decision Engine)</span>
+          <Sparkles className="w-4 h-4 text-foreground/70" />
+          <span>Rekomendasi Cerdas AI</span>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {recommendations.map((rec) => (
             <div
               key={rec.id}
-              className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between space-y-3"
+              className="bg-card rounded-2xl border border-border/60 shadow-sm p-5 flex flex-col justify-between space-y-3"
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span
                     className={`rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${
                       rec.priority === "high"
-                        ? "bg-destructive/10 text-destructive"
-                        : rec.priority === "medium"
-                          ? "bg-amber-500/10 text-amber-600"
-                          : "bg-primary/10 text-primary"
+                        ? "bg-rose-500/10 text-rose-600"
+                        : "bg-muted text-foreground/80"
                     }`}
                   >
                     Prioritas {rec.priority}
@@ -299,9 +297,10 @@ export function InsightAnalyticsPage() {
                 <p className="text-xs leading-5 text-muted-foreground">{rec.description}</p>
               </div>
 
-              <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
-                <span className="text-xs font-bold text-emerald-600">
-                  💡 {rec.impact}
+              <div className="pt-2 border-t border-border/60 flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-foreground/80">
+                  <Sparkles className="size-3.5 shrink-0 text-foreground/60" />
+                  <span>{rec.impact}</span>
                 </span>
                 {rec.actionLabel && rec.actionHref && (
                   <Link
@@ -321,9 +320,9 @@ export function InsightAnalyticsPage() {
       {/* Charts: Sales Forecast & Peak Hours */}
       <div className="grid gap-6 lg:grid-cols-2">
         {/* Trend & Prediksi Penjualan */}
-        <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
           <div>
-            <h2 className="text-base font-black">Trend Omzet Harian & Prediksi AI</h2>
+            <h2 className="text-base font-black text-foreground">Trend Omzet Harian &amp; Prediksi AI</h2>
             <p className="text-xs text-muted-foreground">
               Perbandingan penjualan aktual 7 hari terakhir dengan proyeksi target cerdas
             </p>
@@ -334,18 +333,18 @@ export function InsightAnalyticsPage() {
               <AreaChart data={dailyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="aktualGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.4} />
+                    <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
                     <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.0} />
                   </linearGradient>
                   <linearGradient id="prediksiGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--ai)" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="var(--ai)" stopOpacity={0.0} />
+                    <stop offset="0%" stopColor="var(--muted-foreground)" stopOpacity={0.2} />
+                    <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="day" fontSize={11} />
+                <XAxis dataKey="day" fontSize={12} />
                 <YAxis
-                  fontSize={11}
+                  fontSize={12}
                   domain={[0, "auto"]}
                   allowDataOverflow={false}
                   tickFormatter={(val) => {
@@ -371,7 +370,7 @@ export function InsightAnalyticsPage() {
                 <Area
                   type="monotone"
                   dataKey="prediksi"
-                  stroke="var(--ai)"
+                  stroke="var(--muted-foreground)"
                   strokeDasharray="4 4"
                   fill="url(#prediksiGrad)"
                   strokeWidth={2}
@@ -384,17 +383,17 @@ export function InsightAnalyticsPage() {
               <span className="size-2.5 rounded-full bg-primary" /> Aktual
             </span>
             <span className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-ai" /> Proyeksi AI
+              <span className="size-2.5 rounded-full bg-muted-foreground" /> Proyeksi AI
             </span>
           </div>
         </div>
 
         {/* Pola Jam Sibuk (Peak Hours) */}
-        <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
           <div>
-            <h2 className="text-base font-black">Distribusi Jam Ramai (Peak Hours)</h2>
+            <h2 className="text-base font-black text-foreground">Distribusi Jam Ramai</h2>
             <p className="text-xs text-muted-foreground">
-              Volume order per jam operasional dihitung langsung dari riwayat transaksi
+              Volume order per jam operasional berdasarkan riwayat transaksi
             </p>
           </div>
 
@@ -402,10 +401,10 @@ export function InsightAnalyticsPage() {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={peakHours} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="hour" fontSize={10} />
-                <YAxis fontSize={11} />
+                <XAxis dataKey="hour" fontSize={11} />
+                <YAxis fontSize={12} />
                 <ChartTooltip formatter={(val: any) => [`${val} Order`, "Volume Transaksi"]} />
-                <Bar dataKey="orders" fill="var(--ai)" radius={[6, 6, 0, 0]} />
+                <Bar dataKey="orders" fill="var(--primary)" maxBarSize={48} radius={[8, 8, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           </div>

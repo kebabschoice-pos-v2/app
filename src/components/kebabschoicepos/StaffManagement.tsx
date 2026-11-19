@@ -495,7 +495,7 @@ export function StaffManagement() {
     );
     setRosterSchedule(generated);
     await saveRosterSchedule(generated);
-    toast.success("⚡ Jadwal rotasi shift otomatis berhasil digenerate!");
+    toast.success("Jadwal rotasi shift otomatis berhasil digenerate!");
   }
 
   function handleSaveCellEdit(
@@ -1457,7 +1457,7 @@ export function StaffManagement() {
                 </div>
                 <div>
                   <h4 className="text-sm font-black text-foreground">
-                    🔑 Akun Login Outlet Terdaftar per Cabang (Perangkat POS Tablet)
+                    Akun Login Outlet Terdaftar per Cabang (Perangkat POS Tablet)
                   </h4>
                   <p className="text-[11px] text-muted-foreground">
                     Akun perangkat kasir cabang dipisahkan 100% dari data karyawan &amp; jadwal shift.
@@ -1874,8 +1874,8 @@ export function StaffManagement() {
                       onChange={(e) => setForm({ ...form, gender: e.target.value as "male" | "female" })}
                       className="mt-1.5 h-10 w-full rounded-xl border border-input bg-card px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                     >
-                      <option value="male">👨 Laki-laki (Cowok)</option>
-                      <option value="female">👩 Perempuan (Cewek)</option>
+                      <option value="male">Laki-laki</option>
+                      <option value="female">Perempuan</option>
                     </select>
                   </div>
                   <div>
@@ -1903,7 +1903,7 @@ export function StaffManagement() {
                     <div className="flex items-center gap-2">
                       <ShieldCheck className="size-4 text-amber-600 dark:text-amber-400" />
                       <span className="font-bold text-xs text-amber-800 dark:text-amber-300 uppercase tracking-wider">
-                        🔑 Akun Login Store Manager (Akses HQ)
+                        Akun Login Store Manager (Akses HQ)
                       </span>
                     </div>
 
@@ -1969,7 +1969,7 @@ export function StaffManagement() {
                     {/* Owner Gmail Authorization Box */}
                     <div className="rounded-xl border border-primary/20 bg-background/80 p-3 space-y-2">
                       <div className="text-[11px] text-muted-foreground">
-                        🛡️ Otorisasi Keamanan Owner:
+                        Otorisasi Keamanan Owner:
                       </div>
                       <div className="text-xs font-mono font-bold text-primary">
                         {ownerEmail || "ujicobaajaoke@gmail.com"}
@@ -1990,7 +1990,7 @@ export function StaffManagement() {
                     {/* HQ Menu Permissions Checklist */}
                     <div className="space-y-2 pt-1">
                       <label className="text-xs font-bold text-foreground/80 block">
-                        🛡️ Hak Akses Menu HQ (Store Manager)
+                        Hak Akses Menu HQ (Store Manager)
                       </label>
                       <div className="grid grid-cols-1 gap-1.5">
                         {HQ_PERMISSIONS_CONFIG.map((p) => {
@@ -2066,7 +2066,7 @@ export function StaffManagement() {
                     ) : (
                       outlets.map((outlet, oIdx) => (
                         <option key={`staff-outlet-${outlet.id || oIdx}-${oIdx}`} value={outlet.id}>
-                          📍 {outlet.outlet_name || outlet.name} ({outlet.code || "CABANG"})
+                          {outlet.outlet_name || outlet.name} ({outlet.code || "CABANG"})
                         </option>
                       ))
                     )}
@@ -2108,8 +2108,8 @@ export function StaffManagement() {
                       value={form.gender || "male"}
                       onChange={(e) => setForm({ ...form, gender: e.target.value as any })}
                     >
-                      <option value="male">👨 Laki-laki (L)</option>
-                      <option value="female">👩 Perempuan (P)</option>
+                      <option value="male">Laki-laki (L)</option>
+                      <option value="female">Perempuan (P)</option>
                     </select>
                   </div>
                   <div>
@@ -2291,9 +2291,14 @@ export function StaffManagement() {
                             : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
                         }`}
                       >
+                        <span
+                          className={`w-2 h-2 rounded-full inline-block shrink-0 ${
+                            item.status === "on_time" ? "bg-emerald-500" : "bg-amber-500"
+                          }`}
+                        />
                         {item.status === "on_time"
-                          ? "🟢 Tepat Waktu"
-                          : `🟠 Terlambat ${item.late_minutes ? `(${item.late_minutes} mnt)` : ""}`}
+                          ? "Tepat Waktu"
+                          : `Terlambat ${item.late_minutes ? `(${item.late_minutes} mnt)` : ""}`}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-muted-foreground text-[0.68rem] max-w-xs truncate">
@@ -2455,7 +2460,7 @@ export function StaffManagement() {
                       className="h-9 rounded-xl font-bold gap-1.5 text-xs shadow-brand"
                     >
                       <Sparkles className="size-3.5" />
-                      <span>⚡ Generate Jadwal Otomatis</span>
+                      <span>Generate Jadwal Otomatis</span>
                     </Button>
 
                     <Button
@@ -2465,7 +2470,7 @@ export function StaffManagement() {
                       className="h-9 rounded-xl font-bold gap-1.5 text-xs"
                     >
                       <FileUp className="size-3.5" />
-                      <span>📄 Import Jadwal (PDF / CSV)</span>
+                      <span>Import Jadwal (PDF / CSV)</span>
                     </Button>
                   </>
                 )}
@@ -2477,7 +2482,7 @@ export function StaffManagement() {
                   className="h-9 rounded-xl font-bold gap-1.5 text-xs"
                 >
                   <Download className="size-3.5" />
-                  <span>📥 Export CSV</span>
+                  <span>Export CSV</span>
                 </Button>
               </div>
             </div>
@@ -2500,7 +2505,7 @@ export function StaffManagement() {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 rounded-2xl bg-primary/10 border border-primary/20 px-4 py-2.5">
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-black text-foreground">
-                      📍 Hari Ini: {todayDateStr} {todayWeekNum ? `(Minggu ${todayWeekNum})` : ""}
+                      Hari Ini: {todayDateStr} {todayWeekNum ? `(Minggu ${todayWeekNum})` : ""}
                     </span>
                   </div>
                   {todayWeekNum && (
@@ -2900,7 +2905,7 @@ export function StaffManagement() {
                     {rosterRecapList.length === 0 ? (
                       <tr>
                         <td colSpan={7} className="px-4 py-6 text-center text-muted-foreground">
-                          Belum ada data jadwal untuk periode ini. Klik "⚡ Generate Jadwal Otomatis".
+                          Belum ada data jadwal untuk periode ini. Klik "Generate Jadwal Otomatis".
                         </td>
                       </tr>
                     ) : (
@@ -3337,7 +3342,7 @@ export function StaffManagement() {
                     </h4>
                     <p className="text-[11px] text-muted-foreground">
                       {editingProfile.avatar_url
-                        ? "✓ Foto biometrik aktif untuk absensi wajah POS"
+                        ? "Foto biometrik aktif untuk absensi wajah POS"
                         : "Belum terdaftar untuk absensi wajah di POS"}
                     </p>
                   </div>
@@ -3413,8 +3418,8 @@ export function StaffManagement() {
                     }
                     className="w-full h-10 rounded-xl border border-input bg-card px-3 text-xs font-semibold focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
-                    <option value="male">👨 Laki-laki (Cowok)</option>
-                    <option value="female">👩 Perempuan (Cewek)</option>
+                    <option value="male">Laki-laki</option>
+                    <option value="female">Perempuan</option>
                   </select>
                 </div>
                 <div>
@@ -3465,7 +3470,7 @@ export function StaffManagement() {
                   <div className="flex items-center gap-2">
                     <ShieldCheck className="size-4 text-amber-600 dark:text-amber-400" />
                     <span className="font-bold text-xs text-amber-800 dark:text-amber-300 uppercase tracking-wider">
-                      🔑 Akses Login HQ Store Manager
+                      Akses Login HQ Store Manager
                     </span>
                   </div>
 
@@ -3498,7 +3503,7 @@ export function StaffManagement() {
                   {editManagerPassword && (
                     <div className="rounded-xl border border-primary/20 bg-background/80 p-2.5 space-y-1.5">
                       <div className="text-xs text-muted-foreground">
-                        🛡️ Otorisasi Owner: <span className="font-mono font-bold text-primary">{ownerEmail || "ujicobaajaoke@gmail.com"}</span>
+                        Otorisasi Owner: <span className="font-mono font-bold text-primary">{ownerEmail || "ujicobaajaoke@gmail.com"}</span>
                       </div>
                       <label className="flex items-start gap-2 cursor-pointer">
                         <input
@@ -3516,7 +3521,7 @@ export function StaffManagement() {
 
                   <div>
                     <label className="font-bold text-muted-foreground block text-xs uppercase mb-1.5">
-                      🛡️ Hak Akses Menu HQ (Store Manager)
+                      Hak Akses Menu HQ (Store Manager)
                     </label>
                     <div className="grid grid-cols-1 gap-1.5">
                       {HQ_PERMISSIONS_CONFIG.map((p) => {
@@ -4283,7 +4288,7 @@ export function StaffManagement() {
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
                 <h3 className="font-bold text-base text-foreground">
-                  📄 Import Jadwal Shift (PDF / CSV / Teks)
+                  Import Jadwal Shift (PDF / CSV / Teks)
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   Unggah file CSV/TXT atau tempel teks jadwal hasil copy dari PDF / Excel.

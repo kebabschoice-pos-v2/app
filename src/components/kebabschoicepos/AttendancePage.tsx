@@ -578,7 +578,7 @@ export function AttendancePage({
                         </div>
                         <p className="text-[11px] text-muted-foreground mt-0.5">
                           {cur.avatar_url
-                            ? "✓ Wajah biometrik terdaftar"
+                            ? "Wajah biometrik terdaftar"
                             : "Belum daftar foto biometrik"}
                         </p>
                       </div>
@@ -872,7 +872,7 @@ export function AttendancePage({
               <div className="flex items-center justify-between border-b border-border pb-3">
                 <div>
                   <h4 className="font-black text-sm uppercase tracking-wide text-foreground">
-                    📅 Matriks Jadwal Shift Mingguan — {activeOutlet.name}
+                    Matriks Jadwal Shift Mingguan — {activeOutlet.name}
                   </h4>
                   <p className="text-xs text-muted-foreground">
                     Jadwal rotasi shift mingguan tersinkronisasi langsung dari HQ.
@@ -1074,9 +1074,16 @@ export function AttendancePage({
                       : "text-amber-600 dark:text-amber-400"
                   }`}
                 >
-                  {successRecord.status === "on_time"
-                    ? "🟢 Tepat Waktu"
-                    : `🟠 Terlambat ${successRecord.late_minutes ? `(${successRecord.late_minutes} menit)` : ""}`}
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      className={`w-2 h-2 rounded-full inline-block shrink-0 ${
+                        successRecord.status === "on_time" ? "bg-emerald-500" : "bg-amber-500"
+                      }`}
+                    />
+                    {successRecord.status === "on_time"
+                      ? "Tepat Waktu"
+                      : `Terlambat ${successRecord.late_minutes ? `(${successRecord.late_minutes} menit)` : ""}`}
+                  </span>
                 </span>
               </div>
             </div>

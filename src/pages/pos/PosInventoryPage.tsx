@@ -283,7 +283,7 @@ export function PosInventoryPage() {
         <div className="rounded-[1.5rem] border border-border bg-card/85 p-4 shadow-soft space-y-2.5">
           <div className="flex items-center gap-2 text-xs font-black text-foreground">
             <Activity className="size-3.5 text-primary" />
-            <span>📊 Ringkasan Mutasi Bahan Hari Ini (Cabang {outletName})</span>
+            <span>Ringkasan Mutasi Bahan Hari Ini (Cabang {outletName})</span>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {todayMutations.map((m, idx) => {
@@ -430,7 +430,7 @@ export function PosInventoryPage() {
                           variant="outline"
                           className="bg-destructive/10 text-destructive border-destructive/30 font-bold text-[10px]"
                         >
-                          ✕ Kritis
+                          Kritis
                         </Badge>
                       )}
                     </td>
@@ -491,7 +491,7 @@ export function PosInventoryPage() {
                       : "bg-primary/10 text-primary border-primary/30"
                   }`}
                 >
-                  {req.status === "approved" ? "✓ Disetujui HQ" : "⏳ Menunggu Respon HQ"}
+                  {req.status === "approved" ? "Disetujui HQ" : "Menunggu Respon HQ"}
                 </Badge>
               </div>
             ))}

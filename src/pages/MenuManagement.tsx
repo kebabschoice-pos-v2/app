@@ -1731,7 +1731,7 @@ export function MenuManagement() {
                   <div className="mt-2.5 flex flex-wrap items-center gap-1.5 text-[11px]">
                     <button
                       onClick={() => handleOpenQuickOutlet(item)}
-                      className="inline-flex items-center gap-1 rounded-xl bg-blue-500/10 px-2 py-1 font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-500/20 transition-colors"
+                      className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 font-semibold text-foreground/80 hover:bg-secondary transition-colors"
                       title="Klik untuk ubah ketersediaan outlet"
                     >
                       <MapPin className="size-3" />
@@ -1740,7 +1740,7 @@ export function MenuManagement() {
 
                     {recipeCount > 0 && (
                       <span
-                        className="inline-flex items-center gap-1 rounded-xl bg-purple-500/10 px-2 py-1 font-semibold text-purple-600 dark:text-purple-400"
+                        className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 font-semibold text-foreground/80"
                         title="Resep BOM otomatis memotong inventaris"
                       >
                         <BookOpen className="size-3" />
@@ -1749,7 +1749,7 @@ export function MenuManagement() {
                     )}
 
                     {(item.modifiers || []).length > 0 && (
-                      <span className="inline-flex items-center gap-1 rounded-xl bg-amber-500/10 px-2 py-1 font-semibold text-amber-600 dark:text-amber-400">
+                      <span className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 font-semibold text-foreground/80">
                         <PlusCircle className="size-3" />
                         <span>{item.modifiers?.length} Add-on</span>
                       </span>
@@ -1899,7 +1899,7 @@ export function MenuManagement() {
                       </td>
                       <td className="px-3 py-3">
                         {recipeCount > 0 ? (
-                          <span className="inline-flex items-center gap-1 rounded-xl bg-purple-500/10 px-2 py-1 text-xs font-semibold text-purple-600 dark:text-purple-400">
+                          <span className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 text-xs font-semibold text-foreground/80">
                             <BookOpen className="size-3" />
                             <span>{recipeCount} Bahan</span>
                           </span>
@@ -1910,7 +1910,7 @@ export function MenuManagement() {
                       <td className="px-3 py-3">
                         <button
                           onClick={() => handleOpenQuickOutlet(item)}
-                          className="inline-flex items-center gap-1 rounded-xl bg-blue-500/10 px-2 py-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:bg-blue-500/20"
+                          className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 text-xs font-semibold text-foreground/80 hover:bg-blue-500/20"
                         >
                           <MapPin className="size-3" />
                           <span>
@@ -2035,7 +2035,7 @@ export function MenuManagement() {
                   {variantGroups.length} Grup
                 </span>
                 {recipeItems.length > 0 && (
-                  <span className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 text-xs font-black">
+                  <span className="rounded-full bg-muted text-foreground/80 px-2 py-0.5 text-xs font-bold">
                     {recipeItems.length} BOM
                   </span>
                 )}
@@ -3410,7 +3410,7 @@ export function MenuManagement() {
                                         </option>
                                       )}
                                       <option value="__custom__">
-                                        ➕ Bahan Baku Manual / Lainnya
+                                        Bahan Baku Manual / Lainnya
                                       </option>
                                     </select>
                                   </div>
@@ -3552,7 +3552,7 @@ export function MenuManagement() {
                                   <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 p-2.5 text-xs text-amber-700 dark:text-amber-300">
                                     <AlertCircle className="size-4 shrink-0 text-amber-600" />
                                     <span className="font-semibold">
-                                      ⚠️ Harga beli 1 {matchedInv.unit} {matchedInv.name} belum diatur.
+                                      Harga beli 1 {matchedInv.unit} {matchedInv.name} belum diatur.
                                     </span>
                                     <div className="flex items-center gap-1.5 flex-wrap">
                                       <span className="text-[11px] font-bold">Harga 1 {matchedInv.unit}: Rp</span>
@@ -4159,7 +4159,7 @@ export function MenuManagement() {
           <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
             <div className="flex items-center justify-between border-b border-border p-5 bg-muted/20">
               <div className="flex items-center gap-2.5">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/70">
                   <Store className="size-5" />
                 </div>
                 <div>

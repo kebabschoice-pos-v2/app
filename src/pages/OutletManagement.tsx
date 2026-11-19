@@ -279,7 +279,7 @@ export function OutletManagement({
           };
           await supabase.from("outlets").update({ settings: updatedSettings }).eq("id", outletId);
           toast.success(
-            `✅ Akun perangkat POS cabang "${outRow.name}" telah berhasil diaktivasi secara resmi!`,
+            `Akun perangkat POS cabang "${outRow.name}" telah berhasil diaktivasi secara resmi!`,
             { duration: 6000 },
           );
           if (typeof window !== "undefined") {
@@ -898,12 +898,12 @@ export function OutletManagement({
                     const branchEmployees = getAssignedEmployeesForOutlet(outlet);
                     return (
                       <div className="mt-3.5 space-y-2.5">
-                        {/* Kotak 1: 🔑 Akun Login Outlet Terdaftar */}
+                        {/* Kotak 1: Akun Login Outlet Terdaftar */}
                         <div className="rounded-xl border border-primary/20 bg-primary/[0.03] p-3 text-xs space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 font-bold text-foreground">
                               <KeyRound className="size-3.5 text-primary" />
-                              <span>🔑 Akun Login Outlet Terdaftar</span>
+                              <span>Akun Login Outlet Terdaftar</span>
                             </div>
                             {!isCashier && (
                               <Button
@@ -922,7 +922,7 @@ export function OutletManagement({
                               <div className="space-y-1 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2 text-[11px] text-amber-700 dark:text-amber-400">
                                 <div className="flex items-center gap-1.5 font-bold">
                                   <span className="size-1.5 rounded-full bg-amber-500 animate-ping shrink-0" />
-                                  <span>🟡 Menunggu Konfirmasi Gmail Owner</span>
+                                  <span>Menunggu Konfirmasi Gmail Owner</span>
                                 </div>
                                 <p className="font-mono text-xs text-muted-foreground truncate">
                                   {(outlet.settings as any).outlet_login_email}
@@ -933,7 +933,7 @@ export function OutletManagement({
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 underline hover:text-amber-800"
                                 >
-                                  <span>📬 Buka Gmail Owner Sekarang &rarr;</span>
+                                  <span>Buka Gmail Owner Sekarang &rarr;</span>
                                 </a>
                               </div>
                             ) : (
@@ -964,12 +964,12 @@ export function OutletManagement({
                           )}
                         </div>
 
-                        {/* Kotak 2: 👥 Karyawan Cabang Ini (Otomatis dari Staff Management) */}
+                        {/* Kotak 2: Karyawan Cabang Ini (Otomatis dari Staff Management) */}
                         <div className="rounded-xl border border-border/80 bg-card p-3 text-xs space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 font-bold text-foreground">
                               <Users className="size-3.5 text-blue-500" />
-                              <span>👥 Karyawan Cabang Ini ({branchEmployees.length})</span>
+                              <span>Karyawan Cabang Ini ({branchEmployees.length})</span>
                             </div>
                             <span className="text-xs text-muted-foreground">
                               Otomatis dari Staff Management
@@ -1067,8 +1067,8 @@ export function OutletManagement({
               <thead className="border-b border-border bg-muted/40 text-xs uppercase font-bold text-muted-foreground">
                 <tr>
                   <th className="py-2.5 px-3 whitespace-nowrap">Cabang Outlet</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">🔑 Akun Login Outlet</th>
-                  <th className="py-2.5 px-3 whitespace-nowrap">👥 Karyawan Cabang</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Akun Login Outlet</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Karyawan Cabang</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">Alamat &amp; Kontak</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
                   <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
@@ -1104,7 +1104,7 @@ export function OutletManagement({
                         </div>
                       </td>
 
-                      {/* 🔑 Akun Login Outlet */}
+                      {/* Akun Login Outlet */}
                       <td className="py-2.5 px-3">
                         {loginEmail ? (
                           <div className="space-y-1">
@@ -1126,7 +1126,7 @@ export function OutletManagement({
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline"
                                 >
-                                  🟡 Cek Gmail Owner &rarr;
+                                  Cek Gmail Owner &rarr;
                                 </a>
                               ) : (
                                 <span className="inline-block rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-xs font-bold text-emerald-600">
@@ -1146,7 +1146,7 @@ export function OutletManagement({
                         )}
                       </td>
 
-                      {/* 👥 Karyawan Cabang */}
+                      {/* Karyawan Cabang */}
                       <td className="py-2.5 px-3 max-w-xs">
                         {branchEmployees.length === 0 ? (
                           <span className="text-xs text-muted-foreground italic">

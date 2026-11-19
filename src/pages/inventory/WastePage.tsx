@@ -409,7 +409,7 @@ export function WastePage() {
                     </button>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    💡 1 {selectedItemDetail.unit} = {selectedItemDetail.yield_per_unit} {selectedItemDetail.yield_unit || "unit"}.
+                    1 {selectedItemDetail.unit} = {selectedItemDetail.yield_per_unit} {selectedItemDetail.yield_unit || "unit"}.
                     {wasteUnitMode === "recipe" && ` (${wasteQty} ${selectedItemDetail.yield_unit || "unit"} = -${effectivePrimaryQty.toFixed(4)} ${selectedItemDetail.unit} stok utama)`}
                   </p>
                 </div>

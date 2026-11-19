@@ -1192,13 +1192,13 @@ export function InventoryManagement() {
         </div>
       </div>
 
-      {/* 2. Metric Cards (1 Design System TOMORO — Tanpa Truncate) */}
+      {/* 2. Metric Cards (1 Design System Monokrom TOMORO — Tanpa Pelangi & Tanpa Truncate) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Item Bahan</p>
-            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Boxes className="size-4" />
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground/70">
+              <Boxes className="w-4 h-4" />
             </div>
           </div>
           <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
@@ -1210,11 +1210,11 @@ export function InventoryManagement() {
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Nilai Stok</p>
-            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-              <DollarSign className="size-4" />
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground/70">
+              <DollarSign className="w-4 h-4" />
             </div>
           </div>
-          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-emerald-600 dark:text-emerald-400">
+          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
             {formatRupiah(metrics.totalStockValue)}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Kalkulasi modal fisik</p>
@@ -1223,11 +1223,15 @@ export function InventoryManagement() {
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Stok Menipis</p>
-            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
-              <AlertTriangle className="size-4" />
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground/70">
+              <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
-          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-amber-600 dark:text-amber-400">
+          <p
+            className={`mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap ${
+              metrics.lowStockCount > 0 ? "text-rose-600" : "text-foreground"
+            }`}
+          >
             {metrics.lowStockCount}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Di bawah minimum stok</p>
@@ -1236,11 +1240,15 @@ export function InventoryManagement() {
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Stok Habis</p>
-            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
-              <XCircle className="size-4" />
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground/70">
+              <XCircle className="w-4 h-4" />
             </div>
           </div>
-          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-rose-600 dark:text-rose-400">
+          <p
+            className={`mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap ${
+              metrics.outOfStockCount > 0 ? "text-rose-600" : "text-foreground"
+            }`}
+          >
             {metrics.outOfStockCount}
           </p>
           <p className="mt-1 text-xs text-muted-foreground">Perlu segera restock</p>
@@ -1361,14 +1369,14 @@ export function InventoryManagement() {
 
                     {/* Transfer */}
                     {item.transferQty > 0 && (
-                      <span className="inline-flex items-center gap-1 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-lg px-2 py-1 text-[11px] font-bold">
+                      <span className="inline-flex items-center gap-1 bg-muted text-foreground/80 rounded-lg px-2 py-1 text-xs font-bold">
                         Transfer: -{Number(item.transferQty.toFixed(2)).toString().replace(".", ",")} {item.unit}
                       </span>
                     )}
 
                     {/* Opname */}
                     {item.opnameQty !== 0 && (
-                      <span className="inline-flex items-center gap-1 bg-blue-500/10 text-blue-600 dark:text-blue-400 rounded-lg px-2 py-1 text-[11px] font-bold">
+                      <span className="inline-flex items-center gap-1 bg-muted text-foreground/80 rounded-lg px-2 py-1 text-xs font-bold">
                         Opname: {item.opnameQty > 0 ? "+" : ""}{Number(item.opnameQty.toFixed(2)).toString().replace(".", ",")} {item.unit}
                       </span>
                     )}
@@ -1633,8 +1641,8 @@ export function InventoryManagement() {
                             }}
                             className="rounded-xl font-bold text-xs gap-1.5 border-primary/30 text-primary hover:bg-primary/10"
                           >
-                            <Copy className="size-3.5" />
-                            🔄 Sinkronkan / Salin Master Bahan dari Cabang Lain
+                            <Copy className="w-4 h-4" />
+                            Sinkronkan / Salin Master Bahan dari Cabang Lain
                           </Button>
                         </div>
                       </td>
@@ -1652,29 +1660,28 @@ export function InventoryManagement() {
                           className={`transition-colors ${
                             isOutOfStock
                               ? "bg-rose-500/5 hover:bg-rose-500/10"
-                              : isLowStock
-                                ? "bg-amber-500/5 hover:bg-amber-500/10"
-                                : "hover:bg-muted/20"
+                              : "hover:bg-muted/20"
                           }`}
                         >
                           <td className="py-2.5 px-3 font-bold text-foreground">
                             <div>
                               <span>{item.name}</span>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded-md">
-                                  <Warehouse className="size-2.5" />
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-foreground/75 bg-muted px-1.5 py-0.5 rounded-md">
+                                  <Warehouse className="size-3" />
                                   {item.outlet_name || (outlets.find((o) => o.id === item.outlet_id)?.name) || (item.outlet_id ? "Outlet Cabang" : "Gudang Pusat")}
                                 </span>
                                 {item.ai_alert && (
-                                  <span className="text-xs font-normal text-amber-600 dark:text-amber-400">
-                                    ⚠️ {item.ai_alert}
+                                  <span className="inline-flex items-center gap-1 text-xs font-normal text-rose-600">
+                                    <AlertTriangle className="size-3 shrink-0" />
+                                    {item.ai_alert}
                                   </span>
                                 )}
                               </div>
                             </div>
                           </td>
                           <td className="py-2.5 px-3 text-muted-foreground">
-                            <span className="rounded-full bg-secondary px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap">
+                            <span className="rounded-full bg-secondary px-2.5 py-1 text-xs font-semibold whitespace-nowrap">
                               {item.category || "Umum"}
                             </span>
                           </td>
@@ -1688,18 +1695,14 @@ export function InventoryManagement() {
                             <div>
                               <span
                                 className={`font-black text-sm ${
-                                  isOutOfStock
-                                    ? "text-rose-600"
-                                    : isLowStock
-                                      ? "text-amber-600"
-                                      : "text-foreground"
+                                  isCritical ? "text-rose-600" : "text-foreground"
                                 }`}
                               >
                                 {Number(item.stock % 1 === 0 ? item.stock : item.stock.toFixed(2)).toLocaleString("id-ID")}{" "}
                                 <span className="text-xs font-semibold text-muted-foreground">{item.unit}</span>
                               </span>
                               {Number(item.yield_per_unit) > 0 && item.stock > 0 && (
-                                <p className="text-[10.5px] font-medium text-muted-foreground mt-0.5">
+                                <p className="text-xs font-medium text-muted-foreground mt-0.5">
                                   Setara ±{" "}
                                   <strong className="text-foreground">
                                     {Math.round(item.stock * Number(item.yield_per_unit)).toLocaleString("id-ID")}{" "}
@@ -1715,13 +1718,13 @@ export function InventoryManagement() {
                           <td className="py-2.5 px-3 text-center">
                             {isCritical ? (
                               <div className="flex flex-col items-center gap-1">
-                                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-700 dark:text-amber-400 whitespace-nowrap">
-                                  <AlertTriangle className="size-3" />
-                                  ⚠️ PERLU RESTOCK
+                                <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 border border-rose-500/30 px-2.5 py-0.5 text-xs font-bold text-rose-600 whitespace-nowrap">
+                                  <AlertTriangle className="size-3.5 shrink-0" />
+                                  PERLU RESTOCK
                                 </span>
                                 <span className="text-xs text-muted-foreground font-medium text-center leading-tight">
                                   Saldo Celengan Bahan Ini:{" "}
-                                  <strong className="font-mono text-emerald-600 dark:text-emerald-400">
+                                  <strong className="font-mono text-foreground">
                                     {formatRupiah(pocketInfo.balance)}
                                   </strong>
                                   {pocketInfo.canBuyUnits > 0 ? (
@@ -1734,8 +1737,8 @@ export function InventoryManagement() {
                                 </span>
                               </div>
                             ) : (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-0.5 text-[11px] font-bold text-emerald-600 whitespace-nowrap">
-                                <CheckCircle2 className="size-3" />
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-muted border border-border/60 px-2.5 py-0.5 text-xs font-bold text-foreground/80 whitespace-nowrap">
+                                <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
                                 Aman
                               </span>
                             )}
@@ -1750,11 +1753,11 @@ export function InventoryManagement() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleOpenStockIn(item.id)}
-                                  className="h-8 rounded-xl text-xs gap-1 font-bold border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 mr-1 shadow-xs shrink-0"
-                                  title="🛒 Langsung Restock dari Celengan"
+                                  className="h-8 rounded-xl text-xs gap-1.5 font-bold border-border bg-muted text-foreground hover:bg-secondary mr-1 shadow-xs shrink-0"
+                                  title="Langsung Restock dari Celengan"
                                 >
-                                  <ShoppingCart className="size-3.5 text-amber-600 shrink-0" />
-                                  <span className="hidden 2xl:inline">🛒 Langsung Restock dari Celengan</span>
+                                  <ShoppingCart className="w-4 h-4 shrink-0" />
+                                  <span className="hidden 2xl:inline">Langsung Restock dari Celengan</span>
                                   <span className="2xl:hidden">Restock</span>
                                 </Button>
                               )}
@@ -2849,7 +2852,7 @@ export function InventoryManagement() {
                   <option value="all">Semua Master Bahan / Gudang Utama (HQ)</option>
                   {outlets.map((o) => (
                     <option key={o.id} value={o.id}>
-                      📍 Cabang: {o.name || o.outlet_name} ({items.filter((i) => i.outlet_id === o.id).length} bahan)
+                      Cabang: {o.name || o.outlet_name} ({items.filter((i) => i.outlet_id === o.id).length} bahan)
                     </option>
                   ))}
                 </select>
@@ -2868,7 +2871,7 @@ export function InventoryManagement() {
                   <option value="">Pilih cabang tujuan...</option>
                   {outlets.map((o) => (
                     <option key={o.id} value={o.id}>
-                      📍 {o.name || o.outlet_name} (Saat ini: {items.filter((i) => i.outlet_id === o.id).length} bahan)
+                      {o.name || o.outlet_name} (Saat ini: {items.filter((i) => i.outlet_id === o.id).length} bahan)
                     </option>
                   ))}
                 </select>

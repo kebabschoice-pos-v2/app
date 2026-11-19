@@ -906,7 +906,7 @@ export function PosShiftCashPage() {
                                 : "bg-amber-500/20 text-amber-600 dark:text-amber-400",
                             )}
                           >
-                            ☀️ Pagi
+                            Pagi
                           </span>
                         )}
                         {isNight && (
@@ -918,7 +918,7 @@ export function PosShiftCashPage() {
                                 : "bg-sky-500/20 text-sky-600 dark:text-sky-400",
                             )}
                           >
-                            🌙 Malam
+                            Malam
                           </span>
                         )}
                       </button>
@@ -974,7 +974,7 @@ export function PosShiftCashPage() {
                   <div className="flex items-center gap-1.5">
                     <Calendar className="size-3.5 text-primary" />
                     <span className="text-xs font-bold text-foreground">
-                      📅 Jadwal Tim Cabang Hari Ini (Sinkron HR)
+                      Jadwal Tim Cabang Hari Ini (Sinkron HR)
                     </span>
                   </div>
                   <span className="text-[10px] font-semibold text-muted-foreground">
@@ -991,7 +991,7 @@ export function PosShiftCashPage() {
                   <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-[11px] text-rose-600 dark:text-rose-400">
-                        ☀️ Shift Pagi {morningHours}
+                        Shift Pagi {morningHours}
                       </span>
                       <Button
                         type="button"
@@ -1019,7 +1019,7 @@ export function PosShiftCashPage() {
                   <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-[11px] text-sky-600 dark:text-sky-400">
-                        🌙 Shift Malam {nightHours}
+                        Shift Malam {nightHours}
                       </span>
                       <Button
                         type="button"
@@ -1412,7 +1412,7 @@ export function PosShiftCashPage() {
                   <div className="flex items-center justify-between">
                     <span className="uppercase tracking-wider text-[10px]">
                       {Number(actualCashInput) - expectedEndingCash === 0
-                        ? "✓ Status: PAS / IMPAS"
+                        ? "Status: PAS / IMPAS"
                         : Number(actualCashInput) - expectedEndingCash > 0
                           ? "▲ Status: SELISIH LEBIH (OVERAGE)"
                           : "▼ Status: SELISIH KURANG (SHORTAGE)"}

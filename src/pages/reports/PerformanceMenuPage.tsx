@@ -160,10 +160,10 @@ export function PerformanceMenuPage() {
     return ["all", ...Array.from(set)];
   }, [menuItems]);
 
-  // Chart Data Top 6
+  // Chart Data Top 6 (nama menu utuh)
   const chartData = useMemo(() => {
     return [...menuItems].slice(0, 6).map((item) => ({
-      name: item.name.length > 12 ? item.name.substring(0, 12) + "..." : item.name,
+      name: item.name,
       Terjual: item.soldCount,
       Revenue: item.revenue / 1000000,
     }));
@@ -234,25 +234,24 @@ export function PerformanceMenuPage() {
   return (
     <div className="space-y-6 w-full max-w-none">
       {/* Header */}
-      <div className="rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
-              <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <UtensilsCrossed className="size-5" />
+              <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground/70">
+                <UtensilsCrossed className="w-4 h-4" />
               </div>
               <h1 className="text-3xl font-black tracking-normal">Performa Menu</h1>
             </div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Analisis performa penjualan, margin resep BOM, menu terlaris, dan pergerakan produk
-              dari database transaksi kasir.
+              Analisis performa penjualan, margin resep, menu terlaris, dan pergerakan produk per cabang.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter Cabang Dropdown */}
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Store className="size-4 text-primary shrink-0" />
+              <Store className="w-4 h-4 text-foreground/70 shrink-0" />
               <div className="text-xs">
                 <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Cabang
@@ -265,7 +264,7 @@ export function PerformanceMenuPage() {
                   <option value="all">Semua Cabang ({outletsList.length})</option>
                   {outletsList.map((o) => (
                     <option key={o.id} value={o.id}>
-                      📍 {o.name}
+                      {o.name}
                     </option>
                   ))}
                 </select>
@@ -274,7 +273,7 @@ export function PerformanceMenuPage() {
 
             {/* Filter Rentang Tanggal */}
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Calendar className="size-4 text-primary shrink-0" />
+              <Calendar className="w-4 h-4 text-foreground/70 shrink-0" />
               <div className="text-xs">
                 <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Periode
@@ -341,11 +340,11 @@ export function PerformanceMenuPage() {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Menu Revenue */}
-        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 xl:p-5 overflow-hidden">
           <div className="flex items-start justify-between gap-2 min-w-0">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Omzet Menu</p>
-            <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-              <DollarSign className="size-4" />
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-muted flex items-center justify-center text-foreground/70">
+              <DollarSign className="w-4 h-4" />
             </div>
           </div>
           <h3 className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
@@ -355,19 +354,19 @@ export function PerformanceMenuPage() {
         </div>
 
         {/* Best Seller */}
-        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 xl:p-5 overflow-hidden">
           <div className="flex items-start justify-between gap-2 min-w-0">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">
               Menu Terlaris (Rank 1)
             </p>
-            <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-              <Award className="size-4" />
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-muted flex items-center justify-center text-foreground/70">
+              <Award className="w-4 h-4" />
             </div>
           </div>
           <h3 className="mt-2.5 text-base font-bold text-foreground leading-snug">
             {bestSeller ? bestSeller.name : "-"}
           </h3>
-          <p className="mt-1 text-xs text-emerald-600 font-bold whitespace-nowrap">
+          <p className="mt-1 text-xs text-muted-foreground font-semibold whitespace-nowrap">
             {bestSeller
               ? `${bestSeller.soldCount} porsi (${formatRupiah(bestSeller.revenue)})`
               : "-"}
@@ -375,32 +374,32 @@ export function PerformanceMenuPage() {
         </div>
 
         {/* Slow Moving */}
-        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 xl:p-5 overflow-hidden">
           <div className="flex items-start justify-between gap-2 min-w-0">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Menu Terendah</p>
-            <div className="w-8 h-8 shrink-0 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive">
-              <AlertTriangle className="size-4" />
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-muted flex items-center justify-center text-foreground/70">
+              <AlertTriangle className="w-4 h-4" />
             </div>
           </div>
           <h3 className="mt-2.5 text-base font-bold text-foreground leading-snug">
             {lowestSeller ? lowestSeller.name : "-"}
           </h3>
-          <p className="mt-1 text-xs text-destructive font-bold whitespace-nowrap">
+          <p className="mt-1 text-xs text-muted-foreground font-semibold whitespace-nowrap">
             {lowestSeller ? `${lowestSeller.soldCount} porsi (${lowestSeller.growth})` : "-"}
           </p>
         </div>
 
         {/* Avg Margin */}
-        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 xl:p-5 overflow-hidden">
           <div className="flex items-start justify-between gap-2 min-w-0">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">
-              Rata-rata Margin BOM
+              Rata-rata Margin Resep
             </p>
-            <div className="w-8 h-8 shrink-0 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
-              <TrendingUp className="size-4" />
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-muted flex items-center justify-center text-foreground/70">
+              <TrendingUp className="w-4 h-4" />
             </div>
           </div>
-          <h3 className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-emerald-600">
+          <h3 className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
             {avgMargin}%
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">Berdasarkan kalkulasi HPP resep</p>
@@ -408,40 +407,39 @@ export function PerformanceMenuPage() {
       </div>
 
       {/* Chart Section */}
-      <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
         <div>
-          <h2 className="text-base font-black">Top 6 Menu Paling Populer (Volume Penjualan)</h2>
+          <h2 className="text-base font-black text-foreground">Menu Paling Populer (Volume Penjualan)</h2>
           <p className="text-xs text-muted-foreground">
-            Jumlah porsi produk yang sukses diproses kasir
+            Jumlah porsi produk terjual pada periode terpilih
           </p>
         </div>
 
         <div className="h-64 w-full pt-2">
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+            <BarChart data={chartData} margin={{ top: 10, right: 16, left: -16, bottom: 4 }}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-              <XAxis dataKey="name" fontSize={11} />
-              <YAxis fontSize={11} />
+              <XAxis dataKey="name" fontSize={12} interval={0} />
+              <YAxis fontSize={12} />
               <ChartTooltip
                 formatter={(val: any, name: string) => [
                   name === "Revenue" ? `${formatRupiah(Number(val) * 1000000)}` : `${val} porsi`,
                   name === "Revenue" ? "Omzet" : "Terjual",
                 ]}
               />
-              <Bar dataKey="Terjual" fill="var(--primary)" radius={[8, 8, 0, 0]} />
+              <Bar dataKey="Terjual" fill="var(--primary)" maxBarSize={48} radius={[8, 8, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         </div>
       </div>
 
       {/* Table Section */}
-      <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
-            <h2 className="text-base font-black">Detail Analisis Performa Per Menu</h2>
+            <h2 className="text-base font-black text-foreground">Detail Performa per Menu</h2>
             <p className="text-xs text-muted-foreground">
-              Single Source of Truth: Menghubungkan Menu, Recipe BOM, HPP bahan baku, dan riwayat
-              transaksi POS.
+              Ringkasan harga jual, HPP bahan baku, margin, volume terjual, dan total pendapatan per menu.
             </p>
           </div>
 

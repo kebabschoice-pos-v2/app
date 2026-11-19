@@ -1078,21 +1078,12 @@ function StatCard({
             {value}
           </p>
         </div>
-        <div
-          className={cn(
-            "flex w-8 h-8 shrink-0 items-center justify-center rounded-xl",
-            tone === "success"
-              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-              : tone === "ai"
-                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                : "bg-primary/10 text-primary",
-          )}
-        >
-          <Icon className="size-4" />
+        <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-muted text-foreground/70">
+          <Icon className="w-4 h-4" />
         </div>
       </div>
       <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
-        <TrendingUp className="size-3.5 shrink-0 text-primary" />
+        <TrendingUp className="size-3.5 shrink-0 text-foreground/60" />
         <span>{trend}</span>
       </div>
     </motion.div>
@@ -1241,12 +1232,12 @@ function Header({
             <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
               <Link
                 to="/dashboard"
-                className="h-9 px-3 sm:px-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-white font-black text-xs inline-flex items-center gap-1.5 shadow-brand transition-all cursor-pointer"
+                className="h-9 px-3 sm:px-3.5 rounded-2xl bg-primary hover:opacity-95 text-primary-foreground font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition-all cursor-pointer"
                 title="Kembali ke Dashboard HQ"
               >
-                <Building2 className="size-4 shrink-0" />
-                <span className="hidden sm:inline">🏢 Kembali ke HQ</span>
-                <span className="sm:hidden font-bold">🏢 HQ</span>
+                <Building2 className="w-4 h-4 shrink-0" />
+                <span className="hidden sm:inline">Kembali ke HQ</span>
+                <span className="sm:hidden font-bold">HQ</span>
               </Link>
               {onOpenBranchPosSwitchModal && (
                 <button
@@ -1255,8 +1246,8 @@ function Header({
                   className="h-9 px-2.5 sm:px-3 rounded-2xl border border-border bg-card/80 hover:bg-secondary text-foreground font-bold text-xs inline-flex items-center gap-1.5 shadow-xs transition-all cursor-pointer max-w-[160px] sm:max-w-[210px]"
                   title="Ganti Cabang POS"
                 >
-                  <Store className="size-3.5 text-primary shrink-0" />
-                  <span className="truncate">📍 {(() => {
+                  <Store className="w-4 h-4 text-foreground/70 shrink-0" />
+                  <span className="truncate">{(() => {
                     if (typeof window !== "undefined") {
                       try {
                         const activeRaw = localStorage.getItem("kebabschoicepos_active_outlet");
@@ -1287,11 +1278,11 @@ function Header({
               variant="hero"
               size="sm"
               onClick={onOpenBranchPosSwitchModal}
-              className="h-9 px-3 sm:px-3.5 rounded-2xl bg-primary text-primary-foreground font-black text-xs gap-1.5 shadow-brand hover:opacity-95 cursor-pointer shrink-0"
+              className="h-9 px-3 sm:px-3.5 rounded-2xl bg-primary text-primary-foreground font-bold text-xs gap-1.5 shadow-xs hover:opacity-95 cursor-pointer shrink-0"
               title="Masuk POS Kasir (Pilih Cabang Langsung Masuk)"
             >
-              <Monitor className="size-4" />
-              <span className="hidden sm:inline">🖥️ Masuk POS</span>
+              <Monitor className="w-4 h-4 shrink-0" />
+              <span className="hidden sm:inline">Masuk POS</span>
             </Button>
           )}
 
@@ -1789,7 +1780,7 @@ function Sidebar({
             <Link
               to="/dashboard"
               title="Kembali ke Dashboard HQ (1-Klik)"
-              className="flex w-full min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-1 py-2 text-[11px] font-black text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 transition-all active:scale-95"
+              className="flex w-full min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-muted px-1 py-2 text-[11px] font-bold text-foreground hover:bg-secondary transition-all active:scale-95"
             >
               <Building2 className="size-5 shrink-0" />
               <span className="leading-none">HQ</span>
@@ -2427,8 +2418,8 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <Store className="size-5" />
+              <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/70">
+                <Store className="w-4 h-4" />
               </div>
               <div>
                 <h2 className="text-lg font-black tracking-normal">
@@ -2495,8 +2486,8 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <UtensilsCrossed className="size-5" />
+              <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/70">
+                <UtensilsCrossed className="w-4 h-4" />
               </div>
               <div>
                 <h2 className="text-lg font-black tracking-normal">
@@ -2620,10 +2611,10 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
               className="bg-card rounded-2xl border border-border/60 shadow-sm p-5"
             >
               <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                  <Icon className="size-5" />
+                <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground/70">
+                  <Icon className="w-4 h-4" />
                 </div>
-                <span className="text-xs font-black text-primary">{insight.confidence}%</span>
+                <span className="text-xs font-bold text-muted-foreground">{insight.confidence}%</span>
               </div>
               <h3 className="font-black tracking-normal">{insight.title}</h3>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">{insight.body}</p>
@@ -5635,39 +5626,39 @@ function PosPage({
 
   const channelMetaMap: Record<
     PosOrderType,
-    { label: string; emoji: string; badgeClass: string; activeClass?: string }
+    { label: string; dotClass: string; badgeClass: string; activeClass?: string }
   > = {
     take_away: {
       label: "Bungkus",
-      emoji: "🛍️",
+      dotClass: "bg-primary",
       badgeClass: "bg-primary/10 text-primary border-primary/25",
     },
     dine_in: {
       label: "Dine In",
-      emoji: "🍽️",
+      dotClass: "bg-primary",
       badgeClass: "bg-primary/10 text-primary border-primary/25",
     },
     delivery: {
       label: "Delivery",
-      emoji: "🛵",
-      badgeClass: "bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/25",
+      dotClass: "bg-foreground/60",
+      badgeClass: "bg-muted text-foreground border-border",
     },
     gofood: {
       label: "GoFood",
-      emoji: "🟢",
-      badgeClass: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30",
+      dotClass: "bg-emerald-500",
+      badgeClass: "bg-muted text-foreground border-border",
       activeClass: "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600",
     },
     grabfood: {
       label: "GrabFood",
-      emoji: "🟢",
-      badgeClass: "bg-green-500/15 text-green-700 dark:text-green-400 border-green-500/30",
+      dotClass: "bg-green-600",
+      badgeClass: "bg-muted text-foreground border-border",
       activeClass: "bg-green-600 hover:bg-green-700 text-white border-green-600",
     },
     shopeefood: {
       label: "ShopeeFood",
-      emoji: "🟠",
-      badgeClass: "bg-orange-500/15 text-orange-700 dark:text-orange-400 border-orange-500/30",
+      dotClass: "bg-orange-500",
+      badgeClass: "bg-muted text-foreground border-border",
       activeClass: "bg-orange-600 hover:bg-orange-700 text-white border-orange-600",
     },
   };
@@ -5690,19 +5681,21 @@ function PosPage({
       {/* KIRI: BAR ATAS TERPADU + KATEGORI + KATALOG MENU GAYA TOMORO */}
       <section className="space-y-3.5 min-w-0">
         {/* 1 Bar Atas Terpadu & Hemat Tinggi: Online + Shift + Cabang + Cari Menu + Printer */}
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border bg-card/95 px-3 py-2 shadow-xs backdrop-blur-xl">
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-card px-3 py-2 shadow-sm">
           {/* Status Online + Indikator Antrean Sinkronisasi */}
           {isPosBrowserOnline ? (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap shrink-0">
-              <Wifi className="size-3.5 text-emerald-500 shrink-0" />
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap shrink-0">
+              <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
+              <Wifi className="size-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
               <span>
                 {networkStatus.pendingCount > 0
-                  ? `🟢 Online (${networkStatus.pendingCount} antrean)`
-                  : "🟢 Online"}
+                  ? `Online (${networkStatus.pendingCount} antrean)`
+                  : "Online"}
               </span>
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 text-xs font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap shrink-0">
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-rose-500/10 text-xs font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap shrink-0">
+              <span className="w-2 h-2 rounded-full bg-rose-500 inline-block shrink-0" />
               <WifiOff className="size-3.5 shrink-0" />
               <span>
                 {networkStatus.pendingCount > 0
@@ -5716,7 +5709,7 @@ function PosPage({
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary text-xs font-semibold text-foreground whitespace-nowrap shrink-0">
             <span
               className={cn(
-                "size-2 rounded-full shrink-0",
+                "w-2 h-2 rounded-full shrink-0",
                 activeShift?.status === "open" ? "bg-emerald-500" : "bg-amber-500",
               )}
             />
@@ -5731,14 +5724,14 @@ function PosPage({
           {/* Cabang Aktif */}
           <span
             className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/70 text-xs font-semibold text-foreground whitespace-nowrap shrink-0"
-            title={!isOwner ? "📍 Cabang Aktif: Terkunci" : undefined}
+            title={!isOwner ? "Cabang Aktif: Terkunci" : undefined}
           >
-            <Store className="size-3.5 text-primary shrink-0" />
+            <Store className="size-3.5 text-foreground/70 shrink-0" />
             <span>
               {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
                 activeOutlets[0]?.name ||
                 "Cabang"}
-              {!isOwner && <span className="sr-only">📍 Cabang Aktif: Terkunci</span>}
+              {!isOwner && <span className="sr-only">Cabang Aktif: Terkunci</span>}
             </span>
           </span>
 
@@ -6075,10 +6068,11 @@ function PosPage({
                 size="sm"
                 variant="outline"
                 onClick={() => setHeldOrdersModalOpen(true)}
-                className="h-8 rounded-full px-2.5 text-xs font-black gap-1 border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-400 hover:bg-amber-500/20 shadow-xs cursor-pointer whitespace-nowrap"
+                className="h-8 rounded-full px-2.5 text-xs font-bold gap-1.5 border-border bg-muted text-foreground hover:bg-secondary shadow-xs cursor-pointer whitespace-nowrap"
                 title="Lihat pesanan tertahan (Hold)"
               >
-                <span>⏳ Tertahan ({heldOrders.length})</span>
+                <Clock className="size-3.5 shrink-0" />
+                <span>Tertahan ({heldOrders.length})</span>
               </Button>
             )}
             {cart.length > 0 && (
@@ -6117,7 +6111,12 @@ function PosPage({
                   : activeChannelMeta.badgeClass,
               )}
             >
-              <span>{activeChannelMeta.emoji}</span>
+              <span
+                className={cn(
+                  "w-2 h-2 rounded-full inline-block shrink-0",
+                  activeCartPopover === "channel" ? "bg-primary-foreground" : activeChannelMeta.dotClass,
+                )}
+              />
               <span>{activeChannelMeta.label}</span>
               {orderType === "dine_in" && tableNumber && (
                 <span className="opacity-80">#{tableNumber}</span>
@@ -6287,7 +6286,7 @@ function PosPage({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  👤 Umum
+                  Umum
                 </button>
                 <button
                   type="button"
@@ -6299,7 +6298,7 @@ function PosPage({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  ⭐ Member
+                  Member
                 </button>
                 <button
                   type="button"
@@ -6311,7 +6310,7 @@ function PosPage({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  ➕ Baru
+                  Baru
                 </button>
               </div>
 
@@ -6327,7 +6326,7 @@ function PosPage({
                       const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
                       return (
                         <option key={c.id} value={c.id}>
-                          ⭐ {c.name} ({pts} Poin · {c.visits}x · {formatRupiah(c.total_spend)})
+                          {c.name} ({pts} Poin · {c.visits}x · {formatRupiah(c.total_spend)})
                         </option>
                       );
                     })}
@@ -6577,8 +6576,8 @@ function PosPage({
                         </p>
                       )}
                       {item.notes && (
-                        <p className="text-amber-600 dark:text-amber-400 font-medium italic">
-                          📝 "{item.notes}"
+                        <p className="text-muted-foreground font-medium italic">
+                          Catatan: "{item.notes}"
                         </p>
                       )}
                     </div>
@@ -6664,8 +6663,7 @@ function PosPage({
               <div>
                 <h3 className="text-lg font-black text-foreground">Pembayaran Pesanan</h3>
                 <p className="text-xs text-muted-foreground">
-                  {totalCartItemCount} item • {activeChannelMeta.emoji} {activeChannelMeta.label} •{" "}
-                  {activeCustomerLabel}
+                  {totalCartItemCount} item • {activeChannelMeta.label} • {activeCustomerLabel}
                 </p>
               </div>
               <button
@@ -7384,7 +7382,10 @@ function PosPage({
                 </div>
                 {qrisPersistError ? (
                   <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-700 dark:text-rose-300 font-semibold space-y-2 text-left">
-                    <p className="font-black">⚠️ Order belum tersimpan ke database</p>
+                    <p className="font-black inline-flex items-center gap-1.5">
+                      <ShieldAlert className="w-4 h-4 shrink-0" />
+                      <span>Order belum tersimpan ke database</span>
+                    </p>
                     <p className="font-medium">
                       {qrisPersistError}. Keranjang tidak dikosongkan dan struk belum dicetak.
                     </p>
@@ -7986,7 +7987,7 @@ function AnalyticsPage({ snapshot }: { snapshot: Snapshot }) {
                       borderRadius: "18px",
                     }}
                   />
-                  <Bar dataKey="value" fill="var(--color-primary)" radius={[0, 12, 12, 0]} />
+                  <Bar dataKey="value" fill="var(--color-primary)" maxBarSize={36} radius={[0, 8, 8, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -8713,14 +8714,13 @@ function OrdersPage({
                   </option>
                   {(snapshot.outlets || []).map((o) => (
                     <option key={o.id} value={o.id}>
-                      📍 {o.name}
+                      {o.name}
                     </option>
                   ))}
                 </select>
               ) : (
                 <div className="flex items-center gap-1.5 font-bold text-foreground">
                   <span>
-                    📍{" "}
                     {snapshot.outlets?.find((o) => o.id === selectedOutletFilter)?.name ||
                       "Outlet Kasir"}
                   </span>
@@ -8897,8 +8897,8 @@ function OrdersPage({
                         {staffName}
                       </span>
                       {custName && (
-                        <span className="rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 px-1.5 py-0.5 text-[11px] font-bold">
-                          ⭐ Member: {custName}
+                        <span className="rounded-md bg-muted text-foreground/80 px-2 py-0.5 text-xs font-bold">
+                          Member: {custName}
                         </span>
                       )}
                       {order.created_at && (
@@ -9396,17 +9396,17 @@ function ProfilePage({
             {[
               {
                 id: "owner",
-                label: "👑 Owner HQ",
+                label: "Owner HQ",
                 desc: "Akses penuh seluruh cabang, menu & pengaturan",
               },
               {
                 id: "manager",
-                label: "🏢 Manager Outlet",
+                label: "Manager Outlet",
                 desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
               },
               {
                 id: "cashier",
-                label: "🛒 Kasir POS",
+                label: "Kasir POS",
                 desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
               },
             ].map((r) => {
@@ -9728,7 +9728,7 @@ function BranchPosSwitchModal({
               <Monitor className="size-5" />
             </div>
             <div>
-              <h3 className="text-lg font-black">🖥️ Masuk POS Kasir</h3>
+              <h3 className="text-lg font-black">Masuk POS Kasir</h3>
               <p className="text-xs text-muted-foreground">Pilih cabang untuk langsung membuka terminal POS</p>
             </div>
           </div>

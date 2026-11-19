@@ -1350,7 +1350,7 @@ export function MoneyAllocationPage({
       setSpendPacks(1);
       setSpendNote("");
       toast.success(
-        `🛒 Berhasil belanja! Saldo terpotong ${formatRupiah(totalCost)} & Stok bertambah +${addedQuantity} ${spendingItem.item.unit}`,
+        `Berhasil belanja! Saldo terpotong ${formatRupiah(totalCost)} & Stok bertambah +${addedQuantity} ${spendingItem.item.unit}`,
       );
       await loadData();
     } catch (err) {
@@ -1441,7 +1441,7 @@ export function MoneyAllocationPage({
       setTopUpAmount(100000);
       setTopUpNote("");
       toast.success(
-        `💰 Berhasil menambah saldo ${formatRupiah(amount)} untuk ${topUpItem.item.name} (${sourceLabel})!`,
+        `Berhasil menambah saldo ${formatRupiah(amount)} untuk ${topUpItem.item.name} (${sourceLabel})!`,
       );
       await loadData();
     } catch (err: any) {
@@ -1501,7 +1501,7 @@ export function MoneyAllocationPage({
     setPayOpModal(null);
     setPayOpAmount(0);
     setPayOpNote("");
-    toast.success(`💸 Berhasil potong saldo operasional sebesar ${formatRupiah(amount)}`);
+    toast.success(`Berhasil potong saldo operasional sebesar ${formatRupiah(amount)}`);
   }
 
   // ACTION: Tambah Pos Operasional Baru
@@ -1631,8 +1631,8 @@ export function MoneyAllocationPage({
           <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground leading-snug">1. Total Omzet</span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
-                <Receipt className="size-4" />
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
+                <Receipt className="w-4 h-4" />
               </div>
             </div>
             <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
@@ -1649,8 +1649,8 @@ export function MoneyAllocationPage({
               <span className="text-xs font-bold text-muted-foreground leading-snug">
                 2. Celengan Bahan (BOM)
               </span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
-                <Boxes className="size-4" />
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
+                <Boxes className="w-4 h-4" />
               </div>
             </div>
             <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
@@ -1667,8 +1667,8 @@ export function MoneyAllocationPage({
               <span className="text-xs font-bold text-muted-foreground leading-snug">
                 3. Celengan Operasional
               </span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-secondary text-foreground flex items-center justify-center font-bold">
-                <Zap className="size-4" />
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
+                <Zap className="w-4 h-4" />
               </div>
             </div>
             <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
@@ -1685,11 +1685,15 @@ export function MoneyAllocationPage({
               <span className="text-xs font-bold text-muted-foreground leading-snug">
                 4. Kas &amp; Gaji Keluar
               </span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-secondary text-foreground flex items-center justify-center font-bold">
-                <Users className="size-4" />
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
+                <Users className="w-4 h-4" />
               </div>
             </div>
-            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
+            <p
+              className={`mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono ${
+                currentSalaryPaid + totalCashOut > 0 ? "text-foreground" : "text-muted-foreground"
+              }`}
+            >
               {formatRupiah(currentSalaryPaid + totalCashOut)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground font-medium">
@@ -1699,16 +1703,20 @@ export function MoneyAllocationPage({
 
           {/* Laba Bersih Murni Owner */}
           {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
-            <div className="bg-card rounded-2xl border border-emerald-500/35 shadow-sm p-4 overflow-hidden">
+            <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
               <div className="flex items-start justify-between gap-2 min-w-0">
-                <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 leading-snug">
+                <span className="text-xs font-bold text-muted-foreground leading-snug">
                   5. Laba Bersih Owner
                 </span>
-                <div className="w-8 h-8 shrink-0 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
-                  <TrendingUp className="size-4" />
+                <div className="w-8 h-8 shrink-0 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
+                  <TrendingUp className="w-4 h-4" />
                 </div>
               </div>
-              <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-emerald-600 dark:text-emerald-400">
+              <p
+                className={`mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono ${
+                  labaBersihMurni < 0 ? "text-rose-600" : "text-foreground"
+                }`}
+              >
                 {formatRupiah(labaBersihMurni)}
               </p>
               <p className="mt-1 text-xs text-muted-foreground font-medium">
@@ -1726,7 +1734,7 @@ export function MoneyAllocationPage({
                 </span>
               </div>
               <p className="mt-2 text-sm font-bold text-muted-foreground">
-                🔒 Khusus Hak Akses Owner
+                Khusus Hak Akses Owner
               </p>
             </div>
           )}
@@ -1913,7 +1921,7 @@ export function MoneyAllocationPage({
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
                       {pocket.item.stock <= (pocket.item.minimum_stock ?? 5) && (
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-xs font-black text-amber-700 dark:text-amber-400 whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-xs font-bold text-rose-600 whitespace-nowrap">
                           Perlu Restock
                         </span>
                       )}
@@ -1932,16 +1940,16 @@ export function MoneyAllocationPage({
                     </div>
                   </div>
 
-                  <div className="mt-3 rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 space-y-1.5">
+                  <div className="mt-3 rounded-xl bg-muted/40 border border-border/60 p-3 space-y-1.5">
                     <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider block">
                       Saldo Siap Belanja
                     </span>
                     <div className="flex items-baseline gap-2">
-                      <span className="text-xl font-black font-mono text-amber-600 dark:text-amber-400">
+                      <span className="text-xl font-black font-mono text-foreground">
                         {formatRupiah(pocket.accumulated_balance)}
                       </span>
                       {pocket.canBuyPacks >= 1 ? (
-                        <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                        <span className="text-xs font-bold text-foreground/80">
                           (Cukup beli {pocket.canBuyPacks} {pocket.item.unit || "pack"})
                         </span>
                       ) : (
@@ -1951,7 +1959,7 @@ export function MoneyAllocationPage({
                       )}
                     </div>
 
-                    <div className="text-xs text-muted-foreground truncate border-t border-amber-500/15 pt-1.5 flex flex-wrap items-center gap-1.5">
+                    <div className="text-xs text-muted-foreground border-t border-border/60 pt-1.5 flex flex-wrap items-center gap-1.5">
                       <span>Stok: <strong>{pocket.item.stock} {pocket.item.unit}</strong></span>
                       <span>•</span>
                       <span>
@@ -1970,7 +1978,7 @@ export function MoneyAllocationPage({
                   <Button
                     size="sm"
                     variant="outline"
-                    className="rounded-xl font-bold text-xs gap-1 border-primary/30 text-primary hover:bg-primary/10 flex-1"
+                    className="rounded-xl font-bold text-xs gap-1 flex-1"
                     onClick={() => {
                       setTopUpItem(pocket);
                       setTopUpAmount(Math.max(100000, pocket.pack_price - pocket.accumulated_balance));
@@ -1982,7 +1990,7 @@ export function MoneyAllocationPage({
                   </Button>
                   <Button
                     size="sm"
-                    className="rounded-xl font-bold text-xs gap-1 shadow-brand bg-amber-600 hover:bg-amber-700 text-white flex-1"
+                    className="rounded-xl font-bold text-xs gap-1 bg-primary hover:bg-primary/90 text-primary-foreground flex-1"
                     disabled={pocket.accumulated_balance < pocket.pack_price}
                     onClick={() => {
                       setSpendingItem(pocket);
@@ -2000,11 +2008,13 @@ export function MoneyAllocationPage({
       </div>
 
       {/* 4. Section 2: Celengan Biaya Operasional Harian (Sewa Kios, Listrik, Parkir) */}
-      <div className="rounded-[2rem] border border-border bg-card p-6 shadow-soft space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-3">
           <div>
             <div className="flex items-center gap-2">
-              <Zap className="size-4 text-blue-500" />
+              <div className="flex size-7 items-center justify-center rounded-lg bg-muted text-foreground/70">
+                <Zap className="w-4 h-4" />
+              </div>
               <h2 className="text-base font-black text-foreground">
                 Celengan Biaya Operasional Harian Cabang
               </h2>
@@ -2032,8 +2042,8 @@ export function MoneyAllocationPage({
 
         {/* Form Tambah Pos Operasional */}
         {isAddingOp && (
-          <div className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-4 space-y-3">
-            <h4 className="font-bold text-xs text-blue-700 dark:text-blue-300">
+          <div className="rounded-2xl border border-border/60 bg-muted/40 p-4 space-y-3">
+            <h4 className="font-bold text-xs text-foreground">
               Buat Pos Celengan Operasional Baru
             </h4>
             <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
@@ -2135,18 +2145,19 @@ export function MoneyAllocationPage({
                   </button>
                 </div>
 
-                <div className="mt-4 rounded-xl bg-blue-500/10 border border-blue-500/20 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-blue-700 dark:text-blue-400 block">
+                <div className="mt-4 rounded-xl bg-muted/40 border border-border/60 p-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold text-muted-foreground block">
                       Saldo Celengan Terkumpul:
                     </span>
                     {op.target_monthly && op.accumulated_balance >= op.target_monthly && (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                        🟢 Siap Bayar Sewa/Tagihan
+                      <span className="inline-flex items-center gap-1.5 rounded-full bg-muted border border-border px-2.5 py-0.5 text-xs font-bold text-foreground/80">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                        Siap Bayar Sewa/Tagihan
                       </span>
                     )}
                   </div>
-                  <p className="text-xl font-black font-mono text-blue-600 dark:text-blue-400 mt-1">
+                  <p className="text-xl font-black font-mono text-foreground mt-1">
                     {formatRupiah(op.accumulated_balance)}
                   </p>
 
@@ -2160,9 +2171,9 @@ export function MoneyAllocationPage({
                           ({Math.min(100, Math.round((op.accumulated_balance / op.target_monthly) * 100))}%)
                         </span>
                       </div>
-                      <div className="h-1.5 w-full bg-muted/60 rounded-full overflow-hidden">
+                      <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
                         <div
-                          className="h-full bg-blue-500 rounded-full transition-all"
+                          className="h-full bg-primary rounded-full transition-all"
                           style={{
                             width: `${Math.min(100, (op.accumulated_balance / op.target_monthly) * 100)}%`,
                           }}
@@ -2171,7 +2182,7 @@ export function MoneyAllocationPage({
                     </div>
                   )}
 
-                  <div className="mt-2.5 flex items-center justify-between pt-2 border-t border-blue-500/20">
+                  <div className="mt-2.5 flex items-center justify-between pt-2 border-t border-border/60">
                     <span className="text-xs text-muted-foreground">
                       Dibayar: <strong>{formatRupiah(op.total_paid)}</strong>
                     </span>
@@ -2191,7 +2202,7 @@ export function MoneyAllocationPage({
                         await persistSettings(packConfigs, spentAmounts, manualAdded, updated, history);
                         toast.success(`+${formatRupiah(op.daily_allocation)} disisihkan ke ${op.name}!`);
                       }}
-                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                      className="text-xs font-bold text-primary hover:underline cursor-pointer"
                     >
                       + Sisihkan Jatah Hari Ini
                     </button>
@@ -2205,7 +2216,7 @@ export function MoneyAllocationPage({
                 </span>
                 <Button
                   size="sm"
-                  className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-blue-600 hover:bg-blue-700 text-white"
+                  className="rounded-xl font-bold text-xs gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
                   disabled={op.accumulated_balance <= 0}
                   onClick={() => {
                     setPayOpModal(op);
@@ -2222,23 +2233,25 @@ export function MoneyAllocationPage({
       </div>
 
       {/* 5. Section 3: Celengan Gaji & Tunjangan Tim Cabang (Sinkron HR & Absensi) */}
-      <div className="rounded-[2rem] border border-border bg-card p-6 shadow-soft space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-3">
           <div>
             <div className="flex items-center gap-2">
-              <Users className="size-4 text-purple-500" />
+              <div className="flex size-7 items-center justify-center rounded-lg bg-muted text-foreground/70">
+                <Users className="w-4 h-4" />
+              </div>
               <h2 className="text-base font-black text-foreground">
-                Celengan Gaji &amp; Tunjangan Tim Cabang (Sinkron HR &amp; Roster)
+                Celengan Gaji &amp; Tunjangan Tim Cabang
               </h2>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Dicadangkan otomatis per hari operasional aktif ({operationalDaysWithSales} hari) berdasarkan data nyata profil gaji &amp; tunjangan karyawan cabang di sistem HR.
+              Dicadangkan otomatis per hari operasional aktif ({operationalDaysWithSales} hari) berdasarkan data profil gaji &amp; tunjangan karyawan cabang.
             </p>
           </div>
           <div className="flex items-center gap-2 mt-2 sm:mt-0">
             <Button
               size="sm"
-              className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-purple-600 hover:bg-purple-700 text-white"
+              className="rounded-xl font-bold text-xs gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
               disabled={totalSalarySavings <= 0}
               onClick={() => {
                 setPaySalaryAmount(totalSalarySavings);
@@ -2256,7 +2269,7 @@ export function MoneyAllocationPage({
 
         {branchStaffProfiles.length === 0 ? (
           <div className="p-6 text-center text-xs text-muted-foreground">
-            Belum ada data staf/karyawan yang ditugaskan di cabang ini pada modul HR Staff Management.
+            Belum ada data staf/karyawan yang ditugaskan di cabang ini pada modul Karyawan &amp; HR.
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -2269,11 +2282,11 @@ export function MoneyAllocationPage({
               return (
                 <div
                   key={staff.id}
-                  className="rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4 flex flex-col justify-between"
+                  className="rounded-2xl border border-border/60 bg-muted/30 p-4 flex flex-col justify-between"
                 >
                   <div>
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-xs text-foreground truncate">{staff.full_name}</span>
+                      <span className="font-bold text-xs text-foreground">{staff.full_name}</span>
                       <Badge variant="secondary" className="text-xs font-semibold">
                         {staff.role === "manager" ? "Manager" : "Kru / Kasir"}
                       </Badge>
@@ -2282,7 +2295,7 @@ export function MoneyAllocationPage({
                       {staff.job_title || "Staf Outlet"} • {staff.outlet_name || "Cabang"}
                     </span>
 
-                    <div className="mt-3 space-y-1 text-[11px] bg-card/60 p-2.5 rounded-xl border border-border/60">
+                    <div className="mt-3 space-y-1 text-xs bg-card p-2.5 rounded-xl border border-border/60">
                       <div className="flex justify-between text-muted-foreground">
                         <span>Gaji Pokok:</span>
                         <span className="font-mono font-bold text-foreground">
@@ -2301,18 +2314,18 @@ export function MoneyAllocationPage({
                           {formatRupiah(allowDaily)}
                         </span>
                       </div>
-                      <div className="flex justify-between border-t border-border/50 pt-1 font-bold text-purple-700 dark:text-purple-300">
+                      <div className="flex justify-between border-t border-border/50 pt-1 font-bold text-foreground">
                         <span>Total Cadangan / Hari:</span>
                         <span className="font-mono">{formatRupiah(totalDaily)}</span>
                       </div>
                     </div>
                   </div>
 
-                  <div className="mt-3 pt-2 border-t border-purple-500/20 flex items-center justify-between text-[11px]">
+                  <div className="mt-3 pt-2 border-t border-border/60 flex items-center justify-between text-xs">
                     <span className="text-muted-foreground">
                       Akumulasi ({operationalDaysWithSales} hari):
                     </span>
-                    <span className="font-mono font-black text-purple-700 dark:text-purple-300">
+                    <span className="font-mono font-black text-foreground">
                       {formatRupiah(accumulated)}
                     </span>
                   </div>
@@ -2323,29 +2336,31 @@ export function MoneyAllocationPage({
         )}
 
         {/* Ringkasan Gaji Cabang */}
-        <div className="rounded-2xl bg-muted/40 p-3.5 border border-border flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
+        <div className="rounded-2xl bg-muted/40 p-3.5 border border-border/60 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 text-xs">
           <div>
             <span className="font-bold text-foreground">
               Total Alokasi Gaji Tim Cabang: {formatRupiah(dailyStaffSalaryTotal)} / hari
             </span>
-            <p className="text-[11px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Total dicadangkan: {formatRupiah(dailyStaffSalaryTotal * operationalDaysWithSales)} • Telah dicairkan: {formatRupiah(currentSalaryPaid)}
             </p>
           </div>
-          <div className="font-mono font-black text-sm text-purple-700 dark:text-purple-400">
+          <div className="font-mono font-black text-sm text-foreground">
             Sisa Belum Dicairkan: {formatRupiah(totalSalarySavings)}
           </div>
         </div>
       </div>
 
       {/* 6. Section 4: Kas Keluar Laci Kasir Cabang (Pengeluaran Langsung di Outlet) */}
-      <div className="rounded-[2rem] border border-border bg-card p-6 shadow-soft space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-3">
           <div>
             <div className="flex items-center gap-2">
-              <ArrowDownLeft className="size-4 text-rose-500" />
+              <div className="flex size-7 items-center justify-center rounded-lg bg-muted text-foreground/70">
+                <ArrowDownLeft className="w-4 h-4" />
+              </div>
               <h2 className="text-base font-black text-foreground">
-                🧾 Kas Keluar Laci Kasir Cabang (Pengeluaran Langsung di Outlet)
+                Kas Keluar Laci Kasir Cabang
               </h2>
             </div>
             <p className="text-xs text-muted-foreground mt-0.5">
@@ -2443,11 +2458,11 @@ export function MoneyAllocationPage({
                     </td>
                     <td className="px-4 py-3">
                       {item.type === "belanja_bahan" ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 font-bold uppercase text-xs text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-bold uppercase text-xs text-foreground/80 dark:text-amber-400 border border-amber-500/20">
                           <Boxes className="size-3" /> Belanja Bahan
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 px-2 py-0.5 font-bold uppercase text-xs text-blue-600 dark:text-blue-400 border border-blue-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-bold uppercase text-xs text-foreground/80 dark:text-blue-400 border border-blue-500/20">
                           <Zap className="size-3" /> Operasional
                         </span>
                       )}
@@ -2612,7 +2627,7 @@ export function MoneyAllocationPage({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+              <div className="size-10 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
                 <Settings className="size-5" />
               </div>
               <div>
@@ -2648,7 +2663,7 @@ export function MoneyAllocationPage({
                 />
               </div>
 
-              <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 text-xs text-amber-800 dark:text-amber-300">
+              <div className="rounded-xl bg-muted/40 border border-border/60 p-3 text-xs text-muted-foreground">
                 Nilai sisihan per 1 {editingPackItem.unit}:{" "}
                 <strong>
                   {formatRupiah(
@@ -2669,7 +2684,7 @@ export function MoneyAllocationPage({
                 Batal
               </Button>
               <Button
-                className="rounded-xl font-bold text-xs shadow-brand bg-amber-600 hover:bg-amber-700 text-white"
+                className="rounded-xl font-bold text-xs bg-primary hover:bg-primary/90 text-primary-foreground"
                 onClick={handleSavePackConfig}
               >
                 Simpan Pengaturan
@@ -2684,7 +2699,7 @@ export function MoneyAllocationPage({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-2xl bg-amber-500/10 text-amber-600 flex items-center justify-center">
+              <div className="size-10 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
                 <ShoppingCart className="size-5" />
               </div>
               <div>
@@ -2760,7 +2775,7 @@ export function MoneyAllocationPage({
               </Button>
               <Button
                 disabled={spendingLoading}
-                className="rounded-xl font-bold shadow-brand bg-amber-600 hover:bg-amber-700 text-white text-xs"
+                className="rounded-xl font-bold bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
                 onClick={handleExecuteSpend}
               >
                 {spendingLoading ? "Memproses..." : "Konfirmasi Potong Saldo & Tambah Stok"}
@@ -2775,7 +2790,7 @@ export function MoneyAllocationPage({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-2xl bg-blue-500/10 text-blue-600 flex items-center justify-center">
+              <div className="size-10 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
                 <DollarSign className="size-5" />
               </div>
               <div>
@@ -2826,7 +2841,7 @@ export function MoneyAllocationPage({
                 Batal
               </Button>
               <Button
-                className="rounded-xl font-bold shadow-brand bg-blue-600 hover:bg-blue-700 text-white text-xs"
+                className="rounded-xl font-bold bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
                 onClick={handleExecutePayOp}
               >
                 Konfirmasi Potong Saldo Operasional
@@ -2841,7 +2856,7 @@ export function MoneyAllocationPage({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
           <div className="w-full max-w-md rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
-              <div className="size-10 rounded-2xl bg-purple-500/10 text-purple-600 flex items-center justify-center">
+              <div className="size-10 rounded-xl bg-muted text-foreground/70 flex items-center justify-center">
                 <Banknote className="size-5" />
               </div>
               <div>
@@ -2899,7 +2914,7 @@ export function MoneyAllocationPage({
               </Button>
               <Button
                 disabled={payingSalaryLoading}
-                className="rounded-xl font-bold shadow-brand bg-purple-600 hover:bg-purple-700 text-white text-xs"
+                className="rounded-xl font-bold bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
                 onClick={handleDisburseSalary}
               >
                 {payingSalaryLoading ? "Memproses..." : "Konfirmasi Pencairan Gaji Tim"}
@@ -2953,13 +2968,13 @@ export function MoneyAllocationPage({
                 <option value="emergency_fund">Ambil dari Dana Darurat Cabang Ini (Tersedia: {formatRupiah(totalOpSavings)})</option>
               </select>
               {(topUpSource === "branch_profit" || topUpSource === "owner_profit") && (
-                <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
-                  ⚠️ Pengalihan internal: Saldo Profit Owner akan otomatis berkurang {formatRupiah(topUpAmount)}.
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pengalihan internal: Saldo Profit Owner akan otomatis berkurang {formatRupiah(topUpAmount)}.
                 </p>
               )}
               {topUpSource === "emergency_fund" && (
-                <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
-                  ⚠️ Pengalihan internal: Saldo Celengan Operasional akan otomatis berkurang {formatRupiah(topUpAmount)}.
+                <p className="text-xs text-muted-foreground mt-1">
+                  Pengalihan internal: Saldo Celengan Operasional akan otomatis berkurang {formatRupiah(topUpAmount)}.
                 </p>
               )}
             </div>

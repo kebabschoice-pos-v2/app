@@ -63,19 +63,20 @@ export interface MenuModifierOption {
 }
 
 export const STANDARD_UNITS = [
-  { value: "gram", label: "gram (g)", group: "Berat" },
-  { value: "kg", label: "kilogram (kg)", group: "Berat" },
-  { value: "ml", label: "mililiter (ml)", group: "Volume" },
-  { value: "liter", label: "liter (l)", group: "Volume" },
-  { value: "pcs", label: "pcs (buah/biji)", group: "Satuan / Count" },
+  { value: "pcs", label: "pcs", group: "Satuan / Count" },
+  { value: "gram", label: "gram", group: "Berat" },
+  { value: "kg", label: "kg", group: "Berat" },
+  { value: "ml", label: "ml", group: "Volume" },
+  { value: "liter", label: "liter", group: "Volume" },
   { value: "pack", label: "pack", group: "Satuan / Count" },
+  { value: "lembar", label: "lembar", group: "Kemasan / Packaging" },
+  { value: "porsi", label: "porsi", group: "Satuan / Count" },
   { value: "box", label: "box", group: "Satuan / Count" },
   { value: "botol", label: "botol", group: "Satuan / Count" },
   { value: "sachet", label: "sachet", group: "Satuan / Count" },
   { value: "cup", label: "cup", group: "Kemasan / Packaging" },
   { value: "bungkus", label: "bungkus", group: "Kemasan / Packaging" },
   { value: "kardus", label: "kardus", group: "Kemasan / Packaging" },
-  { value: "lembar", label: "lembar (tortilla/keju)", group: "Kemasan / Packaging" },
 ] as const;
 
 const UNIT_ALIASES: Record<string, string> = {

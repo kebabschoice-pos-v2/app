@@ -3184,6 +3184,106 @@ test("Consolidates role-resolver with .limit(1) & manager HQ permission toggles,
   );
 });
 
+// --- TEST 107: Tahap 7 Final Polish — Pixel-Perfect POS/KPI/Inventory/Menu Layouts & Package/Gitignore Cleanup ---
+console.log("\n▶ 107. TAHAP 7 (FINAL POLISH): PIXEL-PERFECT POS/KPI/INVENTORY/MENU LAYOUTS, ONLINE QUEUE BADGE, CLEAN DISCOUNT & UNITS, AND CLEANUP");
+test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, formatted discount, KPI typography, wrapped Inventory actions + Terjual badge, short recipe units, and package/gitignore hygiene", () => {
+  const posAppCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf8",
+  );
+  const moneyPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf8",
+  );
+  const invPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/inventory/InventoryManagement.tsx"),
+    "utf8",
+  );
+  const menuPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/MenuManagement.tsx"),
+    "utf8",
+  );
+  const menuServiceCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/menu.service.ts"),
+    "utf8",
+  );
+  const pkgJson = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+  );
+  const gitignore = fs.readFileSync(path.join(process.cwd(), ".gitignore"), "utf8");
+
+  // 1A. POS Online badge with window.navigator.onLine !== false + pendingCount queue indicator
+  assert.ok(
+    posAppCode.includes('typeof window === "undefined" || window.navigator.onLine !== false') &&
+      posAppCode.includes("🟢 Online (${networkStatus.pendingCount} antrean)") &&
+      posAppCode.includes('"🟢 Online"'),
+    "POS status bar must strictly display green 🟢 Online (or 🟢 Online (X antrean)) whenever window.navigator.onLine !== false",
+  );
+
+  // 1B. POS product card overflow-hidden + compact Varian & + buttons
+  assert.ok(
+    posAppCode.includes("flex items-center justify-between gap-1.5 mt-2 min-w-0") &&
+      posAppCode.includes("rounded-xl h-8 px-2.5 text-xs") &&
+      posAppCode.includes("rounded-xl h-8 w-8 p-0") &&
+      posAppCode.includes("overflow-hidden"),
+    "POS product cards must clip overflow and size Varian & + buttons compactly",
+  );
+
+  // 1C. Smart Cart 3-column channel grid, formatted anti-leading-zero discount, short Pay button, no MEMBER / PELANGGAN CRM header
+  assert.ok(
+    posAppCode.includes("grid grid-cols-3 gap-1.5 py-0.5") &&
+      posAppCode.includes("sanitizeQuantityInput") &&
+      posAppCode.includes("formatRupiahInput(discountValue)") &&
+      posAppCode.includes("Bayar {formatRupiah(total)}") &&
+      !posAppCode.includes("MEMBER / PELANGGAN CRM"),
+    "Smart Cart must use grid-cols-3 for 6 channels, apply formatRupiahInput/sanitizeQuantityInput on discount, show short Bayar Rp button, and omit long MEMBER / PELANGGAN CRM sub-header",
+  );
+
+  // 2. Dashboard & MoneyAllocation 5 KPI card typography + compact w-8 h-8 icons + Total Saldo BOM nowrap pill
+  assert.ok(
+    posAppCode.includes("text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap") &&
+      posAppCode.includes("w-8 h-8 shrink-0") &&
+      moneyPageCode.includes("text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap") &&
+      moneyPageCode.includes("w-8 h-8 shrink-0") &&
+      moneyPageCode.includes('whitespace-nowrap shrink-0">\n              Total Saldo BOM:'),
+    "Dashboard & MoneyAllocation KPI cards must use compact typography, w-8 h-8 shrink-0 icons, overflow-hidden, and nowrap Total Saldo BOM pill",
+  );
+
+  // 3. Inventory wrapped filter/action bar + Terjual badge beside Transfer & Rusak
+  assert.ok(
+    invPageCode.includes('<div className="flex flex-wrap items-center justify-between gap-2">') &&
+      invPageCode.includes("applyStandardBomFallback") &&
+      invPageCode.includes("Terjual: -") &&
+      invPageCode.includes("Transfer: -") &&
+      invPageCode.includes("Rusak: -"),
+    "InventoryManagement must wrap filter/action controls cleanly and display Terjual badge alongside Transfer and Rusak in Mutasi Stok",
+  );
+
+  // 4. Short clean recipe unit options in MenuManagement & menu.service
+  assert.ok(
+    menuPageCode.includes('<option value="pcs">pcs</option>') &&
+      menuPageCode.includes('<option value="gram">gram</option>') &&
+      menuPageCode.includes('<option value="ml">ml</option>') &&
+      menuPageCode.includes('<option value="pack">pack</option>') &&
+      menuPageCode.includes('<option value="lembar">lembar</option>') &&
+      menuPageCode.includes('<option value="porsi">porsi</option>') &&
+      !menuPageCode.includes("pcs (buah/biji)") &&
+      !menuServiceCode.includes("pcs (buah/biji)"),
+    "Recipe unit dropdown in MenuManagement must use concise labels (pcs, gram, ml, pack, lembar, porsi) without truncated long parenthetical labels",
+  );
+
+  // 5. package.json name & .gitignore .claude/
+  assert.strictEqual(
+    pkgJson.name,
+    "kebabschoice-pos",
+    "package.json name must be updated from 'tanstack_start_ts' to 'kebabschoice-pos'",
+  );
+  assert.ok(
+    gitignore.includes(".claude/"),
+    ".gitignore must exclude .claude/",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

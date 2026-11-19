@@ -65,6 +65,7 @@ import {
   stripLeadingZeros,
   sanitizeQuantityInput,
 } from "@/lib/input-formatters";
+import { normalizeOrderOutletId } from "@/lib/bom-analytics";
 
 const COMMON_UNITS = [
   "pcs",
@@ -190,6 +191,24 @@ export function InventoryManagement() {
     try {
       const activeBranchId =
         selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
+      const activeBizId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
+          : "";
+
+      let salesOrdersQuery = supabase
+        .from("sales_orders")
+        .select("id, outlet_id, status, total, created_at")
+        .order("created_at", { ascending: false });
+      if (activeBizId) {
+        salesOrdersQuery = salesOrdersQuery.eq("business_id", activeBizId);
+      }
+
+      let outletsSettingsQuery = supabase.from("outlets").select("settings");
+      if (activeBizId) {
+        outletsSettingsQuery = outletsSettingsQuery.eq("business_id", activeBizId);
+      }
+
       const [
         itms,
         supps,
@@ -201,37 +220,33 @@ export function InventoryManagement() {
         wastes,
         transfers,
         dbOrdersRes,
-        dbItemsRes,
         menuItemsRes,
         outletDataRes,
       ] = await Promise.all([
-        getInventoryItems(),
+        getInventoryItems(activeBizId || undefined),
         getSuppliers(),
-        getStockMovements(),
+        getStockMovements(activeBizId || undefined),
         getInventoryDashboardMetrics(),
         getOutletList().catch(() => [] as OutletItem[]),
-        getBusinessOutlets().catch(() => [] as Array<{ id: string; name: string }>),
+        getBusinessOutlets(activeBizId || undefined).catch(() => [] as Array<{ id: string; name: string }>),
         loadBranchMoneyLedger(activeBranchId).catch(() => null),
         getWasteRecords(activeBranchId || undefined).catch(() => []),
         getStockTransfers(activeBranchId || undefined).catch(() => []),
-        Promise.resolve(
-          supabase
-            .from("sales_orders")
-            .select("id, outlet_id, status, total, created_at")
-            .order("created_at", { ascending: false }),
-        ).catch(() => ({ data: [] })),
-        Promise.resolve(
-          supabase
-            .from("sales_order_items")
-            .select("order_id, product_id, name, quantity"),
-        ).catch(() => ({ data: [] })),
-        getMenuItems().catch(() => [] as any[]),
-        Promise.resolve(
-          supabase
-            .from("outlets")
-            .select("settings"),
-        ).catch(() => ({ data: [] })),
+        Promise.resolve(salesOrdersQuery).catch(() => ({ data: [] })),
+        getMenuItems({ businessId: activeBizId || undefined }).catch(() => [] as any[]),
+        Promise.resolve(outletsSettingsQuery).catch(() => ({ data: [] })),
       ]);
+
+      const orderIds = ((dbOrdersRes?.data as any[]) || []).map((o: any) => o.id).filter(Boolean);
+      const dbItemsRes =
+        orderIds.length > 0
+          ? await Promise.resolve(
+              supabase
+                .from("sales_order_items")
+                .select("order_id, product_id, name, quantity")
+                .in("order_id", orderIds),
+            ).catch(() => ({ data: [] }))
+          : { data: [] };
 
       // Merge active outlets with archived-but-holding-stock outlets & item outlet references
       const mergedOutletsMap = new Map<string, OutletItem>();
@@ -500,12 +515,19 @@ export function InventoryManagement() {
     };
 
     // 1. Process recorded movements
+    const isSaleMovementType = (mType: string) =>
+      mType === "pos_sale" ||
+      mType === "sale" ||
+      mType === "stock_out" ||
+      mType === "out" ||
+      mType === "bom_usage";
+
     for (const m of relevantMovements) {
       const entry = getOrCreateEntry(m.inventory_item_id || "", m.item_name || "");
-      const mType = (m.movement_type as string) || (m as any).type || "";
+      const mType = String((m.movement_type as string) || (m as any).type || "").toLowerCase();
       const qty = Math.abs(Number(m.quantity) || 0);
 
-      if (mType === "pos_sale" || mType === "stock_out") {
+      if (isSaleMovementType(mType)) {
         entry.posSaleQty += qty;
       } else if (mType === "waste") {
         entry.wasteQty += qty;
@@ -560,13 +582,67 @@ export function InventoryManagement() {
     // 4. Incorporate sales order BOM ingredient consumption (posSaleQty)
     const movedOrderIds = new Set(
       relevantMovements
+        .filter((m) =>
+          isSaleMovementType(
+            String((m.movement_type as string) || (m as any).type || "").toLowerCase(),
+          ),
+        )
         .map((m) => m.order_id || (m as any).reference_id)
         .filter(Boolean),
     );
 
+    // Helper: pick single matching inventory item per ingredient (preferring order's branch) to avoid cross-branch double count
+    const pickBestMatchingItem = (
+      predicate: (itm: InventoryItemDetail) => boolean,
+      preferredOutletId?: string | null,
+    ): InventoryItemDetail | undefined => {
+      const candidates = items.filter(predicate);
+      if (candidates.length === 0) return undefined;
+      if (preferredOutletId) {
+        const exactBranch = candidates.find((c) => c.outlet_id === preferredOutletId);
+        if (exactBranch) return exactBranch;
+      }
+      return candidates[0];
+    };
+
+    const applyStandardBomFallback = (portionsQty: number, preferredOutletId?: string | null) => {
+      const tortillaItem = pickBestMatchingItem((itm) => {
+        const n = (itm.name || "").toLowerCase().trim();
+        return n.includes("tortilla") || n.includes("kulit");
+      }, preferredOutletId);
+      if (tortillaItem) {
+        const entry = getOrCreateEntry(tortillaItem.id, tortillaItem.name);
+        const ingConverted = convertRecipeToInventoryQuantity(
+          1,
+          "pcs",
+          tortillaItem.unit || "pack",
+          tortillaItem.yield_per_unit || 20,
+          tortillaItem.yield_unit || "pcs",
+        );
+        entry.posSaleQty += ingConverted * portionsQty;
+      }
+
+      const dagingItem = pickBestMatchingItem((itm) => {
+        const n = (itm.name || "").toLowerCase().trim();
+        return n.includes("daging") || n.includes("beef");
+      }, preferredOutletId);
+      if (dagingItem) {
+        const entry = getOrCreateEntry(dagingItem.id, dagingItem.name);
+        const ingConverted = convertRecipeToInventoryQuantity(
+          20,
+          "gram",
+          dagingItem.unit || "pcs",
+          dagingItem.yield_per_unit || 2000,
+          dagingItem.yield_unit || "gram",
+        );
+        entry.posSaleQty += ingConverted * portionsQty;
+      }
+    };
+
     for (const ord of salesOrdersList) {
+      const normalizedOrdOutletId = normalizeOrderOutletId(ord.outlet_id, outlets);
       if (selectedOutlet !== "all" && selectedOutlet !== "central") {
-        if (ord.outlet_id && ord.outlet_id !== selectedOutlet) continue;
+        if (normalizedOrdOutletId && normalizedOrdOutletId !== selectedOutlet) continue;
       }
       if (!matchesPeriod(ord.created_at)) continue;
       if (ord.id && movedOrderIds.has(ord.id)) continue;
@@ -595,31 +671,42 @@ export function InventoryManagement() {
 
           const recipeItems = (recipe && (recipe.items || recipe.recipe_items)) || [];
           if (Array.isArray(recipeItems) && recipeItems.length > 0) {
+            let matchedAnyIngredient = false;
             for (const ing of recipeItems) {
               const ingNameClean = (ing.ingredient_name || ing.name || "").toLowerCase().trim();
-              for (const itm of items) {
+              const matchedItem = pickBestMatchingItem((itm) => {
                 const itemNameClean = (itm.name || "").toLowerCase().trim();
-                const isMatch =
+                return (
                   ing.inventory_item_id === itm.id ||
                   ing.id === itm.id ||
-                  (ingNameClean && itemNameClean && (
-                    ingNameClean === itemNameClean ||
-                    ingNameClean.includes(itemNameClean) ||
-                    itemNameClean.includes(ingNameClean)
-                  ));
-                if (isMatch) {
-                  const entry = getOrCreateEntry(itm.id, itm.name);
-                  const ingConverted = convertRecipeToInventoryQuantity(
-                    Number(ing.quantity) || 1,
-                    ing.unit || "gram",
-                    itm.unit || "gram",
-                    itm.yield_per_unit,
-                    itm.yield_unit,
-                  );
-                  entry.posSaleQty += ingConverted * lineQty;
-                }
+                  Boolean(
+                    ingNameClean &&
+                      itemNameClean &&
+                      (ingNameClean === itemNameClean ||
+                        ingNameClean.includes(itemNameClean) ||
+                        itemNameClean.includes(ingNameClean)),
+                  )
+                );
+              }, normalizedOrdOutletId);
+
+              if (matchedItem) {
+                matchedAnyIngredient = true;
+                const entry = getOrCreateEntry(matchedItem.id, matchedItem.name);
+                const ingConverted = convertRecipeToInventoryQuantity(
+                  Number(ing.quantity) || 1,
+                  ing.unit || "gram",
+                  matchedItem.unit || "gram",
+                  matchedItem.yield_per_unit,
+                  matchedItem.yield_unit,
+                );
+                entry.posSaleQty += ingConverted * lineQty;
               }
             }
+            if (!matchedAnyIngredient) {
+              applyStandardBomFallback(lineQty, normalizedOrdOutletId);
+            }
+          } else {
+            applyStandardBomFallback(lineQty, normalizedOrdOutletId);
           }
         }
       } else {
@@ -627,29 +714,7 @@ export function InventoryManagement() {
         const ordTotal = Number(ord.total_amount || ord.total || ord.final_amount) || 0;
         if (ordTotal > 0) {
           const estimatedQty = Math.max(1, Math.round(ordTotal / 9000));
-          for (const itm of items) {
-            const itemNameClean = (itm.name || "").toLowerCase().trim();
-            const entry = getOrCreateEntry(itm.id, itm.name);
-            if (itemNameClean.includes("tortilla") || itemNameClean.includes("kulit")) {
-              const ingConverted = convertRecipeToInventoryQuantity(
-                1,
-                "pcs",
-                itm.unit || "pack",
-                itm.yield_per_unit || 20,
-                itm.yield_unit || "pcs",
-              );
-              entry.posSaleQty += ingConverted * estimatedQty;
-            } else if (itemNameClean.includes("daging") || itemNameClean.includes("beef")) {
-              const ingConverted = convertRecipeToInventoryQuantity(
-                20,
-                "gram",
-                itm.unit || "pcs",
-                itm.yield_per_unit || 2000,
-                itm.yield_unit || "gram",
-              );
-              entry.posSaleQty += ingConverted * estimatedQty;
-            }
-          }
+          applyStandardBomFallback(estimatedQty, normalizedOrdOutletId);
         }
       }
     }
@@ -660,9 +725,10 @@ export function InventoryManagement() {
         entry.wasteQty > 0 ||
         entry.stockInQty > 0 ||
         entry.transferQty > 0 ||
-        entry.opnameQty > 0,
+        entry.opnameQty > 0 ||
+        entry.opnameQty < 0,
     );
-  }, [movements, wasteList, transferList, items, selectedOutlet, mutationPeriod, salesOrdersList, menuRecipesMap]);
+  }, [movements, wasteList, transferList, items, outlets, selectedOutlet, mutationPeriod, salesOrdersList, menuRecipesMap]);
 
   // Dynamic Categories state with local persistence
   const [customCategories, setCustomCategories] = useState<string[]>(() => {
@@ -1102,7 +1168,7 @@ export function InventoryManagement() {
             Kelola master bahan baku, monitoring stok masuk/keluar, dan penyesuaian stok real-time.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             variant="outline"
             size="sm"
@@ -1138,17 +1204,17 @@ export function InventoryManagement() {
           <p className="mt-1 text-[11px] text-muted-foreground">Bahan baku terdaftar</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-muted-foreground">Total Nilai Stok</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+        <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft overflow-hidden">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-muted-foreground truncate">Total Nilai Stok</p>
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <DollarSign className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black text-emerald-600 dark:text-emerald-400">
+          <p className="mt-3 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate text-emerald-600 dark:text-emerald-400">
             {formatRupiah(metrics.totalStockValue)}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Kalkulasi modal fisik</p>
+          <p className="mt-1 text-[11px] text-muted-foreground truncate">Kalkulasi modal fisik</p>
         </div>
 
         <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
@@ -1261,9 +1327,16 @@ export function InventoryManagement() {
                   <div className="flex flex-wrap gap-1.5 text-xs font-semibold pt-1">
                     {/* Terjual POS */}
                     {item.posSaleQty > 0 && (
-                      <span className="inline-flex items-center gap-1 bg-primary/10 text-primary rounded-lg px-2 py-1 text-[11px] font-bold">
+                      <span
+                        className="inline-flex items-center gap-1 bg-primary/10 text-primary rounded-lg px-2 py-1 text-[11px] font-bold whitespace-nowrap"
+                        title={
+                          hasYield && posSaleYield > 0
+                            ? `Pemakaian penjualan ≈ ${Number(posSaleYield.toFixed(1)).toLocaleString("id-ID")} ${item.yield_unit || "unit"}`
+                            : undefined
+                        }
+                      >
                         <ShoppingCart className="size-3 shrink-0" />
-                        Terjual: -{Number(item.posSaleQty.toFixed(2)).toString().replace(".", ",")} {item.unit}
+                        Terjual: -{Number(item.posSaleQty.toFixed(item.posSaleQty < 0.05 ? 3 : 2)).toString().replace(".", ",")} {item.unit}
                       </span>
                     )}
 
@@ -1407,8 +1480,8 @@ export function InventoryManagement() {
       {activeTab === "items" && (
         <div className="space-y-4">
           {/* Controls: Search, Category, Status, Quick Actions */}
-          <div className="flex flex-col xl:flex-row gap-3 items-stretch xl:items-center justify-between">
-            <div className="flex flex-1 flex-wrap sm:flex-nowrap gap-2 min-w-0">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-1 flex-wrap items-center gap-2 min-w-0">
               <div className="relative flex-1 min-w-[180px]">
                 <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
                 <Input
@@ -1422,7 +1495,7 @@ export function InventoryManagement() {
                 value={selectedCategory}
                 onChange={(e) => setSelectedCategory(e.target.value)}
                 aria-label="Filter kategori bahan baku"
-                className="h-11 rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
+                className="h-11 max-w-full rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
               >
                 <option value="all">Semua Kategori</option>
                 {allCategories.map((c) => (
@@ -1435,7 +1508,7 @@ export function InventoryManagement() {
                 value={selectedStatus}
                 onChange={(e) => setSelectedStatus(e.target.value as any)}
                 aria-label="Filter status stok"
-                className="h-11 rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
+                className="h-11 max-w-full rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
               >
                 <option value="all">Semua Status</option>
                 <option value="aman">Aman</option>
@@ -1446,7 +1519,7 @@ export function InventoryManagement() {
                 value={selectedOutlet}
                 onChange={(e) => setSelectedOutlet(e.target.value)}
                 aria-label="Filter cabang inventori"
-                className="h-11 rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
+                className="h-11 max-w-full rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
               >
                 <option value="all">Semua Cabang (Total {items.length} Item)</option>
                 <option value="central">Gudang Pusat / Shared ({items.filter((i) => !i.outlet_id).length} Item)</option>
@@ -1672,12 +1745,12 @@ export function InventoryManagement() {
                                   size="sm"
                                   variant="outline"
                                   onClick={() => handleOpenStockIn(item.id)}
-                                  className="h-8 rounded-xl text-xs gap-1 font-bold border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 mr-1 shadow-xs"
-                                  title="Langsung Restock dari Celengan"
+                                  className="h-8 rounded-xl text-xs gap-1 font-bold border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 hover:bg-amber-500/20 mr-1 shadow-xs shrink-0"
+                                  title="🛒 Langsung Restock dari Celengan"
                                 >
-                                  <ShoppingCart className="size-3.5 text-amber-600" />
-                                  <span className="hidden xl:inline">🛒 Langsung Restock dari Celengan</span>
-                                  <span className="xl:hidden">Restock</span>
+                                  <ShoppingCart className="size-3.5 text-amber-600 shrink-0" />
+                                  <span className="hidden 2xl:inline">🛒 Langsung Restock dari Celengan</span>
+                                  <span className="2xl:hidden">Restock</span>
                                 </Button>
                               )}
                               <Button
@@ -2027,7 +2100,7 @@ export function InventoryManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Boxes className="size-5" />
                 </div>
@@ -2310,7 +2383,7 @@ export function InventoryManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600">
                   <ArrowDownLeft className="size-5" />
                 </div>
@@ -2475,7 +2548,7 @@ export function InventoryManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600">
                   <ArrowUpRight className="size-5" />
                 </div>
@@ -2584,7 +2657,7 @@ export function InventoryManagement() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
           <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <SlidersHorizontal className="size-5" />
                 </div>

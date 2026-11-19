@@ -1618,7 +1618,7 @@ export function MoneyAllocationPage({
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="h-3.5 w-28 rounded bg-muted-foreground/20" />
-                  <div className="size-8 shrink-0 rounded-xl bg-muted-foreground/15" />
+                  <div className="w-8 h-8 shrink-0 rounded-xl bg-muted-foreground/15" />
                 </div>
                 <div className="h-6 w-32 rounded bg-muted-foreground/25" />
                 <div className="h-2.5 w-24 rounded bg-muted-foreground/15" />
@@ -1629,9 +1629,9 @@ export function MoneyAllocationPage({
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 border-t border-border/60 pt-5">
           {/* Omzet Masuk */}
           <div className="rounded-2xl border border-border/80 bg-muted/40 p-4 shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground truncate">1. Total Omzet</span>
-              <div className="size-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
                 <Receipt className="size-4" />
               </div>
             </div>
@@ -1645,11 +1645,11 @@ export function MoneyAllocationPage({
 
           {/* Tabungan BOM */}
           <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-amber-700 dark:text-amber-400 truncate">
                 2. Celengan Bahan (BOM)
               </span>
-              <div className="size-8 shrink-0 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
                 <Boxes className="size-4" />
               </div>
             </div>
@@ -1663,11 +1663,11 @@ export function MoneyAllocationPage({
 
           {/* Tabungan Operasional Harian */}
           <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-blue-700 dark:text-blue-400 truncate">
                 3. Celengan Operasional
               </span>
-              <div className="size-8 shrink-0 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-300 flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-300 flex items-center justify-center font-bold">
                 <Zap className="size-4" />
               </div>
             </div>
@@ -1681,11 +1681,11 @@ export function MoneyAllocationPage({
 
           {/* Kas Keluar & Realisasi Gaji Cair */}
           <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 shadow-xs overflow-hidden">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-purple-700 dark:text-purple-400 truncate">
                 4. Kas &amp; Gaji Keluar
               </span>
-              <div className="size-8 shrink-0 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
                 <Users className="size-4" />
               </div>
             </div>
@@ -1700,11 +1700,11 @@ export function MoneyAllocationPage({
           {/* Laba Bersih Murni Owner */}
           {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
             <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs overflow-hidden">
-              <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center justify-between gap-2 min-w-0">
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 truncate">
                   5. Laba Bersih Owner
                 </span>
-                <div className="size-8 shrink-0 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
+                <div className="w-8 h-8 shrink-0 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
                   <TrendingUp className="size-4" />
                 </div>
               </div>
@@ -1849,14 +1849,14 @@ export function MoneyAllocationPage({
               stok berkurang dan saldo celengan bahan baku otomatis terakumulasi per porsi untuk belanja kembali.
             </p>
           </div>
-          <div className="flex items-center gap-2 mt-2 sm:mt-0">
+          <div className="flex flex-wrap items-center gap-2 mt-2 sm:mt-0 shrink-0">
             {computedBomPockets.length > 0 && (
               <Button
                 size="sm"
-                className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground"
+                className="rounded-xl font-bold text-xs gap-1.5 shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground whitespace-nowrap shrink-0"
                 onClick={() => setIsAddingItemModal(true)}
               >
-                <PackagePlus className="size-3.5" />
+                <PackagePlus className="size-3.5 shrink-0" />
                 Tambah Bahan Baku &amp; Setting Kemasan
               </Button>
             )}

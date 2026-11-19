@@ -222,7 +222,11 @@ import { MoneyAllocationPage } from "@/pages/money/MoneyAllocationPage";
 import { ThemeModal } from "@/components/theme/ThemeModal";
 import { GlobalSearchModal } from "@/components/search/GlobalSearchModal";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
-import { formatRupiahInput, parseNumberFromDots } from "@/lib/input-formatters";
+import {
+  formatRupiahInput,
+  parseNumberFromDots,
+  sanitizeQuantityInput,
+} from "@/lib/input-formatters";
 
 type AppPage =
   | "dashboard"
@@ -1065,16 +1069,18 @@ function StatCard({
     <motion.div
       whileHover={{ y: -4 }}
       transition={{ duration: 0.2 }}
-      className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl overflow-hidden"
+      className="rounded-[1.5rem] border border-border bg-card/82 p-4 xl:p-5 shadow-soft backdrop-blur-2xl overflow-hidden"
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-medium text-muted-foreground truncate">{label}</p>
-          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate">{value}</p>
+          <p className="text-xs xl:text-sm font-medium text-muted-foreground truncate">{label}</p>
+          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate">
+            {value}
+          </p>
         </div>
         <div
           className={cn(
-            "flex size-8 shrink-0 items-center justify-center rounded-xl",
+            "flex w-8 h-8 shrink-0 items-center justify-center rounded-xl",
             tone === "success"
               ? "bg-success-soft text-success-foreground"
               : tone === "ai"
@@ -5612,21 +5618,29 @@ function PosPage({
 
   return (
     <div className="grid min-h-[calc(100vh-9rem)] gap-6 xl:grid-cols-[1fr_25rem]">
-      <section className="space-y-5">
+      <section className="space-y-5 min-w-0">
         {/* 1 Bar Status Tipis (1 Baris Kompak) */}
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-border bg-card/85 px-4 py-2 shadow-xs backdrop-blur-xl">
           {/* Status Kiri: Online, Kasir & Shift, Cabang */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
-            {/* Status Online */}
-            {typeof navigator !== "undefined" && navigator.onLine === false ? (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-[11px] font-bold text-amber-600 dark:text-amber-400">
-                <WifiOff className="size-3" />
-                <span>Offline</span>
+            {/* Status Online + Indikator Antrean Sinkronisasi */}
+            {typeof window === "undefined" || window.navigator.onLine !== false ? (
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 whitespace-nowrap shrink-0">
+                <Wifi className="size-3 text-emerald-500 shrink-0" />
+                <span>
+                  {networkStatus.pendingCount > 0
+                    ? `🟢 Online (${networkStatus.pendingCount} antrean)`
+                    : "🟢 Online"}
+                </span>
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                <Wifi className="size-3 text-emerald-500" />
-                <span>🟢 Online</span>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/10 text-[11px] font-bold text-amber-600 dark:text-amber-400 whitespace-nowrap shrink-0">
+                <WifiOff className="size-3 shrink-0" />
+                <span>
+                  {networkStatus.pendingCount > 0
+                    ? `Offline (${networkStatus.pendingCount} antrean)`
+                    : "Offline"}
+                </span>
               </span>
             )}
 
@@ -5749,9 +5763,9 @@ function PosPage({
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.03 }}
                 onClick={() => handleFastAddToCart(product)}
-                className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all overflow-hidden"
+                className="group cursor-pointer rounded-[1.5rem] border border-border bg-card/82 p-3.5 sm:p-4 shadow-soft backdrop-blur-2xl hover:border-primary/50 transition-all overflow-hidden"
               >
-                <div className="relative mb-4 flex aspect-[4/3] items-end overflow-hidden rounded-[1.25rem] bg-primary p-4 text-primary-foreground">
+                <div className="relative mb-3.5 flex aspect-[4/3] items-end overflow-hidden rounded-[1.25rem] bg-primary p-4 text-primary-foreground">
                   {product.image_url ? (
                     <img
                       src={product.image_url}
@@ -5770,11 +5784,11 @@ function PosPage({
                       </span>
                     </div>
                   )}
-                  <div className="relative z-10 rounded-xl bg-black/60 px-3 py-1.5 backdrop-blur-md">
-                    <p className="text-[10px] font-bold opacity-90 text-white/80">
+                  <div className="relative z-10 rounded-xl bg-black/60 px-3 py-1.5 backdrop-blur-md max-w-full">
+                    <p className="text-[10px] font-bold opacity-90 text-white/80 truncate">
                       {product.category}
                     </p>
-                    <p className="text-base font-black tracking-normal leading-tight text-white">
+                    <p className="text-base font-black tracking-normal leading-tight text-white truncate">
                       {product.name}
                     </p>
                   </div>
@@ -5782,16 +5796,18 @@ function PosPage({
                 <div className="flex items-center justify-between gap-1.5 mt-2 min-w-0">
                   <div className="min-w-0 flex-1">
                     {product.promo_price && product.promo_price < product.price ? (
-                      <div className="flex items-baseline gap-1.5">
-                        <p className="font-black text-rose-600 dark:text-rose-400">
+                      <div className="flex flex-wrap items-baseline gap-1 min-w-0">
+                        <p className="text-sm sm:text-base font-black text-rose-600 dark:text-rose-400 whitespace-nowrap truncate">
                           {formatRupiah(product.promo_price)}
                         </p>
-                        <p className="text-xs text-muted-foreground line-through">
+                        <p className="text-[11px] text-muted-foreground line-through whitespace-nowrap">
                           {formatRupiah(product.price)}
                         </p>
                       </div>
                     ) : (
-                      <p className="font-black text-primary">{formatRupiah(product.price)}</p>
+                      <p className="text-sm sm:text-base font-black text-primary whitespace-nowrap truncate">
+                        {formatRupiah(product.price)}
+                      </p>
                     )}
                     <p className="text-xs text-muted-foreground truncate">Stok {product.stock}</p>
                   </div>
@@ -5836,7 +5852,7 @@ function PosPage({
       </section>
 
       {/* Smart Cart Aside */}
-      <aside className="sticky top-24 h-fit rounded-[2rem] border border-border bg-card/90 p-5 shadow-float backdrop-blur-2xl">
+      <aside className="sticky top-24 h-fit rounded-[2rem] border border-border bg-card/90 p-5 shadow-float backdrop-blur-2xl overflow-hidden min-w-0">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-black tracking-normal">{t("cart.title", "Smart Cart")}</h2>
@@ -6243,7 +6259,7 @@ function PosPage({
                   }
                 }}
                 className={cn(
-                  "h-8 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1",
+                  "h-8 min-w-0 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1.5",
                   orderType === tItem.id
                     ? (tItem.activeClass || "bg-primary text-primary-foreground border-primary shadow-xs")
                     : "bg-background border-border text-muted-foreground hover:bg-secondary",
@@ -6326,7 +6342,10 @@ function PosPage({
                     <button
                       type="button"
                       className={`px-2 py-0.5 text-[10px] font-bold rounded ${discountType === "percent" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
-                      onClick={() => setDiscountType("percent")}
+                      onClick={() => {
+                        setDiscountType("percent");
+                        if (discountValue > 100) setDiscountValue(100);
+                      }}
                     >
                       %
                     </button>
@@ -6334,19 +6353,33 @@ function PosPage({
                 </div>
                 <div className="flex items-center gap-1.5">
                   <input
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputMode="numeric"
                     placeholder={discountType === "percent" ? "Diskon (%)" : "Diskon (Rp)"}
-                    value={discountValue || ""}
-                    onChange={(e) => setDiscountValue(Number(e.target.value) || 0)}
-                    className="w-full h-7 rounded-lg border border-border bg-background px-2 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
+                    value={
+                      discountValue > 0
+                        ? discountType === "nominal"
+                          ? formatRupiahInput(discountValue)
+                          : String(discountValue)
+                        : ""
+                    }
+                    onChange={(e) => {
+                      if (discountType === "nominal") {
+                        const formatted = formatRupiahInput(e.target.value);
+                        setDiscountValue(formatted ? parseNumberFromDots(formatted) : 0);
+                      } else {
+                        const sanitized = sanitizeQuantityInput(e.target.value);
+                        setDiscountValue(Math.min(100, sanitized));
+                      }
+                    }}
+                    className="w-full h-7 rounded-lg border border-border bg-background px-2 text-xs font-semibold font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                   {discountValue > 0 && (
                     <Button
                       type="button"
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-xs text-rose-500 hover:text-rose-600"
+                      className="h-7 px-2 text-xs text-rose-500 hover:text-rose-600 shrink-0"
                       onClick={() => setDiscountValue(0)}
                     >
                       Reset
@@ -6558,12 +6591,12 @@ function PosPage({
 
           <Button
             variant="hero"
-            className="h-14 flex-1 rounded-2xl text-base shadow-brand font-bold"
+            className="h-14 flex-1 rounded-2xl text-base shadow-brand font-bold whitespace-nowrap"
             disabled={cart.length === 0 || (paymentMethod === "cash" && cashTendered > 0 && cashTendered < total)}
             onClick={checkout}
           >
             Bayar {formatRupiah(total)}
-            <Send className="size-4 ml-1.5" />
+            <Send className="size-4 ml-1.5 shrink-0" />
           </Button>
         </div>
       </aside>

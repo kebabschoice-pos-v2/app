@@ -66,7 +66,6 @@ import {
   toggleMenuItemStatus,
   assignMenuOutlet,
   uploadMenuImage,
-  STANDARD_UNITS,
   convertRecipeToInventoryQuantity,
   type MenuCategory,
   type MenuItem,
@@ -3490,6 +3489,10 @@ export function MenuManagement() {
                                       <option value="pack">pack</option>
                                       <option value="lembar">lembar</option>
                                       <option value="porsi">porsi</option>
+                                      {r.unit &&
+                                        !["pcs", "gram", "ml", "pack", "lembar", "porsi"].includes(
+                                          r.unit,
+                                        ) && <option value={r.unit}>{r.unit}</option>}
                                     </select>
 
                                     {/* Estimasi Biaya BOM Bahan */}

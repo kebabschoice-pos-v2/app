@@ -8,10 +8,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { supabase } from "@/integrations/supabase/client";
 import {
+  getDefaultManagerHQRoute,
   getUserRole,
   resolveAccessLevel,
   type LoginType,
 } from "@/integrations/supabase/role-resolver";
+import { getManagerPermissions } from "@/services/manager-permissions.service";
 
 type Props = { loginType?: LoginType };
 
@@ -52,10 +54,17 @@ export function AuthExperience({ loginType }: Props) {
       if (!userId) throw new Error("Gagal mendapatkan user session");
 
       const role = await getUserRole(userId);
-      const resolved = resolveAccessLevel(role, loginType ?? "hq");
+      const effectiveLoginType = loginType ?? "hq";
+      const resolved = resolveAccessLevel(role, effectiveLoginType);
       if (!resolved.allowed) throw new Error(resolved.errorMessage ?? "Akses tidak sesuai");
 
-      await navigate({ to: resolved.targetRoute, replace: true });
+      let targetRoute = resolved.targetRoute;
+      if (effectiveLoginType === "hq" && role === "manager") {
+        const perms = await getManagerPermissions().catch(() => undefined);
+        targetRoute = getDefaultManagerHQRoute(perms);
+      }
+
+      await navigate({ to: targetRoute, replace: true });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Login gagal";
       setMessage(msg);

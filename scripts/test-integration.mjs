@@ -3067,6 +3067,123 @@ test("Enforces business_id isolation, server-side date filters, no synthetic 0.5
   );
 });
 
+// --- TEST 106: Tahap 6 Manager HQ RBAC & Role Resolver Consolidation, AI Lazy-Load, Parallel /menu, KPI Skeleton & Dependency Cleanliness ---
+console.log("\n▶ 106. TAHAP 6: MANAGER HQ RBAC, ROLE RESOLVER CONSOLIDATION, AI LAZY-LOAD, PARALLEL /MENU, KPI SKELETON & CLEAN DEPS");
+test("Consolidates role-resolver with .limit(1) & manager HQ permission toggles, lazy-loads AI panel, parallelizes /menu, adds MoneyAllocation KPI skeleton, and removes duplicate/unused deps", () => {
+  const canonicalResolver = fs.readFileSync(
+    path.join(process.cwd(), "src/integrations/supabase/role-resolver.ts"),
+    "utf8",
+  );
+  const libResolver = fs.readFileSync(
+    path.join(process.cwd(), "src/lib/role-resolver.ts"),
+    "utf8",
+  );
+  const mgrPermsCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/manager-permissions.service.ts"),
+    "utf8",
+  );
+  const posAppCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf8",
+  );
+  const aiPanelCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/AiAssistantPanel.tsx"),
+    "utf8",
+  );
+  const menuPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/MenuManagement.tsx"),
+    "utf8",
+  );
+  const apiMenuCode = fs.readFileSync(
+    path.join(process.cwd(), "src/routes/api/menu.ts"),
+    "utf8",
+  );
+  const moneyPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf8",
+  );
+  const pkgJson = JSON.parse(
+    fs.readFileSync(path.join(process.cwd(), "package.json"), "utf8"),
+  );
+
+  // 1a. Single source of truth for role-resolver & safe .limit(1) in getUserRole
+  const canonicalResolverNoComments = canonicalResolver
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/\/\/.*$/gm, "");
+  assert.ok(
+    libResolver.includes('export * from "@/integrations/supabase/role-resolver"') &&
+      !canonicalResolverNoComments.includes(".maybeSingle()") &&
+      canonicalResolverNoComments.includes(".limit(1)"),
+    "src/lib/role-resolver.ts must re-export from src/integrations/supabase/role-resolver.ts and getUserRole must use .limit(1) instead of .maybeSingle()",
+  );
+
+  // 1b. Manager HQ access synced with manager-permissions.service.ts while cashier/pos/staff remain strictly blocked
+  assert.ok(
+    canonicalResolver.includes('const HQ_ROLES = ["owner", "admin", "manager"]') &&
+      canonicalResolver.includes('const STRICT_POS_ONLY_ROLES = ["cashier", "staff", "pos"]') &&
+      canonicalResolver.includes("export function canManagerAccessHQRoute") &&
+      canonicalResolver.includes("export async function checkHQRouteAccess") &&
+      mgrPermsCode.includes("resolvePermissionsBusinessId") &&
+      mgrPermsCode.includes("getCachedManagerPermissions"),
+    "role-resolver must include manager in HQ_ROLES gated by manager-permissions toggles while strictly blocking cashier/staff/pos",
+  );
+
+  for (const hqRoute of [
+    "src/routes/_authenticated/dashboard.tsx",
+    "src/routes/_authenticated/inventory.tsx",
+    "src/routes/_authenticated/staff.tsx",
+    "src/routes/_authenticated/money-allocation.tsx",
+    "src/routes/_authenticated/menu.tsx",
+    "src/routes/_authenticated/security.tsx",
+  ]) {
+    const routeCode = fs.readFileSync(path.join(process.cwd(), hqRoute), "utf8");
+    assert.ok(
+      routeCode.includes("checkHQRouteAccess("),
+      `${hqRoute} must enforce unified checkHQRouteAccess guard in beforeLoad`,
+    );
+  }
+
+  // 2a. Lazy-loaded AI Chat panel out of KebabsChoicePOSApp initial bundle
+  assert.ok(
+    posAppCode.includes('lazy(() =>') &&
+      posAppCode.includes('import("./AiAssistantPanel")') &&
+      posAppCode.includes("<Suspense fallback={<AiAssistantPanelFallback />}>") &&
+      !posAppCode.includes("@/components/ai-elements/") &&
+      aiPanelCode.includes("@/components/ai-elements/message"),
+    "KebabsChoicePOSApp must lazy-load AiAssistantPanel via React.lazy + Suspense with zero static @/components/ai-elements/ imports",
+  );
+
+  // 2b. Parallel /menu initial data loading via Promise.all
+  assert.ok(
+    menuPageCode.includes("const resolvedBusinessId = await resolveActiveBusinessId()") &&
+      menuPageCode.includes("await Promise.all([") &&
+      menuPageCode.includes("getCategories(resolvedBusinessId)") &&
+      menuPageCode.includes("getBusinessOutlets(resolvedBusinessId)") &&
+      menuPageCode.includes("getInventoryIngredients(resolvedBusinessId)") &&
+      menuPageCode.includes("getMenuItems({ businessId: resolvedBusinessId })") &&
+      apiMenuCode.includes(
+        "const [menuItemsRes, prodsResInitial, allOutletsRes, dbGroupsRes, rawBomInvRes] =",
+      ),
+    "MenuManagement and api/menu.ts must parallelize menu, categories, outlets, and inventoryIngredients fetches via Promise.all",
+  );
+
+  // 2c. MoneyAllocationPage KPI skeleton gate until full Promise.all completes
+  assert.ok(
+    moneyPageCode.includes("const [hasLoadedData, setHasLoadedData] = useState(false)") &&
+      moneyPageCode.includes("{loading || !hasLoadedData ? (") &&
+      moneyPageCode.includes("animate-pulse") &&
+      moneyPageCode.includes("loadRequestIdRef"),
+    "MoneyAllocationPage must withhold KPI summary cards with a skeleton loader until the full Promise.all finishes and commits atomically",
+  );
+
+  // 3. Clean dependencies (no duplicate motion or unused @ai-sdk packages)
+  const deps = pkgJson.dependencies || {};
+  assert.ok(
+    !("motion" in deps) && !("@ai-sdk/openai" in deps) && !("@ai-sdk/react" in deps),
+    "package.json must not retain duplicate 'motion' (framer-motion is used) or unused '@ai-sdk/openai' / '@ai-sdk/react'",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

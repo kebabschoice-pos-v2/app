@@ -299,7 +299,7 @@ export interface InventoryIngredient {
 }
 
 /**
- * Resolves all business IDs associated with the current user (owned + members)
+ * Resolves all business IDs associated with the current user (owned + members) in parallel
  */
 export async function resolveAllUserBusinessIds(): Promise<string[]> {
   const { data: authData } = await supabase.auth.getUser();
@@ -307,21 +307,19 @@ export async function resolveAllUserBusinessIds(): Promise<string[]> {
     return [];
   }
 
-  // 1. Owned businesses
-  const { data: owned } = await supabase
-    .from("businesses")
-    .select("id")
-    .eq("owner_id", authData.user.id)
-    .order("created_at", { ascending: true });
+  const [{ data: owned }, { data: members }] = await Promise.all([
+    supabase
+      .from("businesses")
+      .select("id")
+      .eq("owner_id", authData.user.id)
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("business_members")
+      .select("business_id")
+      .eq("user_id", authData.user.id),
+  ]);
 
   const ownedIds = (owned || []).map((b) => b.id);
-
-  // 2. Business members
-  const { data: members } = await supabase
-    .from("business_members")
-    .select("business_id")
-    .eq("user_id", authData.user.id);
-
   const memberIds = (members || []).map((m) => m.business_id);
 
   return Array.from(new Set([...ownedIds, ...memberIds].filter(Boolean)));
@@ -611,31 +609,50 @@ export async function getBusinessOutlets(businessId?: string): Promise<MenuOutle
  * Get Inventory Ingredients for Recipe BOM (100% Single Source of Truth with Inventory Management)
  */
 export async function getInventoryIngredients(businessId?: string): Promise<InventoryIngredient[]> {
-  // Load pack_configs from local and DB
+  const bid = await resolveActiveBusinessId(businessId);
+
+  // Load pack_configs from local cache immediately
   let packConfigs: Record<string, { pack_size: number; pack_price: number }> = {};
   if (typeof window !== "undefined") {
     try {
       const raw = localStorage.getItem("kebabschoicepos_money_allocation");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.pack_configs) packConfigs = parsed.pack_configs;
+        if (parsed.pack_configs) packConfigs = { ...parsed.pack_configs };
       }
     } catch {}
   }
-  try {
-    const { data: outList } = await supabase.from("outlets").select("settings");
-    if (outList) {
-      for (const o of outList) {
-        const s = (o.settings as any) || {};
-        if (s.money_allocation?.pack_configs) {
-          Object.assign(packConfigs, s.money_allocation.pack_configs);
-        }
-        if (s.money_allocation_ledger?.pack_configs) {
-          Object.assign(packConfigs, s.money_allocation_ledger.pack_configs);
-        }
+
+  // Run business-scoped outlets pack_configs query & inventory items fetch in parallel
+  const [outletsRes, invItemsResult] = await Promise.all([
+    Promise.resolve(
+      supabase
+        .from("outlets")
+        .select("settings")
+        .eq("business_id", bid),
+    ).catch(() => ({ data: null })),
+    (async () => {
+      try {
+        const { getInventoryItems } = await import("./inventory.service");
+        return await getInventoryItems(bid);
+      } catch (err) {
+        console.warn("[getInventoryIngredients] Error calling getInventoryItems:", err);
+        return null;
+      }
+    })(),
+  ]);
+
+  if (outletsRes?.data) {
+    for (const o of outletsRes.data) {
+      const s = (o.settings as any) || {};
+      if (s.money_allocation?.pack_configs) {
+        Object.assign(packConfigs, s.money_allocation.pack_configs);
+      }
+      if (s.money_allocation_ledger?.pack_configs) {
+        Object.assign(packConfigs, s.money_allocation_ledger.pack_configs);
       }
     }
-  } catch {}
+  }
 
   const enrichItem = (item: any): InventoryIngredient => {
     const keyName = (item.name || "").toLowerCase().trim();
@@ -684,19 +701,12 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
     };
   };
 
-  try {
-    const { getInventoryItems } = await import("./inventory.service");
-    const items = await getInventoryItems(businessId);
-    if (Array.isArray(items) && items.length > 0) {
-      return items.map(enrichItem);
-    }
-  } catch (err) {
-    console.warn("[getInventoryIngredients] Error calling getInventoryItems:", err);
+  if (Array.isArray(invItemsResult) && invItemsResult.length > 0) {
+    return invItemsResult.map(enrichItem);
   }
 
   // Fallback to /api/menu?type=ingredients
   try {
-    const bid = await resolveActiveBusinessId(businessId);
     const headers = await getAuthHeader();
     const res = await fetch(`/api/menu?type=ingredients&businessId=${encodeURIComponent(bid)}`, { headers });
     if (res.ok) {
@@ -710,6 +720,7 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
   const { data } = await supabase
     .from("inventory_items")
     .select("*")
+    .eq("business_id", bid)
     .order("name", { ascending: true });
   return (data || []).map(enrichItem);
 }

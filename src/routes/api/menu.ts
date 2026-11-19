@@ -102,34 +102,30 @@ async function resolveUserBusinessIds(
   userId: string,
   requestedBusinessId?: string | null,
 ): Promise<{ primaryId: string; allIds: string[] }> {
-  // Check owned businesses
-  const { data: owned } = await supabaseAdmin
-    .from("businesses")
-    .select("id")
-    .eq("owner_id", userId)
-    .order("created_at", { ascending: true });
+  const [{ data: owned }, { data: members }] = await Promise.all([
+    supabaseAdmin
+      .from("businesses")
+      .select("id")
+      .eq("owner_id", userId)
+      .order("created_at", { ascending: true }),
+    supabaseAdmin
+      .from("business_members")
+      .select("business_id")
+      .eq("user_id", userId),
+  ]);
 
   const ownedIds = (owned || []).map((b) => b.id);
-
-  // Check business_members
-  const { data: members } = await supabaseAdmin
-    .from("business_members")
-    .select("business_id")
-    .eq("user_id", userId);
-
   const memberIds = (members || []).map((m) => m.business_id);
-
   const combined = Array.from(new Set([...ownedIds, ...memberIds].filter(Boolean)));
 
-  let primaryId =
+  const primaryId =
     requestedBusinessId && combined.includes(requestedBusinessId)
       ? requestedBusinessId
-      : combined[0];
-  if (!primaryId && requestedBusinessId) primaryId = requestedBusinessId;
+      : combined[0] || "";
 
   return {
-    primaryId: primaryId || "",
-    allIds: combined.length > 0 ? combined : primaryId ? [primaryId] : [],
+    primaryId,
+    allIds: combined,
   };
 }
 
@@ -195,63 +191,63 @@ export const Route = createFileRoute("/api/menu")({
             return Response.json({ error: "business_id tidak ditemukan" }, { status: 400 });
           }
 
-          // 1. Categories
+          // 1. Categories (parallelized DB + outlet settings lookup)
           if (type === "categories") {
             let combinedCategories: any[] = [];
 
-            // A. Check dedicated table menu_categories
-            try {
-              const { data: dbCats } = await (supabaseAdmin as any)
-                .from("menu_categories")
-                .select("*")
-                .in("business_id", allBusinessIds)
-                .order("sort_order", { ascending: true });
+            const [dbCatsRes, outletsCatsRes] = await Promise.all([
+              Promise.resolve(
+                (supabaseAdmin as any)
+                  .from("menu_categories")
+                  .select("*")
+                  .in("business_id", allBusinessIds)
+                  .order("sort_order", { ascending: true }),
+              ).catch(() => ({ data: null })),
+              Promise.resolve(
+                supabaseAdmin
+                  .from("outlets")
+                  .select("id, settings")
+                  .in("business_id", allBusinessIds),
+              ).catch((err) => {
+                console.warn("Error reading outlet settings categories:", err);
+                return { data: null };
+              }),
+            ]);
 
-              if (dbCats && dbCats.length > 0) {
-                for (const c of dbCats as any[]) {
-                  if (c.name && c.name.includes("6004")) continue;
-                  combinedCategories.push({
-                    ...c,
-                    id: ensureCategoryUuid(c.id, c.name),
-                  });
-                }
+            const dbCats = dbCatsRes?.data;
+            if (dbCats && dbCats.length > 0) {
+              for (const c of dbCats as any[]) {
+                if (c.name && c.name.includes("6004")) continue;
+                combinedCategories.push({
+                  ...c,
+                  id: ensureCategoryUuid(c.id, c.name),
+                });
               }
-            } catch {
-              // Table not in schema cache
             }
 
-            // B. Check outlets.settings.menu_categories (Persistent JSON storage)
-            try {
-              const { data: outletsWithSettings } = await supabaseAdmin
-                .from("outlets")
-                .select("id, settings")
-                .in("business_id", allBusinessIds);
-
-              if (outletsWithSettings) {
-                for (const o of outletsWithSettings) {
-                  const oCats = (o.settings as any)?.menu_categories;
-                  if (Array.isArray(oCats)) {
-                    for (const c of oCats) {
-                      if (c.name && c.name.includes("6004")) continue;
-                      if (
-                        !combinedCategories.some(
-                          (ex) => ex.name.toLowerCase() === c.name.toLowerCase(),
-                        )
-                      ) {
-                        combinedCategories.push({
-                          id: ensureCategoryUuid(c.id, c.name),
-                          business_id: businessId,
-                          name: c.name,
-                          description: c.description || null,
-                          active: c.active !== false,
-                        });
-                      }
+            const outletsWithSettings = outletsCatsRes?.data;
+            if (outletsWithSettings) {
+              for (const o of outletsWithSettings) {
+                const oCats = (o.settings as any)?.menu_categories;
+                if (Array.isArray(oCats)) {
+                  for (const c of oCats) {
+                    if (c.name && c.name.includes("6004")) continue;
+                    if (
+                      !combinedCategories.some(
+                        (ex) => ex.name.toLowerCase() === c.name.toLowerCase(),
+                      )
+                    ) {
+                      combinedCategories.push({
+                        id: ensureCategoryUuid(c.id, c.name),
+                        business_id: businessId,
+                        name: c.name,
+                        description: c.description || null,
+                        active: c.active !== false,
+                      });
                     }
                   }
                 }
               }
-            } catch (err) {
-              console.warn("Error reading outlet settings categories:", err);
             }
 
             combinedCategories = combinedCategories
@@ -378,48 +374,69 @@ export const Route = createFileRoute("/api/menu")({
             return Response.json({ success: true, data: null });
           }
 
-          // 5. Menu Items List
+          // 5. Menu Items List — execute menu_items, products, outlets, variant_groups, and inventory_items in parallel
           const categoryId = url.searchParams.get("categoryId");
           const search = url.searchParams.get("search");
 
-          let menuItems: any[] = [];
-
-          // Try relational table menu_items (only active, non-deleted items)
-          try {
-            let query = supabaseAdmin
-              .from("menu_items" as any)
-              .select("*, menu_categories(id, name)")
-              .in("business_id", allBusinessIds)
-              .neq("active", false)
-              .order("created_at", { ascending: false });
-
-            if (categoryId && isValidCategoryUuid(categoryId)) {
-              query = query.eq("category_id", categoryId);
-            }
-
-            const { data: dbItems, error: dbErr } = await query;
-            if (!dbErr && dbItems && dbItems.length > 0) {
-              menuItems = dbItems
-                .filter((i: any) => i.active !== false && !i.is_deleted)
-                .map((i: any) => ({
-                  ...i,
-                  category_name: i.menu_categories?.name || "",
-                  modifiers: [],
-                  outlet_assignments: [],
-                  recipe_items: [],
-                }));
-            }
-          } catch {
-            // Relational table not in schema cache
-          }
-
-          // Dual check from products table (so active items created on POS or products are included!)
-          let { data: prods, error: prodErr } = await supabaseAdmin
-            .from("products")
-            .select("*")
+          let menuItemsQuery = supabaseAdmin
+            .from("menu_items" as any)
+            .select("*, menu_categories(id, name)")
             .in("business_id", allBusinessIds)
             .neq("active", false)
             .order("created_at", { ascending: false });
+
+          if (categoryId && isValidCategoryUuid(categoryId)) {
+            menuItemsQuery = menuItemsQuery.eq("category_id", categoryId);
+          }
+
+          const [menuItemsRes, prodsResInitial, allOutletsRes, dbGroupsRes, rawBomInvRes] =
+            await Promise.all([
+              Promise.resolve(menuItemsQuery).catch(() => ({ data: null, error: true })),
+              Promise.resolve(
+                supabaseAdmin
+                  .from("products")
+                  .select("*")
+                  .in("business_id", allBusinessIds)
+                  .neq("active", false)
+                  .order("created_at", { ascending: false }),
+              ).catch(() => ({ data: null, error: { message: "products query failed" } })),
+              Promise.resolve(
+                supabaseAdmin
+                  .from("outlets")
+                  .select("id, name, settings")
+                  .in("business_id", allBusinessIds),
+              ).catch(() => ({ data: [] })),
+              Promise.resolve(
+                (supabaseAdmin as any)
+                  .from("menu_variant_groups")
+                  .select("*, menu_variant_options(*)")
+                  .in("business_id", allBusinessIds)
+                  .order("sort_order", { ascending: true }),
+              ).catch(() => ({ data: null })),
+              Promise.resolve(
+                supabaseAdmin
+                  .from("inventory_items")
+                  .select("id, name, unit, stock, cost_price, yield_per_unit, yield_unit")
+                  .in("business_id", allBusinessIds),
+              ).catch(() => ({ data: null, error: true })),
+            ]);
+
+          let menuItems: any[] = [];
+          if (!menuItemsRes?.error && menuItemsRes?.data && (menuItemsRes.data as any[]).length > 0) {
+            menuItems = (menuItemsRes.data as any[])
+              .filter((i: any) => i.active !== false && !i.is_deleted)
+              .map((i: any) => ({
+                ...i,
+                category_name: i.menu_categories?.name || "",
+                modifiers: [],
+                outlet_assignments: [],
+                recipe_items: [],
+              }));
+          }
+
+          // Dual check from products table (so active items created on POS or products are included!)
+          let prods = prodsResInitial?.data as any[] | null;
+          const prodErr = prodsResInitial?.error as any;
 
           if (prodErr) {
             console.warn(
@@ -566,11 +583,8 @@ export const Route = createFileRoute("/api/menu")({
             }
           }
 
-          // Enrich with stored outlet_menu_items & recipes from outlets.settings
-          const { data: allOutlets } = await supabaseAdmin
-            .from("outlets")
-            .select("id, name, settings")
-            .in("business_id", allBusinessIds);
+          // Enrich with stored outlet_menu_items & recipes from outlets.settings (already fetched in parallel above)
+          const allOutlets = allOutletsRes?.data || [];
 
           const storedRecipes: Record<string, any> = {};
           const storedCustomizations: Record<string, any> = {};
@@ -597,49 +611,72 @@ export const Route = createFileRoute("/api/menu")({
             }
           }
 
-          // Query relational menu_variant_groups & options
+          // Relational menu_variant_groups & options (already fetched in parallel above)
           const dbVariantGroupsMap: Record<string, any[]> = {};
-          try {
-            const { data: dbGroups } = await (supabaseAdmin as any)
-              .from("menu_variant_groups")
-              .select("*, menu_variant_options(*)")
-              .in("business_id", allBusinessIds)
-              .order("sort_order", { ascending: true });
-
-            if (dbGroups && dbGroups.length > 0) {
-              for (const g of dbGroups as any[]) {
-                const itemId = g.menu_item_id;
-                if (!dbVariantGroupsMap[itemId]) dbVariantGroupsMap[itemId] = [];
-                const options = (g.menu_variant_options || [])
-                  .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
-                  .map((o: any) => ({
-                    id: o.id,
-                    group_id: o.group_id,
-                    name: o.name,
-                    additional_price: Number(o.additional_price) || 0,
-                    price_adjustment: Number(o.additional_price) || 0,
-                    is_default: o.is_default || false,
-                    sort_order: o.sort_order || 0,
-                  }));
-                dbVariantGroupsMap[itemId].push({
-                  id: g.id,
-                  menu_item_id: g.menu_item_id,
-                  name: g.name,
-                  selection_type: g.selection_type || "single",
-                  is_required: g.is_required || false,
-                  options,
-                });
-              }
+          const dbGroups = dbGroupsRes?.data;
+          if (dbGroups && dbGroups.length > 0) {
+            for (const g of dbGroups as any[]) {
+              const itemId = g.menu_item_id;
+              if (!dbVariantGroupsMap[itemId]) dbVariantGroupsMap[itemId] = [];
+              const options = (g.menu_variant_options || [])
+                .sort((a: any, b: any) => (a.sort_order || 0) - (b.sort_order || 0))
+                .map((o: any) => ({
+                  id: o.id,
+                  group_id: o.group_id,
+                  name: o.name,
+                  additional_price: Number(o.additional_price) || 0,
+                  price_adjustment: Number(o.additional_price) || 0,
+                  is_default: o.is_default || false,
+                  sort_order: o.sort_order || 0,
+                }));
+              dbVariantGroupsMap[itemId].push({
+                id: g.id,
+                menu_item_id: g.menu_item_id,
+                name: g.name,
+                selection_type: g.selection_type || "single",
+                is_required: g.is_required || false,
+                options,
+              });
             }
-          } catch {
-            // Relational tables not yet created or offline
           }
 
-          // Normalize inventory items for single-source-of-truth BOM HPP calculation
-          const normalizedInventoryForBom = await fetchNormalizedInventoryForBom(
-            allBusinessIds,
-            allOutlets || [],
-          );
+          // Normalize inventory items for single-source-of-truth BOM HPP calculation (reusing parallel fetch)
+          let normalizedInventoryForBom: InventoryItemLite[];
+          if (!rawBomInvRes?.error && Array.isArray(rawBomInvRes?.data)) {
+            const itemMetaMap: Record<string, any> = {};
+            for (const o of allOutlets || []) {
+              const s = (o?.settings as any) || {};
+              const metaSource = s.procurement_store?.item_meta || s.procurement?.item_meta || s.item_meta || {};
+              if (metaSource && typeof metaSource === "object") {
+                Object.assign(itemMetaMap, metaSource);
+              }
+            }
+            normalizedInventoryForBom = (rawBomInvRes.data as any[]).map((row: any) => {
+              const meta = itemMetaMap[row.id] || {};
+              const costPrice =
+                Number(row.cost_price) > 0
+                  ? Number(row.cost_price)
+                  : Number(meta.cost_price) > 0
+                    ? Number(meta.cost_price)
+                    : 0;
+              return {
+                id: row.id,
+                name: row.name,
+                unit: row.unit,
+                cost_price: costPrice,
+                yield_per_unit:
+                  Number(row.yield_per_unit) > 0
+                    ? Number(row.yield_per_unit)
+                    : Number(meta.yield_per_unit) || null,
+                yield_unit: row.yield_unit || meta.yield_unit || null,
+              };
+            });
+          } else {
+            normalizedInventoryForBom = await fetchNormalizedInventoryForBom(
+              allBusinessIds,
+              allOutlets || [],
+            );
+          }
 
           menuItems = menuItems.map((item) => {
             const itemRecipe = storedRecipes[item.id];

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
@@ -96,19 +96,6 @@ import {
   YAxis,
 } from "recharts";
 
-import {
-  Conversation,
-  ConversationContent,
-  ConversationEmptyState,
-  ConversationScrollButton,
-} from "@/components/ai-elements/conversation";
-import { Message, MessageContent, MessageResponse } from "@/components/ai-elements/message";
-import {
-  PromptInput,
-  PromptInputFooter,
-  PromptInputSubmit,
-  PromptInputTextarea,
-} from "@/components/ai-elements/prompt-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -123,6 +110,17 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
+import {
+  canManagerAccessHQRoute,
+  getDefaultManagerHQRoute,
+  isHQRole as isHQRoleCheck,
+  isStrictPOSOnlyRole,
+} from "@/integrations/supabase/role-resolver";
+import {
+  getCachedManagerPermissions,
+  getManagerPermissions,
+  type ManagerPermissions,
+} from "@/services/manager-permissions.service";
 import {
   getBusinessProfile,
   updateBusinessProfile,
@@ -268,19 +266,32 @@ type AppPage =
   | "language-settings";
 type UserProfile = { email: string; displayName: string };
 
-interface ChatMessageItem {
-  id: string;
-  role: "user" | "assistant";
-  text: string;
-}
+// Lazy-load the heavy AI Chat panel (ai-elements / streamdown / mermaid / shiki)
+// so POS cashier & non-dashboard routes load with a much lighter initial bundle.
+const LazyAiAssistantPanel = lazy(() =>
+  import("./AiAssistantPanel").then((m) => ({ default: m.AiAssistantPanel })),
+);
 
-const initialChatMessages: ChatMessageItem[] = [
-  {
-    id: "kitapos-ai-welcome",
-    role: "assistant",
-    text: "Selamat pagi, Admin. Saya sudah memantau revenue, stok, dan pola pelanggan hari ini. Tanyakan apa yang perlu diprioritaskan.",
-  },
-];
+function AiAssistantPanelFallback() {
+  return (
+    <section className="flex h-[42rem] min-h-0 flex-col rounded-[1.75rem] border border-border bg-card/86 shadow-float backdrop-blur-2xl animate-pulse">
+      <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex items-center gap-3">
+          <div className="size-10 rounded-2xl bg-muted" />
+          <div className="space-y-1.5">
+            <div className="h-4 w-32 rounded bg-muted" />
+            <div className="h-3 w-44 rounded bg-muted" />
+          </div>
+        </div>
+        <div className="h-6 w-16 rounded-full bg-muted" />
+      </div>
+      <div className="flex-1 flex flex-col items-center justify-center gap-3 p-6 text-muted-foreground">
+        <Loader2 className="size-6 animate-spin text-primary" />
+        <p className="text-xs font-semibold">Memuat panel Kita AI Assistant...</p>
+      </div>
+    </section>
+  );
+}
 
 function toNumber(value: number | string | null | undefined) {
   if (typeof value === "number") {
@@ -1650,32 +1661,49 @@ function Sidebar({
     if (isPosAttendance) setPosAbsensiOpen(true);
   }, [active, isPosAttendance]);
 
+  const [liveMgrPerms, setLiveMgrPerms] = useState<ManagerPermissions>(() =>
+    getCachedManagerPermissions(),
+  );
+
+  useEffect(() => {
+    if (!isManager) return;
+    let cancelled = false;
+    getManagerPermissions(snapshot?.businessId || undefined, snapshot?.assignedOutletId || undefined)
+      .then((perms) => {
+        if (!cancelled) setLiveMgrPerms(perms);
+      })
+      .catch(() => {});
+
+    const handlePermsUpdated = (e: any) => {
+      if (e?.detail && typeof e.detail === "object") {
+        setLiveMgrPerms(e.detail as ManagerPermissions);
+      } else {
+        getManagerPermissions(snapshot?.businessId || undefined, snapshot?.assignedOutletId || undefined)
+          .then((perms) => {
+            if (!cancelled) setLiveMgrPerms(perms);
+          })
+          .catch(() => {});
+      }
+    };
+    window.addEventListener("permissions:updated", handlePermsUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("permissions:updated", handlePermsUpdated);
+    };
+  }, [isManager, snapshot?.businessId, snapshot?.assignedOutletId]);
+
   const managerPermissions: string[] = useMemo(() => {
     if (!isManager) return [];
-    try {
-      const stored = localStorage.getItem("kebabschoicepos_manager_permissions");
-      if (stored) {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-      if (snapshot?.outlets && Array.isArray(snapshot.outlets)) {
-        for (const out of snapshot.outlets) {
-          const outAny = out as any;
-          const s =
-            outAny.settings && typeof outAny.settings === "object" && !Array.isArray(outAny.settings)
-              ? outAny.settings
-              : null;
-          if (s?.manager_permissions) {
-            const vals = Object.values(s.manager_permissions);
-            if (vals.length > 0 && Array.isArray(vals[0])) {
-              return vals[0] as string[];
-            }
-          }
-        }
-      }
-    } catch {}
-    return ["reports", "inventory", "menu", "staff_schedule"];
-  }, [isManager, snapshot]);
+    const allowed: string[] = [];
+    if (liveMgrPerms.can_view_branch_reports) allowed.push("reports");
+    if (liveMgrPerms.can_spend_ingredient_pockets || liveMgrPerms.can_view_owner_net_profit) {
+      allowed.push("money-allocation");
+    }
+    if (liveMgrPerms.can_manage_inventory) allowed.push("inventory");
+    if (liveMgrPerms.can_edit_menu_recipes) allowed.push("menu");
+    if (liveMgrPerms.can_manage_staff_shift) allowed.push("staff_schedule", "payroll");
+    return allowed;
+  }, [isManager, liveMgrPerms]);
 
   const reportItems = navItems.filter((item) => item.group === "report");
   const stockItems = navItems.filter((item) => item.group === "stock");
@@ -1972,45 +2000,56 @@ function Sidebar({
              ================================================== */
           <>
             {/* GROUP 1: RINGKASAN & LAPORAN */}
-            {(!isManager || managerPermissions.includes("reports")) && (
-              <AccordionGroup
-                title={t("nav.reports", "Ringkasan & Laporan")}
-                icon={BarChart3}
-                isOpen={reportOpen}
-                isActive={isReportActive}
-                onToggle={() => setReportOpen((prev) => !prev)}
-              >
-                {reportItems.map((item) => {
-                  const Icon = item.icon;
-                  const selected =
-                    item.key === active ||
-                    (item.href === "/dashboard" && active === "dashboard") ||
-                    (item.href === "/analytics" &&
-                      (active === "analytics" || active === "business-summary")) ||
-                    (item.href === "/orders" && active === "orders") ||
-                    (item.href === "/performance-outlet" && active === "performance-outlet") ||
-                    (item.href === "/performance-menu" && active === "performance-menu") ||
-                    (item.href === "/insight-analytics" && active === "insight-analytics") ||
-                    (item.href === "/money-allocation" && active === "money-allocation");
+            {(() => {
+              const allowedReportItems = reportItems.filter((item) => {
+                if (!isManager) return true;
+                if (item.key === "money-allocation") {
+                  return managerPermissions.includes("money-allocation");
+                }
+                return managerPermissions.includes("reports");
+              });
+              if (isManager && allowedReportItems.length === 0) return null;
 
-                  return (
-                    <Link
-                      key={item.key}
-                      to={item.href}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
-                        selected
-                          ? "bg-primary text-primary-foreground font-bold shadow-brand"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                      )}
-                    >
-                      <Icon className="size-3.5 shrink-0" />
-                      <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
-                    </Link>
-                  );
-                })}
-              </AccordionGroup>
-            )}
+              return (
+                <AccordionGroup
+                  title={t("nav.reports", "Ringkasan & Laporan")}
+                  icon={BarChart3}
+                  isOpen={reportOpen}
+                  isActive={isReportActive}
+                  onToggle={() => setReportOpen((prev) => !prev)}
+                >
+                  {allowedReportItems.map((item) => {
+                    const Icon = item.icon;
+                    const selected =
+                      item.key === active ||
+                      (item.href === "/dashboard" && active === "dashboard") ||
+                      (item.href === "/analytics" &&
+                        (active === "analytics" || active === "business-summary")) ||
+                      (item.href === "/orders" && active === "orders") ||
+                      (item.href === "/performance-outlet" && active === "performance-outlet") ||
+                      (item.href === "/performance-menu" && active === "performance-menu") ||
+                      (item.href === "/insight-analytics" && active === "insight-analytics") ||
+                      (item.href === "/money-allocation" && active === "money-allocation");
+
+                    return (
+                      <Link
+                        key={item.key}
+                        to={item.href}
+                        className={cn(
+                          "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
+                          selected
+                            ? "bg-primary text-primary-foreground font-bold shadow-brand"
+                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+                        )}
+                      >
+                        <Icon className="size-3.5 shrink-0" />
+                        <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
+                      </Link>
+                    );
+                  })}
+                </AccordionGroup>
+              );
+            })()}
 
             {/* GROUP 2: STOK & PENGADAAN */}
             {(!isManager || managerPermissions.includes("inventory")) && (
@@ -2249,174 +2288,6 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
       })}
     </nav>
   );
-}
-
-function AiAssistantPanel({ snapshot }: { snapshot: Snapshot }) {
-  const { t } = useTranslation();
-  const metrics = calculateSnapshotMetrics(snapshot);
-  const [messages, setMessages] = useState<ChatMessageItem[]>(initialChatMessages);
-  const [isLoading, setIsLoading] = useState(false);
-
-  const handleSendPrompt = async (promptText: string) => {
-    const trimmed = promptText.trim();
-    if (!trimmed || isLoading) return;
-
-    const userMsg: ChatMessageItem = {
-      id: `user-${Date.now()}`,
-      role: "user",
-      text: trimmed,
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    setIsLoading(true);
-
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-
-      const res = await fetch("/api/kitapos-ai", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          prompt: trimmed,
-          businessName: snapshot.businessName,
-          metrics,
-          products: snapshot.products.slice(0, 15),
-          inventory: snapshot.inventory.slice(0, 15),
-          customers: snapshot.customers.slice(0, 10),
-          orders: snapshot.orders.slice(0, 25),
-          outlets: snapshot.outlets || [],
-        }),
-      });
-
-      const json = await res.json().catch(() => null);
-
-      if (json && typeof json.message === "string" && json.message.trim()) {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `ai-${Date.now()}`,
-            role: "assistant",
-            text: json.message,
-          },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `ai-${Date.now()}`,
-            role: "assistant",
-            text: "AI sedang tidak tersedia, menggunakan analisis internal.",
-          },
-        ]);
-      }
-    } catch (err) {
-      console.error("[AiAssistantPanel] fetch error:", err);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: `ai-${Date.now()}`,
-          role: "assistant",
-          text: "AI sedang tidak tersedia, menggunakan analisis internal.",
-        },
-      ]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  return (
-    <section className="flex h-[42rem] min-h-0 flex-col rounded-[1.75rem] border border-border bg-card/86 shadow-float backdrop-blur-2xl">
-      <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
-        <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-2xl bg-ai-soft text-ai">
-            <Bot className="size-5" />
-          </div>
-          <div>
-            <h2 className="font-black tracking-normal">
-              {t("dashboard.ai_assistant_title", "Kita AI Assistant")}
-            </h2>
-            <p className="text-xs text-muted-foreground">
-              {t("dashboard.ai_assistant_desc", "Sales prediction · stok · pelanggan")}
-            </p>
-          </div>
-        </div>
-        <span className="rounded-full bg-success-soft px-3 py-1 text-xs font-bold text-success-foreground">
-          Online
-        </span>
-      </div>
-
-      <Conversation className="min-h-0">
-        <ConversationContent className="gap-5 p-5">
-          {messages.length === 0 && (
-            <ConversationEmptyState
-              icon={<Bot className="size-7" />}
-              title="Tanya Kita AI"
-              description="Minta rekomendasi stok, promo, atau ringkasan penjualan."
-            />
-          )}
-          {messages.map((message) => (
-            <Message key={message.id} from={message.role}>
-              <MessageContent
-                className={cn(message.role === "user" && "bg-primary text-primary-foreground")}
-              >
-                <MessageResponse>{message.text}</MessageResponse>
-              </MessageContent>
-            </Message>
-          ))}
-          {isLoading && (
-            <Message from="assistant">
-              <MessageContent>
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <Loader2 className="size-4 animate-spin text-primary" />
-                  {t("dashboard.ai_reading_pattern", "Kita AI sedang membaca pola bisnis...")}
-                </div>
-              </MessageContent>
-            </Message>
-          )}
-        </ConversationContent>
-        <ConversationScrollACLEButton />
-      </Conversation>
-
-      <div className="border-t border-border p-4">
-        <div className="mb-3 flex flex-wrap gap-2">
-          {[
-            "Produk paling laku hari ini?",
-            "Outlet dengan omzet tertinggi?",
-            "Stok apa yang perlu dibeli?",
-          ].map((prompt) => (
-            <Button
-              key={prompt}
-              variant="secondary"
-              size="sm"
-              className="rounded-full text-xs font-semibold"
-              onClick={() => handleSendPrompt(prompt)}
-            >
-              {prompt}
-            </Button>
-          ))}
-        </div>
-        <PromptInput
-          onSubmit={({ text }) => {
-            handleSendPrompt(text);
-          }}
-        >
-          <PromptInputTextarea
-            placeholder={t("dashboard.ask_ai_placeholder", "Tanya: apa prioritas bisnis hari ini?")}
-          />
-          <PromptInputFooter className="justify-end">
-            <PromptInputSubmit status={isLoading ? "submitted" : "ready"} className="rounded-xl" />
-          </PromptInputFooter>
-        </PromptInput>
-      </div>
-    </section>
-  );
-}
-
-function ConversationScrollACLEButton() {
-  return <ConversationScrollButton className="bottom-5" />;
 }
 
 function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
@@ -2799,7 +2670,9 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
             </div>
           )}
         </div>
-        <AiAssistantPanel snapshot={snapshot} />
+        <Suspense fallback={<AiAssistantPanelFallback />}>
+          <LazyAiAssistantPanel snapshot={snapshot} />
+        </Suspense>
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -9948,6 +9821,38 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     };
   }, [snapshot.businessId]);
 
+  const [appManagerPermissions, setAppManagerPermissions] = useState<ManagerPermissions>(() =>
+    getCachedManagerPermissions(),
+  );
+
+  useEffect(() => {
+    const roleLower = (snapshot.role || "").toLowerCase();
+    if (roleLower !== "manager") return;
+    let cancelled = false;
+
+    const loadPerms = () => {
+      getManagerPermissions(snapshot.businessId || undefined, snapshot.assignedOutletId || undefined)
+        .then((perms) => {
+          if (!cancelled) setAppManagerPermissions(perms);
+        })
+        .catch(() => {});
+    };
+
+    loadPerms();
+    const handlePermsUpdated = (e: any) => {
+      if (e?.detail && typeof e.detail === "object") {
+        setAppManagerPermissions(e.detail as ManagerPermissions);
+      } else {
+        loadPerms();
+      }
+    };
+    window.addEventListener("permissions:updated", handlePermsUpdated);
+    return () => {
+      cancelled = true;
+      window.removeEventListener("permissions:updated", handlePermsUpdated);
+    };
+  }, [snapshot.role, snapshot.businessId, snapshot.assignedOutletId]);
+
   async function handleSignOut() {
     await supabase.auth.signOut();
     await navigate({ to: "/", replace: true });
@@ -9994,8 +9899,8 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     }
 
     const userRole = (snapshot.role || "owner").toLowerCase();
-    const isHQRole = ["owner", "admin", "manager"].includes(userRole);
-    const isCashierRole = userRole === "cashier" || (!isHQRole && userRole === "staff");
+    const isHQRole = isHQRoleCheck(userRole);
+    const isCashierRole = isStrictPOSOnlyRole(userRole) || (!isHQRole && userRole !== "owner");
     const isManagerRole = userRole === "manager";
     const isPosPage = [
       "pos",
@@ -10010,7 +9915,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       "pos-attendance-shifts",
     ].includes(page);
 
-    // RBAC GUARD 1: KASIR dilarang membuka modul HQ dan laporan finansial
+    // RBAC GUARD 1: KASIR / STAFF / POS dilarang membuka modul HQ dan laporan finansial
     if (isCashierRole && !isPosPage) {
       return (
         <div className="flex min-h-[60vh] flex-col items-center justify-center text-center p-8">
@@ -10030,17 +9935,22 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       );
     }
 
-    // RBAC GUARD 2: MANAGER dilarang mengubah setting bisnis dan profil bisnis
-    const isRestrictedManagerPage = [
-      "business-profile",
-      "receipt-settings",
-      "printer-settings",
-      "tax",
-      "payment",
-      "integration",
+    // RBAC GUARD 2: MANAGER diizinkan ke halaman HQ sesuai toggle Owner (manager-permissions.service.ts)
+    const isAccountSelfPage = [
+      "profile",
+      "change-password",
+      "login-activity",
+      "language-settings",
     ].includes(page);
+    const normalizedPageForPerm = page === "outlet" ? "outlets" : page;
+    const isManagerBlockedPage =
+      isManagerRole &&
+      !isPosPage &&
+      !isAccountSelfPage &&
+      !canManagerAccessHQRoute(normalizedPageForPerm, appManagerPermissions);
 
-    if (isManagerRole && isRestrictedManagerPage) {
+    if (isManagerBlockedPage) {
+      const fallbackRoute = getDefaultManagerHQRoute(appManagerPermissions);
       return (
         <div className="flex min-h-[60vh] flex-col items-center justify-center text-center p-8">
           <div className="flex size-16 items-center justify-center rounded-3xl bg-amber-500/10 text-amber-600 mb-4">
@@ -10048,12 +9958,15 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
           </div>
           <h2 className="text-2xl font-black">Akses Terbatas (RBAC Manager)</h2>
           <p className="mt-2 max-w-md text-sm text-muted-foreground">
-            Role Manager Outlet tidak memiliki izin untuk mengubah Profil Bisnis dan Pengaturan
-            Sistem. Pengaturan ini hanya dapat dikonfigurasi oleh Owner HQ / Administrator.
+            Halaman ini tidak diaktifkan pada Hak Akses Manager oleh Owner HQ. Hubungi Owner jika
+            Anda memerlukan izin akses ke modul ini.
           </p>
-          <Button onClick={() => navigate({ to: "/dashboard" })} className="mt-6 font-bold gap-2">
+          <Button
+            onClick={() => navigate({ to: fallbackRoute as any })}
+            className="mt-6 font-bold gap-2"
+          >
             <Building2 className="size-4" />
-            Kembali ke Dashboard HQ
+            {fallbackRoute === "/pos" ? "Kembali ke POS Kasir" : "Kembali ke Modul Diizinkan"}
           </Button>
         </div>
       );
@@ -10198,7 +10111,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       return <LoginActivityPage />;
     }
     return <DashboardPage snapshot={snapshot} />;
-  }, [page, snapshot, profile, activeCashierName]);
+  }, [page, snapshot, profile, activeCashierName, appManagerPermissions]);
 
   if (loading) {
     return (

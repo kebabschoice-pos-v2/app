@@ -34,7 +34,7 @@ import {
 } from "@/services/receipt.service";
 import { getOutletList, type OutletItem } from "@/services/outlet.service";
 import { supabase } from "@/integrations/supabase/client";
-import { getUserRole, isHQRole } from "@/integrations/supabase/role-resolver";
+import { getUserRole, isOwnerOrAdminRole } from "@/integrations/supabase/role-resolver";
 import {
   connectBluetoothPrinter,
   connectUsbPrinter,
@@ -79,7 +79,7 @@ export function ReceiptSettingsPage() {
     phone: "0859-1066-60608",
   });
 
-  const canEdit = isHQRole(userRole);
+  const canEdit = isOwnerOrAdminRole(userRole);
 
   async function loadData(targetOutletId = selectedOutletId) {
     try {

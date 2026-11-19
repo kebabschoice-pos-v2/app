@@ -1,13 +1,11 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
-import { supabase } from "@/integrations/supabase/client";
-import { getUserRole, isHQRole } from "@/integrations/supabase/role-resolver";
+import { checkHQRouteAccess } from "@/integrations/supabase/role-resolver";
 import { KebabsChoicePOSApp } from "@/components/kebabschoicepos/KebabsChoicePOSApp";
 
 export const Route = createFileRoute("/_authenticated/printer-settings")({
   beforeLoad: async () => {
-    const { data } = await supabase.auth.getUser();
-    const role = data.user ? await getUserRole(data.user.id) : null;
-    if (!isHQRole(role)) throw redirect({ to: "/pos" });
+    const access = await checkHQRouteAccess("printer-settings");
+    if (!access.allowed) throw redirect({ to: access.redirectTo });
   },
   component: () => <KebabsChoicePOSApp page="printer-settings" />,
 });

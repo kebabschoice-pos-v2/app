@@ -58,6 +58,7 @@ import {
   getMenuItems,
   getBusinessOutlets,
   getInventoryIngredients,
+  resolveActiveBusinessId,
   syncMenuRecipesWithInventory,
   createMenuItem,
   updateMenuItem,
@@ -361,23 +362,26 @@ export function MenuManagement() {
           : "owner";
       setUserRole(role);
 
-      // Parallelize all data fetches simultaneously including manager permissions
+      // Resolve active businessId once up front to avoid 5x redundant auth & business lookups,
+      // then execute all initial data fetches in parallel via Promise.all (<2s target).
+      const resolvedBusinessId = await resolveActiveBusinessId().catch(() => undefined);
+
       const [perms, fetchedCategories, fetchedOutlets, fetchedIngredients, fetchedItems] =
         await Promise.all([
-          getManagerPermissions().catch(() => null),
-          getCategories().catch((err) => {
+          getManagerPermissions(resolvedBusinessId).catch(() => null),
+          getCategories(resolvedBusinessId).catch((err) => {
             console.error("Gagal memuat kategori:", err);
             return [] as MenuCategory[];
           }),
-          getBusinessOutlets().catch((err) => {
+          getBusinessOutlets(resolvedBusinessId).catch((err) => {
             console.error("Gagal memuat outlet:", err);
             return [] as MenuOutletInfo[];
           }),
-          getInventoryIngredients().catch((err) => {
+          getInventoryIngredients(resolvedBusinessId).catch((err) => {
             console.error("Gagal memuat bahan baku:", err);
             return [] as InventoryIngredient[];
           }),
-          getMenuItems().catch((err) => {
+          getMenuItems({ businessId: resolvedBusinessId }).catch((err) => {
             console.error("Gagal memuat menu:", err);
             return [] as MenuItem[];
           }),

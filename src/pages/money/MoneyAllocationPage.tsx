@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   Wallet,
   Coins,
@@ -121,6 +121,7 @@ export function MoneyAllocationPage({
   const [managerPermissions, setManagerPermissions] = useState<ManagerPermissions | null>(null);
   const [userRole, setUserRole] = useState<string>("owner");
   const [loading, setLoading] = useState(true);
+  const [hasLoadedData, setHasLoadedData] = useState(false);
   const [analytics, setAnalytics] = useState<BusinessAnalyticsSummary | null>(null);
 
   // Real Inventory & Movement Data
@@ -230,7 +231,10 @@ export function MoneyAllocationPage({
     }
   }, []);
 
+  const loadRequestIdRef = useRef(0);
+
   const loadData = useCallback(async () => {
+    const requestId = ++loadRequestIdRef.current;
     try {
       setLoading(true);
       const bId =
@@ -453,22 +457,17 @@ export function MoneyAllocationPage({
         } catch {}
       }
 
-      if (!loadedConfigs && bId) {
-        try {
-          const { data: outData } = await supabase
-            .from("outlets")
-            .select("settings")
-            .eq("business_id", bId)
-            .limit(1)
-            .maybeSingle();
-          const setObj = (outData?.settings as any) || {};
-          if (setObj.money_allocation_ledger) {
-            loadedConfigs = setObj.money_allocation_ledger;
-          } else if (setObj.money_allocation) {
-            loadedConfigs = setObj.money_allocation;
-          }
-        } catch {}
+      if (!loadedConfigs && Array.isArray(outletDataResponse?.data) && outletDataResponse.data.length > 0) {
+        const firstOutletSettings = ((outletDataResponse.data[0] as any)?.settings as any) || {};
+        if (firstOutletSettings.money_allocation_ledger) {
+          loadedConfigs = firstOutletSettings.money_allocation_ledger;
+        } else if (firstOutletSettings.money_allocation) {
+          loadedConfigs = firstOutletSettings.money_allocation;
+        }
       }
+
+      // Discard stale out-of-order response if a newer filter/period request is already active
+      if (requestId !== loadRequestIdRef.current) return;
 
       // Single batched state commit: All states update synchronously together
       setUserRole(activeRole);
@@ -579,10 +578,18 @@ export function MoneyAllocationPage({
           },
         ]);
       }
+
+      // Commit hasLoadedData only after all ledger/pocket/payroll state updates are queued in the same batch
+      setHasLoadedData(true);
     } catch (err) {
       console.error("[MoneyAllocationPage] Load error:", err);
+      if (requestId === loadRequestIdRef.current) {
+        setHasLoadedData(true);
+      }
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [snapshot?.businessId, selectedOutletId, dateRange, outletsList]);
 
@@ -1598,7 +1605,27 @@ export function MoneyAllocationPage({
           </div>
         </div>
 
-        {/* 2. Top Summary KPI Cards: Omzet -> (-) BOM -> (-) OP -> (-) Gaji/Kas -> (=) Laba Bersih */}
+        {/* 2. Top Summary KPI Cards: withhold KPI numbers (render skeleton) until full Promise.all finishes to eliminate flicker */}
+        {loading || !hasLoadedData ? (
+          <div
+            aria-label="Memuat ringkasan KPI alokasi keuangan"
+            className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 border-t border-border/60 pt-5"
+          >
+            {[0, 1, 2, 3, 4].map((skeletonIdx) => (
+              <div
+                key={skeletonIdx}
+                className="rounded-2xl border border-border/70 bg-muted/35 p-4 shadow-xs animate-pulse space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="h-3.5 w-28 rounded bg-muted-foreground/20" />
+                  <div className="size-8 shrink-0 rounded-xl bg-muted-foreground/15" />
+                </div>
+                <div className="h-6 w-32 rounded bg-muted-foreground/25" />
+                <div className="h-2.5 w-24 rounded bg-muted-foreground/15" />
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5 border-t border-border/60 pt-5">
           {/* Omzet Masuk */}
           <div className="rounded-2xl border border-border/80 bg-muted/40 p-4 shadow-xs overflow-hidden">
@@ -1704,9 +1731,10 @@ export function MoneyAllocationPage({
             </div>
           )}
         </div>
+        )}
 
         {/* Multi-Branch Comparison Cards (HQ Summary View - Strict Per-Branch Isolation) */}
-        {selectedOutletId === "all" && outletsList.length > 0 && (
+        {!loading && hasLoadedData && selectedOutletId === "all" && outletsList.length > 0 && (
           <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">

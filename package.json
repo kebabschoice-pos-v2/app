@@ -17,8 +17,6 @@
     "rolldown": "1.2.1"
   },
   "dependencies": {
-    "@ai-sdk/openai": "^4.0.72",
-    "@ai-sdk/react": "^4.0.110",
     "@hookform/resolvers": "^5.2.2",
     "@lovable.dev/cloud-auth-js": "^1.1.2",
     "@radix-ui/react-accordion": "^1.2.12",
@@ -67,7 +65,6 @@
     "i18next": "^26.4.2",
     "input-otp": "^1.4.2",
     "lucide-react": "^0.575.0",
-    "motion": "^13.4.0",
     "nanoid": "^6.0.1",
     "react": "^19.2.0",
     "react-day-picker": "^9.14.0",

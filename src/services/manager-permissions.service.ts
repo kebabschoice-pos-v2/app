@@ -22,60 +22,102 @@ export const DEFAULT_MANAGER_PERMISSIONS: ManagerPermissions = {
 
 const STORAGE_KEY = "kebabschoicepos_manager_permissions";
 
-export async function getManagerPermissions(
-  businessId?: string,
-  outletId?: string,
-): Promise<ManagerPermissions> {
-  // 1. Check local storage cache first
+async function resolvePermissionsBusinessId(explicitBusinessId?: string): Promise<string | undefined> {
+  if (explicitBusinessId) return explicitBusinessId;
+  if (typeof window !== "undefined") {
+    const cached = localStorage.getItem("kebabschoicepos_active_business_id");
+    if (cached) return cached;
+  }
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const uid = authData?.user?.id;
+    if (!uid) return undefined;
+    const { data: owned } = await supabase
+      .from("businesses")
+      .select("id")
+      .eq("owner_id", uid)
+      .order("created_at", { ascending: true })
+      .limit(1);
+    if (owned?.[0]?.id) return owned[0].id;
+
+    const { data: member } = await supabase
+      .from("business_members")
+      .select("business_id")
+      .eq("user_id", uid)
+      .limit(1);
+    if (member?.[0]?.business_id) return member[0].business_id;
+  } catch {}
+  return undefined;
+}
+
+export function normalizeManagerPermissions(raw: unknown): ManagerPermissions {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return { ...DEFAULT_MANAGER_PERMISSIONS, ...(raw as Partial<ManagerPermissions>) };
+  }
+  if (Array.isArray(raw)) {
+    return {
+      ...DEFAULT_MANAGER_PERMISSIONS,
+      can_manage_inventory: raw.includes("inventory"),
+      can_view_branch_reports: raw.includes("reports"),
+      can_manage_staff_shift: raw.includes("staff_schedule") || raw.includes("payroll"),
+      can_spend_ingredient_pockets: raw.includes("money_allocation") || raw.includes("inventory"),
+      can_edit_menu_recipes: raw.includes("menu"),
+    };
+  }
+  return { ...DEFAULT_MANAGER_PERMISSIONS };
+}
+
+export function getCachedManagerPermissions(): ManagerPermissions {
   if (typeof window !== "undefined") {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
-        const parsed = JSON.parse(stored);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          return { ...DEFAULT_MANAGER_PERMISSIONS, ...parsed };
-        }
-        // Backward compatibility for array format
-        if (Array.isArray(parsed)) {
-          return {
-            ...DEFAULT_MANAGER_PERMISSIONS,
-            can_manage_inventory: parsed.includes("inventory"),
-            can_view_branch_reports: parsed.includes("reports"),
-            can_manage_staff_shift: parsed.includes("staff_schedule"),
-            can_edit_menu_recipes: parsed.includes("menu"),
-          };
-        }
+        return normalizeManagerPermissions(JSON.parse(stored));
       }
     } catch {}
   }
+  return { ...DEFAULT_MANAGER_PERMISSIONS };
+}
 
-  // 2. Fetch from Supabase outlets.settings
+export async function getManagerPermissions(
+  businessId?: string,
+  outletId?: string,
+): Promise<ManagerPermissions> {
+  const resolvedBizId = await resolvePermissionsBusinessId(businessId);
+
+  // 1. Fetch authoritative permissions from Supabase outlets.settings (business-scoped)
+  //    so Owner ON/OFF toggles apply immediately on Manager sessions across devices.
   try {
-    let query = supabase.from("outlets").select("id, settings");
-    if (outletId && outletId !== "all") {
-      query = query.eq("id", outletId);
-    } else if (businessId) {
-      query = query.eq("business_id", businessId);
-    }
-    const { data } = await query.limit(1).maybeSingle();
+    if ((outletId && outletId !== "all") || resolvedBizId) {
+      let query = supabase.from("outlets").select("id, settings");
+      if (outletId && outletId !== "all") {
+        query = query.eq("id", outletId);
+        if (resolvedBizId) query = query.eq("business_id", resolvedBizId);
+      } else if (resolvedBizId) {
+        query = query.eq("business_id", resolvedBizId);
+      }
+      const { data: rows } = await query.order("created_at", { ascending: true }).limit(1);
+      const firstRow = rows?.[0];
 
-    if (data?.settings && typeof data.settings === "object") {
-      const s = data.settings as any;
-      if (s.manager_permissions && typeof s.manager_permissions === "object") {
-        const perms = { ...DEFAULT_MANAGER_PERMISSIONS, ...s.manager_permissions };
-        if (typeof window !== "undefined") {
-          try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(perms));
-          } catch {}
+      if (firstRow?.settings && typeof firstRow.settings === "object") {
+        const s = firstRow.settings as any;
+        if (s.manager_permissions && typeof s.manager_permissions === "object") {
+          const perms = normalizeManagerPermissions(s.manager_permissions);
+          if (typeof window !== "undefined") {
+            try {
+              localStorage.setItem(STORAGE_KEY, JSON.stringify(perms));
+            } catch {}
+          }
+          return perms;
         }
-        return perms;
       }
     }
   } catch (err) {
     console.warn("[manager-permissions] Error fetching permissions:", err);
   }
 
-  return DEFAULT_MANAGER_PERMISSIONS;
+  // 2. Fallback to localStorage cache (offline or before first save)
+  return getCachedManagerPermissions();
 }
 
 export async function saveManagerPermissions(
@@ -84,6 +126,7 @@ export async function saveManagerPermissions(
   outletId?: string,
 ): Promise<void> {
   const merged = { ...DEFAULT_MANAGER_PERMISSIONS, ...permissions };
+  const resolvedBizId = await resolvePermissionsBusinessId(businessId);
 
   // 1. Save to local storage
   if (typeof window !== "undefined") {
@@ -93,13 +136,19 @@ export async function saveManagerPermissions(
     } catch {}
   }
 
-  // 2. Persist to Supabase outlets
+  // 2. Persist to Supabase outlets (strictly business-scoped)
   try {
+    if ((!outletId || outletId === "all") && !resolvedBizId) {
+      console.warn("[manager-permissions] Skipped unscoped outlets update (missing businessId)");
+      return;
+    }
+
     let query = supabase.from("outlets").select("id, settings");
     if (outletId && outletId !== "all") {
       query = query.eq("id", outletId);
-    } else if (businessId) {
-      query = query.eq("business_id", businessId);
+      if (resolvedBizId) query = query.eq("business_id", resolvedBizId);
+    } else if (resolvedBizId) {
+      query = query.eq("business_id", resolvedBizId);
     }
 
     const { data: outlets } = await query;

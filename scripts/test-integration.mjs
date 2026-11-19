@@ -736,14 +736,16 @@ test("Payroll calculation automatically derives allowances and deductions from a
   assert.strictEqual(netSalary, 2485000, "Net salary should be Rp2.485.000");
 });
 
-test("POS sidebar includes ABSENSI accordion with all 4 required submenus", () => {
+test("POS icon rail includes 1-click Absen link and AppPage supports all 4 attendance tabs", () => {
   const appCode = fs.readFileSync(path.resolve(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"), "utf-8");
-  assert(appCode.includes('to="/pos/attendance-in"'), "Sidebar must have Absensi Masuk link");
-  assert(appCode.includes('to="/pos/attendance-out"'), "Sidebar must have Absensi Keluar link");
-  assert(appCode.includes('to="/pos/attendance-history"'), "Sidebar must have Riwayat Absensi link");
-  assert(appCode.includes('to="/pos/attendance-shifts"'), "Sidebar must have Jadwal Shift link");
+  assert(
+    appCode.includes('to: "/pos/attendance"') || appCode.includes('to="/pos/attendance-in"'),
+    "POS icon rail must link directly to /pos/attendance",
+  );
   assert(appCode.includes("pos-attendance-in"), "AppPage must support pos-attendance-in");
   assert(appCode.includes("pos-attendance-out"), "AppPage must support pos-attendance-out");
+  assert(appCode.includes("pos-attendance-history"), "AppPage must support pos-attendance-history");
+  assert(appCode.includes("pos-attendance-shifts"), "AppPage must support pos-attendance-shifts");
 });
 
 test("Cashier RBAC permits all POS attendance routes without redirection or blocking", () => {
@@ -3220,22 +3222,22 @@ test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, 
     "POS status bar must strictly display green 🟢 Online (or 🟢 Online (X antrean)) whenever window.navigator.onLine !== false",
   );
 
-  // 1B. POS product card overflow-hidden + 2-row clean footer with Varian & + buttons
+  // 1B. POS product card overflow-hidden + 2-row clean touch-first footer with Varian & + buttons
   assert.ok(
-    posAppCode.includes("rounded-xl h-8 px-2.5 text-xs") &&
-      posAppCode.includes("rounded-xl h-8 w-8 p-0") &&
+    posAppCode.includes("flex-1 min-h-[40px] rounded-xl") &&
+      posAppCode.includes("min-h-[40px] w-10 p-0 rounded-xl") &&
       posAppCode.includes("overflow-hidden"),
-    "POS product cards must clip overflow and size Varian & + buttons compactly",
+    "POS product cards must clip overflow and size Varian & + buttons cleanly for touch",
   );
 
-  // 1C. Smart Cart 3-column channel grid, formatted anti-leading-zero discount, short Pay button, no MEMBER / PELANGGAN CRM header
+  // 1C. Smart Cart 3-column channel grid, formatted anti-leading-zero discount, clear Pay CTA, no MEMBER / PELANGGAN CRM header
   assert.ok(
     posAppCode.includes("grid grid-cols-3 gap-1.5 py-0.5") &&
       posAppCode.includes("sanitizeQuantityInput") &&
       posAppCode.includes("formatRupiahInput(discountValue)") &&
-      posAppCode.includes("Bayar {formatRupiah(total)}") &&
+      posAppCode.includes("Lanjut Bayar • {formatRupiah(total)}") &&
       !posAppCode.includes("MEMBER / PELANGGAN CRM"),
-    "Smart Cart must use grid-cols-3 for 6 channels, apply formatRupiahInput/sanitizeQuantityInput on discount, show short Bayar Rp button, and omit long MEMBER / PELANGGAN CRM sub-header",
+    "Smart Cart must use grid-cols-3 for 6 channels, apply formatRupiahInput/sanitizeQuantityInput on discount, show Lanjut Bayar CTA, and omit long MEMBER / PELANGGAN CRM sub-header",
   );
 
   // 2. Dashboard & MoneyAllocation 5 KPI card typography + compact w-8 h-8 icons + Total Saldo BOM nowrap pill
@@ -3337,7 +3339,7 @@ test("Enforces responsive 1/2/3/5 KPI grids without truncation, >=12px fonts in 
   assert.ok(
     posAppCode.includes("Footer Kartu Produk 2 Baris Bersih") &&
       posAppCode.includes("text-base font-black text-primary whitespace-nowrap") &&
-      posAppCode.includes("flex-1 rounded-xl h-8 px-2.5 text-xs") &&
+      posAppCode.includes("flex-1 min-h-[40px] rounded-xl px-3 text-xs") &&
       posAppCode.includes("const [browserOnline, setBrowserOnline]"),
     "POS product cards must use 2-row footer with untruncated bold price + stock badge and Varian (flex-1) + + (shrink-0), plus reactive online badge guard",
   );
@@ -3390,6 +3392,60 @@ test("Enforces responsive 1/2/3/5 KPI grids without truncation, >=12px fonts in 
     invPageCode.includes("formatRupiahInput(stockInUnitCost)") &&
       !invPageCode.includes('type="number"'),
     "InventoryManagement modals must format Rupiah and sanitize quantities with zero raw type='number' inputs",
+  );
+});
+
+// --- TEST 109: Redesign A — TOMORO-Style 1-Click POS Icon Rail, Product Qty Badges, Spacious Cart & Dedicated Payment Modal with Touch Numpad ---
+console.log("\n▶ 109. REDESIGN A (POS TOMORO UX): 1-CLICK ICON RAIL, UNIFIED TOP BAR, PRODUCT QTY BADGES, SPACIOUS CART & PAYMENT MODAL NUMPAD");
+test("Enforces slim w-20 POS 1-click icon rail, unified top bar with search & green online badge, TOMORO product cards with cart qty badge, 1-row pill cart header, and dedicated payment modal with touch numpad", () => {
+  const posAppCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf8",
+  );
+
+  // 1. Slim w-20 1-Click POS Icon Rail (Kasir, Pesanan, Shift, Stok, Absen, Profil, Owner HQ) — no nested Order Baru folder
+  assert.ok(
+    posAppCode.includes('aria-label="Navigasi Kasir POS 1-Klik"') &&
+      posAppCode.includes("w-20 px-2 py-3") &&
+      posAppCode.includes('label: "Kasir"') &&
+      posAppCode.includes('label: "Pesanan"') &&
+      posAppCode.includes('label: "Shift"') &&
+      posAppCode.includes('label: "Stok"') &&
+      posAppCode.includes('label: "Absen"') &&
+      posAppCode.includes('to="/pos/profile"') &&
+      posAppCode.includes('to="/dashboard"') &&
+      !posAppCode.includes('t("pos.new_order", "Order Baru")'),
+    "POS sidebar must be a slim w-20 1-click Icon Rail (Kasir, Pesanan, Shift, Stok, Absen, Profil, Owner HQ) without collapsible Order Baru folder",
+  );
+
+  // 2. Unified POS top bar with search & strict online guard
+  assert.ok(
+    posAppCode.includes('aria-label="Cari menu kasir"') &&
+      posAppCode.includes("const isPosBrowserOnline =") &&
+      posAppCode.includes('typeof window === "undefined" || window.navigator.onLine !== false'),
+    "POS top bar must unify Online badge, cashier shift indicator, and inline menu search in one compact bar",
+  );
+
+  // 3. TOMORO product catalog surface + circular cart quantity badge + min-h-[40px] touch buttons
+  assert.ok(
+    posAppCode.includes("bg-muted/30 p-3.5 sm:p-4") &&
+      posAppCode.includes("const qtyInCart = cartQtyByProductId[product.id] || 0") &&
+      posAppCode.includes("min-h-[40px]") &&
+      posAppCode.includes("rounded-full bg-primary text-primary-foreground text-xs font-black"),
+    "POS catalog must use soft gray canvas, circular brand-accent cart quantity badge on cards, and min-h-[40px] touch buttons",
+  );
+
+  // 4. Spacious Smart Cart 1-line pill controls + Lanjut Bayar CTA + Dedicated Payment Modal with Touch Numpad (1-9, 000, 0, ⌫)
+  assert.ok(
+    posAppCode.includes("activeCartPopover") &&
+      posAppCode.includes("⏳ Tertahan (") &&
+      posAppCode.includes("min-h-[48px]") &&
+      posAppCode.includes("Lanjut Bayar • {formatRupiah(total)}") &&
+      posAppCode.includes("isPaymentModalOpen && cart.length > 0") &&
+      posAppCode.includes('aria-label="Numpad Tunai Kasir"') &&
+      posAppCode.includes('["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "backspace"]') &&
+      posAppCode.includes("Selesaikan &amp; Cetak Struk"),
+    "POS cart must provide compact 1-line pills, Lanjut Bayar button, and a dedicated Payment Modal with touch numpad and Selesaikan & Cetak Struk CTA",
   );
 });
 

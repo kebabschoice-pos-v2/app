@@ -2967,6 +2967,106 @@ test("Enforces unique order numbers, DB insert guards, free cash input, strict v
   );
 });
 
+// --- TEST 105: Tahap 5 Business Isolation, MoneyAllocation & Reports Sync, Idempotent PO & Partitioned Store, and HR DB + WIB Attendance ---
+console.log("\n▶ 105. TAHAP 5: BUSINESS ISOLATION, MONEY ALLOCATION & REPORTS SYNC, IDEMPOTENT PO/STORE, AND HR DB + WIB ATTENDANCE");
+test("Enforces business_id isolation, server-side date filters, no synthetic 0.58 profit, single PO receive, per-outlet procurement store, actual transfer stock cap, and Supabase HR payroll + WIB attendance date", () => {
+  const moneyPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/money/MoneyAllocationPage.tsx"),
+    "utf8",
+  );
+  const reportsCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/reports.service.ts"),
+    "utf8",
+  );
+  const apiInvCode = fs.readFileSync(
+    path.join(process.cwd(), "src/routes/api/inventory.ts"),
+    "utf8",
+  );
+  const invServiceCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/inventory.service.ts"),
+    "utf8",
+  );
+  const hrServiceCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/hr.service.ts"),
+    "utf8",
+  );
+
+  // 1a. MoneyAllocationPage business_id filters & removal of unscoped getInventoryItems() fallback
+  assert.ok(
+    moneyPageCode.includes("getHRStaffProfiles(bId)") &&
+      moneyPageCode.includes("getInventoryItems(bId)") &&
+      !moneyPageCode.includes("getInventoryItems()") &&
+      moneyPageCode.includes('.in("order_id", businessOrderIds)'),
+    "MoneyAllocationPage must scope all queries by business_id and never fall back to unscoped getInventoryItems()",
+  );
+
+  // 1b. MoneyAllocationPage consistent period filtering across totalOmzet, BOM orders/movements, and operationalDaysWithSales
+  assert.ok(
+    moneyPageCode.includes("periodFilteredStockMovements") &&
+      moneyPageCode.includes("isDateWithinFilter(ord.paid_at || ord.created_at, periodFilter)") &&
+      moneyPageCode.includes("analytics?.filterApplied?.dateRange === dateRange"),
+    "MoneyAllocationPage must consistently apply dateRange to normalizedSalesOrders, stockMovements, operationalDaysWithSales, and totalOmzet",
+  );
+
+  // 1c. reports.service.ts server-side .gte("created_at", ...), strict single-outlet filter, and no synthetic 0.58 profit
+  assert.ok(
+    reportsCode.includes("export function resolveFilterDateBounds") &&
+      reportsCode.includes('ordersQuery = ordersQuery.gte("created_at", filterStartIso)'),
+    "reports.service.ts must apply server-side .gte('created_at', ...) date bounds on sales_orders query",
+  );
+  assert.ok(
+    !reportsCode.includes("if (resolvedOutletId !== filter.outletId && outlets.length > 1)") &&
+      !reportsCode.includes("totalRevenue * 0.58"),
+    "reports.service.ts must not ignore outletId when outlets.length === 1 and must not use synthetic totalRevenue * 0.58 profit",
+  );
+
+  // 2a. api/inventory.ts double PO receive guard
+  assert.ok(
+    apiInvCode.includes("alreadyReceived") &&
+      apiInvCode.includes("claimedPoInDb") &&
+      apiInvCode.includes("already_received: true"),
+    "api/inventory.ts update-po-status must check previous PO status and block duplicate stock-in when already received",
+  );
+
+  // 2b. No cross-tenant unscoped fallback in resolveUserBusinessIds, api/inventory.ts, or inventory.service.ts
+  assert.ok(
+    !apiInvCode.includes("if (!primaryId && requestedBusinessId) primaryId = requestedBusinessId") &&
+      !invServiceCode.includes("// Fallback without business_id filter"),
+    "api/inventory.ts and inventory.service.ts must not fall back to cross-tenant queries without business_id",
+  );
+
+  // 2c. Per-outlet procurement store partitioning & origin stock cap on transfer
+  assert.ok(
+    apiInvCode.includes("sliceProcurementStoreForOutlet") &&
+      invServiceCode.includes("sliceProcurementStoreForOutletClient"),
+    "saveProcurementStore must partition procurement records per outlet_id instead of duplicating the combined store into every outlet",
+  );
+  assert.ok(
+    apiInvCode.includes("const actualTransferQty = Math.min(qty, availableOriginStock)") &&
+      invServiceCode.includes("const actualTransferQty = Math.min(qty, availableOriginStock)"),
+    "Stock transfer must cap transferred quantity to actual available origin stock (never creating phantom destination stock)",
+  );
+
+  // 3. hr.service.ts: business_id filters, staff_profiles & staff_payrolls Supabase persistence, WIB local date, and error checking
+  assert.ok(
+    hrServiceCode.includes('.from("staff_profiles" as any)') &&
+      hrServiceCode.includes('.eq("business_id", resolvedBid)') &&
+      !hrServiceCode.includes('console.warn("[updateHRStaffProfile] Warning:", err);\n    return true;'),
+    "hr.service.ts must filter staff_profiles by business_id, persist profile updates to Supabase, and return false on error",
+  );
+  assert.ok(
+    hrServiceCode.includes('.from("staff_payrolls" as any)') &&
+      moneyPageCode.includes('.from("staff_payrolls" as any)'),
+    "hr.service.ts and MoneyAllocationPage.tsx must read and persist payroll records in Supabase staff_payrolls",
+  );
+  assert.ok(
+    hrServiceCode.includes("export function formatLocalDateWIB") &&
+      hrServiceCode.includes('timeZone: "Asia/Jakarta"') &&
+      hrServiceCode.includes("const dateStr = formatLocalDateWIB(now)"),
+    "recordAttendance must format dateStr in Asia/Jakarta (WIB) local date instead of UTC toISOString()",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

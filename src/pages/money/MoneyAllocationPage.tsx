@@ -34,6 +34,8 @@ import { supabase } from "@/integrations/supabase/client";
 import { formatRupiah, type Snapshot } from "@/components/kebabschoicepos/data";
 import {
   getComprehensiveAnalytics,
+  isDateWithinFilter,
+  resolveFilterDateBounds,
   type BusinessAnalyticsSummary,
   type DateRangePreset,
 } from "@/services/reports.service";
@@ -48,7 +50,7 @@ import {
   type InventoryItemDetail,
   type StockMovementRecord,
 } from "@/services/inventory.service";
-import { getHRStaffProfiles, type StaffProfile } from "@/services/hr.service";
+import { getHRStaffProfiles, type StaffProfile, type StaffPayroll } from "@/services/hr.service";
 import { convertRecipeToInventoryQuantity, getMenuItems } from "@/services/menu.service";
 import {
   estimateOrdersBomMetrics,
@@ -242,60 +244,89 @@ export function MoneyAllocationPage({
           ? localStorage.getItem("kebabschoicepos_user_role") || "owner"
           : "owner";
 
-      // 1. Parallel fetch all resources simultaneously to eliminate waterfalls and intermediate re-renders
+      if (!bId) {
+        setLoading(false);
+        return;
+      }
+
+      const periodFilter = { dateRange, outletId: selectedOutletId };
+      const { startIso: periodStartIso, endIso: periodEndIso } = resolveFilterDateBounds(periodFilter);
+
+      let ordersQuery = supabase
+        .from("sales_orders")
+        .select("id, outlet_id, status, total, paid_at, created_at")
+        .eq("business_id", bId);
+      if (periodStartIso) {
+        ordersQuery = ordersQuery.gte("created_at", periodStartIso);
+      }
+      if (periodEndIso) {
+        ordersQuery = ordersQuery.lte("created_at", periodEndIso);
+      }
+
+      let cmQuery = supabase
+        .from("cash_movements" as any)
+        .select("*")
+        .eq("business_id", bId);
+      if (periodStartIso) {
+        cmQuery = cmQuery.gte("created_at", periodStartIso);
+      }
+      if (periodEndIso) {
+        cmQuery = cmQuery.lte("created_at", periodEndIso);
+      }
+
+      let payrollQuery = supabase
+        .from("staff_payrolls" as any)
+        .select("*")
+        .eq("business_id", bId);
+
+      // 1. Parallel fetch all resources simultaneously strictly scoped to businessId (bId)
       const [
         perms,
         resAnalytics,
-        initialInvItems,
+        invItems,
         movements,
         hrProfiles,
         dbCmResponse,
         dbOrdersResponse,
-        dbItemsResponse,
         outletDataResponse,
         menuItemsList,
         branchLedgerData,
+        dbPayrollsResponse,
       ] = await Promise.all([
         getManagerPermissions(bId, selectedOutletId).catch(() => null),
-        bId
-          ? getComprehensiveAnalytics(bId, {
-              outletId: selectedOutletId,
-              dateRange: dateRange,
-            }).catch(() => null)
-          : Promise.resolve(null),
-        getInventoryItems(bId || undefined).catch(() => [] as InventoryItemDetail[]),
-        getStockMovements(bId || undefined).catch(() => [] as StockMovementRecord[]),
-        getHRStaffProfiles().catch(() => [] as StaffProfile[]),
-        Promise.resolve(
-          supabase
-            .from("cash_movements" as any)
-            .select("*"),
-        ).catch(() => ({ data: [] })),
-        Promise.resolve(
-          supabase
-            .from("sales_orders")
-            .select("id, outlet_id, status, total, created_at")
-            .order("created_at", { ascending: false }),
-        ).catch(() => ({ data: [] })),
-        Promise.resolve(
-          supabase
-            .from("sales_order_items")
-            .select("order_id, product_id, name, quantity"),
-        ).catch(() => ({ data: [] })),
+        getComprehensiveAnalytics(bId, {
+          outletId: selectedOutletId,
+          dateRange: dateRange,
+        }).catch(() => null),
+        getInventoryItems(bId).catch(() => [] as InventoryItemDetail[]),
+        getStockMovements(bId).catch(() => [] as StockMovementRecord[]),
+        getHRStaffProfiles(bId).catch(() => [] as StaffProfile[]),
+        Promise.resolve(cmQuery).catch(() => ({ data: [] })),
+        Promise.resolve(ordersQuery.order("created_at", { ascending: false })).catch(() => ({ data: [] })),
         Promise.resolve(
           supabase
             .from("outlets")
-            .select("settings"),
+            .select("settings")
+            .eq("business_id", bId),
         ).catch(() => ({ data: [] })),
-        getMenuItems({ businessId: bId || undefined }).catch(() => [] as any[]),
+        getMenuItems({ businessId: bId }).catch(() => [] as any[]),
         loadBranchMoneyLedger(selectedOutletId).catch(() => null),
+        Promise.resolve(payrollQuery).catch(() => ({ data: [] })),
       ]);
 
-      // Fallback inventory items if empty
-      let invItems = initialInvItems;
-      if (invItems.length === 0) {
-        invItems = await getInventoryItems().catch(() => [] as InventoryItemDetail[]);
-      }
+      // Fetch sales_order_items strictly for this business's orders (never cross-tenant unscoped)
+      const businessOrderIds = ((dbOrdersResponse?.data as any[]) || [])
+        .map((o: any) => o.id)
+        .filter(Boolean);
+      const dbItemsResponse =
+        businessOrderIds.length > 0
+          ? await Promise.resolve(
+              supabase
+                .from("sales_order_items")
+                .select("order_id, product_id, name, quantity")
+                .in("order_id", businessOrderIds),
+            ).catch(() => ({ data: [] }))
+          : { data: [] };
 
       const branchItems =
         selectedOutletId === "all"
@@ -452,11 +483,28 @@ export function MoneyAllocationPage({
       setMenuProducts(menuItemsList || []);
       setMenuRecipes(recipes);
 
+      // Reconcile paid payrolls from Supabase staff_payrolls table with branch ledger salary_paid
+      const dbPayrolls = ((dbPayrollsResponse?.data as unknown as StaffPayroll[]) || []).filter(
+        (pr) => pr && pr.status === "paid",
+      );
+      const dbPaidByOutlet: Record<string, number> = {};
+      for (const pr of dbPayrolls) {
+        if (!isDateWithinFilter(pr.payment_date || pr.created_at, periodFilter)) continue;
+        const outKey = normalizeOrderOutletId(pr.outlet_id, outletsList) || "all";
+        dbPaidByOutlet[outKey] = (dbPaidByOutlet[outKey] || 0) + (Number(pr.net_salary) || 0);
+      }
+
       if (loadedConfigs) {
         if (loadedConfigs.pack_configs) setPackConfigs(loadedConfigs.pack_configs);
         if (loadedConfigs.spent_amounts) setSpentAmounts(loadedConfigs.spent_amounts);
         if (loadedConfigs.manual_added) setManualAdded(loadedConfigs.manual_added);
-        if (loadedConfigs.salary_paid) setSalaryPaid(loadedConfigs.salary_paid);
+        if (loadedConfigs.salary_paid || Object.keys(dbPaidByOutlet).length > 0) {
+          const mergedSalaryPaid: Record<string, number> = { ...(loadedConfigs.salary_paid || {}) };
+          for (const [outKey, paidSum] of Object.entries(dbPaidByOutlet)) {
+            mergedSalaryPaid[outKey] = Math.max(Number(mergedSalaryPaid[outKey] || 0), paidSum);
+          }
+          setSalaryPaid(mergedSalaryPaid);
+        }
         if (loadedConfigs.history) setHistory(loadedConfigs.history);
         if (loadedConfigs.opPockets && loadedConfigs.opPockets.length > 0) {
           setOpPockets(loadedConfigs.opPockets);
@@ -495,6 +543,9 @@ export function MoneyAllocationPage({
           ]);
         }
       } else {
+        if (Object.keys(dbPaidByOutlet).length > 0) {
+          setSalaryPaid(dbPaidByOutlet);
+        }
         setOpPockets([
           {
             id: "op-sewa-kios",
@@ -573,18 +624,26 @@ export function MoneyAllocationPage({
     }
   }
 
-  // 1. Compute Real Sales Days for Operational Allocation (Strict Non-Void)
+  // 1. Compute Real Sales Days for Operational Allocation (Strict Non-Void & Consistently Filtered by Period)
   // Normalize order outlet_ids so null/orphaned historical transactions attribute to primary active outlet
   const normalizedSalesOrders = useMemo(() => {
-    return salesOrders.map((ord) => ({
-      ...ord,
-      outlet_id: normalizeOrderOutletId(
-        ord.outlet_id,
-        outletsList,
-        orderMetaMap[ord.id]?.outlet_id,
-      ),
-    }));
-  }, [salesOrders, outletsList, orderMetaMap]);
+    const periodFilter = { dateRange };
+    return salesOrders
+      .filter((ord) => isDateWithinFilter(ord.paid_at || ord.created_at, periodFilter))
+      .map((ord) => ({
+        ...ord,
+        outlet_id: normalizeOrderOutletId(
+          ord.outlet_id,
+          outletsList,
+          orderMetaMap[ord.id]?.outlet_id,
+        ),
+      }));
+  }, [salesOrders, outletsList, orderMetaMap, dateRange]);
+
+  const periodFilteredStockMovements = useMemo(() => {
+    const periodFilter = { dateRange };
+    return stockMovements.filter((m) => isDateWithinFilter(m.created_at, periodFilter));
+  }, [stockMovements, dateRange]);
 
   const operationalDaysWithSales = useMemo(() => {
     const salesDates = new Set<string>();
@@ -629,8 +688,8 @@ export function MoneyAllocationPage({
       const unit_cost =
         pack_price > 0 && pack_size > 0 ? pack_price / pack_size : item.cost_price || 0;
 
-      // Engine 1: Real movements of type pos_sale or stock_out for this branch item (with void/refund reversal deductions)
-      const itemMovements = stockMovements.filter((m) => {
+      // Engine 1: Real movements of type pos_sale or stock_out for this branch item (filtered by selected period, with void/refund reversal deductions)
+      const itemMovements = periodFilteredStockMovements.filter((m) => {
         if (m.inventory_item_id !== item.id) return false;
         const movOutletId = normalizeOrderOutletId(m.outlet_id, outletsList);
         if (selectedOutletId !== "all" && movOutletId !== selectedOutletId) {
@@ -933,7 +992,7 @@ export function MoneyAllocationPage({
   }, [
     inventoryList,
     packConfigs,
-    stockMovements,
+    periodFilteredStockMovements,
     selectedOutletId,
     spentAmounts,
     manualAdded,
@@ -942,7 +1001,7 @@ export function MoneyAllocationPage({
     menuRecipes,
   ]);
 
-  // 3. Financial KPI Preliminary Totals
+  // 3. Financial KPI Preliminary Totals (Strictly synchronized with the active dateRange & outlet filter)
   const salesOrdersSum = useMemo(() => {
     return normalizedSalesOrders.reduce((sum, ord) => {
       if (selectedOutletId !== "all" && ord.outlet_id !== selectedOutletId) {
@@ -952,7 +1011,12 @@ export function MoneyAllocationPage({
     }, 0);
   }, [normalizedSalesOrders, selectedOutletId]);
 
-  const totalOmzet = (analytics?.totalRevenue && analytics.totalRevenue > 0) ? analytics.totalRevenue : salesOrdersSum;
+  const totalOmzet =
+    analytics?.filterApplied?.dateRange === dateRange &&
+    (analytics?.filterApplied?.outletId || "all") === selectedOutletId &&
+    typeof analytics?.totalRevenue === "number"
+      ? Math.max(salesOrdersSum, analytics.totalRevenue)
+      : salesOrdersSum;
   const totalBomSavings = computedBomPockets.reduce((sum, b) => sum + b.accumulated_balance, 0);
 
   // Pure BOM savings generated strictly from sales without manual injections
@@ -990,12 +1054,14 @@ export function MoneyAllocationPage({
   }, [dailyStaffSalaryTotal, operationalDaysWithSales, currentSalaryPaid]);
 
   const outletCashOutMovements = useMemo(() => {
+    const periodFilter = { dateRange };
     return cashMovements.filter((m) => {
       if (m.type !== "out") return false;
+      if (!isDateWithinFilter(m.timestamp, periodFilter)) return false;
       if (selectedOutletId === "all") return true;
       return normalizeOrderOutletId(m.outlet_id, outletsList) === selectedOutletId;
     });
-  }, [cashMovements, selectedOutletId, outletsList]);
+  }, [cashMovements, selectedOutletId, outletsList, dateRange]);
 
   const totalCashOut = useMemo(() => {
     return outletCashOutMovements.reduce((sum, m) => sum + (Number(m.amount) || 0), 0);

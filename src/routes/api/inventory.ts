@@ -75,26 +75,68 @@ async function resolveUserBusinessIds(
 
   const combined = Array.from(new Set([...ownedIds, ...memberIds].filter(Boolean)));
 
-  let primaryId =
+  // Security: NEVER trust a requestedBusinessId that does not belong to the authenticated user!
+  const primaryId =
     requestedBusinessId && combined.includes(requestedBusinessId)
       ? requestedBusinessId
-      : combined[0];
-  if (!primaryId && requestedBusinessId) primaryId = requestedBusinessId;
+      : combined[0] || "";
 
   return {
-    primaryId: primaryId || "",
-    allIds: combined.length > 0 ? combined : primaryId ? [primaryId] : [],
+    primaryId,
+    allIds: combined,
   };
 }
 
-// Helper: load stored procurement data from outlets.settings
+/**
+ * Slices a combined business procurement store down to the subset that belongs to a single outlet
+ * (or HQ / unassigned when outletId is null) so saving per-outlet never duplicates records across branches.
+ */
+function sliceProcurementStoreForOutlet(
+  store: Record<string, any>,
+  outletId: string | null,
+  isPrimaryOutlet: boolean,
+): Record<string, any> {
+  const belongsToOutlet = (recOutletId: string | null | undefined) => {
+    if (outletId && recOutletId === outletId) return true;
+    if (!recOutletId && isPrimaryOutlet) return true;
+    return false;
+  };
+
+  const rawMeta = store.item_meta && typeof store.item_meta === "object" ? store.item_meta : {};
+  const item_meta: Record<string, any> = {};
+  for (const [itemId, metaVal] of Object.entries(rawMeta)) {
+    const m = (metaVal as any) || {};
+    if (belongsToOutlet(m.outlet_id)) {
+      item_meta[itemId] = m;
+    }
+  }
+
+  return {
+    // Suppliers are business-wide master records; store them only on the primary outlet to avoid cross-branch duplication
+    suppliers: isPrimaryOutlet ? store.suppliers || [] : [],
+    item_meta,
+    purchase_orders: (store.purchase_orders || []).filter((p: any) => belongsToOutlet(p?.outlet_id)),
+    stock_transfers: (store.stock_transfers || []).filter(
+      (t: any) =>
+        belongsToOutlet(t?.origin_outlet_id) ||
+        (outletId && t?.destination_outlet_id === outletId),
+    ),
+    stock_opnames: (store.stock_opnames || []).filter((o: any) => belongsToOutlet(o?.outlet_id)),
+    waste_records: (store.waste_records || []).filter((w: any) => belongsToOutlet(w?.outlet_id)),
+    stock_movements: (store.stock_movements || []).filter((m: any) => belongsToOutlet(m?.outlet_id)),
+  };
+}
+
+// Helper: load stored procurement data from outlets.settings (partitioned per outlet_id)
 async function loadProcurementStore(businessIds: string[] | string): Promise<Record<string, any>> {
-  const ids = Array.isArray(businessIds) ? businessIds : [businessIds];
+  const ids = (Array.isArray(businessIds) ? businessIds : [businessIds]).filter(Boolean);
+  if (ids.length === 0) return {};
   try {
     const { data: outlets } = await supabaseAdmin
       .from("outlets")
       .select("id, settings")
-      .in("business_id", ids);
+      .in("business_id", ids)
+      .order("created_at", { ascending: true });
 
     let mergedStore: Record<string, any> = {};
     for (const o of outlets || []) {
@@ -136,18 +178,23 @@ async function loadProcurementStore(businessIds: string[] | string): Promise<Rec
   return {};
 }
 
-// Helper: save procurement store to outlets.settings
+// Helper: save procurement store partitioned per outlet_id (never dumping the combined store into every outlet)
 async function saveProcurementStore(businessIds: string[] | string, store: Record<string, any>): Promise<void> {
-  const ids = Array.isArray(businessIds) ? businessIds : [businessIds];
+  const ids = (Array.isArray(businessIds) ? businessIds : [businessIds]).filter(Boolean);
+  if (ids.length === 0) return;
   try {
     const { data: outlets } = await supabaseAdmin
       .from("outlets")
       .select("id, settings")
-      .in("business_id", ids);
+      .in("business_id", ids)
+      .order("created_at", { ascending: true });
 
-    for (const o of outlets || []) {
+    const outletList = outlets || [];
+    for (let idx = 0; idx < outletList.length; idx++) {
+      const o = outletList[idx]!;
       const current = (o.settings as any) || {};
-      const updated = { ...current, procurement: store };
+      const outletSlice = sliceProcurementStoreForOutlet(store, o.id, idx === 0);
+      const updated = { ...current, procurement: outletSlice };
       await supabaseAdmin
         .from("outlets")
         .update({ settings: updated, updated_at: new Date().toISOString() })
@@ -201,7 +248,7 @@ export const Route = createFileRoute("/api/inventory")({
           const businessId = primaryId;
           const store = await loadProcurementStore(allIds);
 
-          // 0. INVENTORY ITEMS (Single Source of Truth)
+          // 0. INVENTORY ITEMS (Single Source of Truth — strictly scoped to authenticated businessIds)
           if (type === "items") {
             let dbItems: any[] = [];
             try {
@@ -211,14 +258,8 @@ export const Route = createFileRoute("/api/inventory")({
                 .in("business_id", allIds)
                 .order("name", { ascending: true });
 
-              if (!error && data && data.length > 0) {
+              if (!error && Array.isArray(data)) {
                 dbItems = data;
-              } else {
-                const { data: allData } = await supabaseAdmin
-                  .from("inventory_items")
-                  .select("*")
-                  .order("name", { ascending: true });
-                dbItems = allData || [];
               }
             } catch (err) {
               console.error("[api/inventory] Error querying inventory_items:", err);
@@ -228,12 +269,13 @@ export const Route = createFileRoute("/api/inventory")({
             const suppliers = store.suppliers || [];
             const extraMeta = store.item_meta || {};
 
-            // Resolve outlet names directly from outlets table (including archived branches holding stock)
+            // Resolve outlet names directly from outlets table (strictly scoped to business_id)
             const outletNameMap = new Map<string, string>();
             try {
               const { data: outletRows } = await supabaseAdmin
                 .from("outlets")
-                .select("id, name");
+                .select("id, name")
+                .in("business_id", allIds);
               for (const o of outletRows || []) {
                 if (o.id && o.name) outletNameMap.set(o.id, o.name);
               }
@@ -374,10 +416,13 @@ export const Route = createFileRoute("/api/inventory")({
               if (data) dbTransfers = data;
             } catch {}
 
-            // Load outlet names map to enrich transfers
+            // Load outlet names map to enrich transfers (strictly scoped to business_id)
             let outletNameMap = new Map<string, string>();
             try {
-              const { data: outData } = await supabaseAdmin.from("outlets").select("id, name");
+              const { data: outData } = await supabaseAdmin
+                .from("outlets")
+                .select("id, name")
+                .in("business_id", allIds);
               if (outData && Array.isArray(outData)) {
                 for (const o of outData as any[]) {
                   outletNameMap.set(o.id, o.name || "Cabang");
@@ -846,45 +891,143 @@ export const Route = createFileRoute("/api/inventory")({
             return Response.json({ success: true, data: newPO });
           }
 
-          // 5. UPDATE PO STATUS (WITH AUTO STOCK RECEIVE)
+          // 5. UPDATE PO STATUS (WITH IDEMPOTENT AUTO STOCK RECEIVE — NEVER DOUBLE STOCK-IN)
           if (action === "update-po-status") {
             const { po_id, status } = body;
-            const targetPO = store.purchase_orders.find((p: any) => p.id === po_id);
+            let dbPO: any = null;
+            try {
+              const { data } = await supabaseAdmin
+                .from("purchase_orders" as any)
+                .select(`*, items:purchase_order_items(*)`)
+                .eq("id", po_id)
+                .in("business_id", allIds)
+                .maybeSingle();
+              dbPO = data;
+            } catch {}
+
+            const storePO = (store.purchase_orders || []).find(
+              (p: any) => p.id === po_id || (dbPO?.po_number && p.po_number === dbPO.po_number),
+            );
+            const targetPO = storePO || dbPO;
+            if (targetPO && (!targetPO.items || targetPO.items.length === 0)) {
+              const fallbackItemsSource =
+                (storePO?.items?.length ? storePO : null) ||
+                (dbPO?.items?.length ? dbPO : null);
+              if (fallbackItemsSource) targetPO.items = fallbackItemsSource.items;
+            }
+
+            const prevPoStatus = dbPO?.status || storePO?.status || targetPO?.status;
+            const poNumber = targetPO?.po_number || po_id;
+
+            let alreadyReceived =
+              prevPoStatus === "received" ||
+              Boolean(storePO?.stock_received) ||
+              Boolean(dbPO?.stock_received) ||
+              Boolean(targetPO?.stock_received) ||
+              Boolean(storePO?.received_at) ||
+              Boolean(dbPO?.received_at);
+
+            if (status === "received" && !alreadyReceived && poNumber) {
+              const inStoreMov = (store.stock_movements || []).some(
+                (m: any) =>
+                  m.movement_type === "stock_in" &&
+                  String(m.notes || "").includes(`Purchase Order ${poNumber}`),
+              );
+              if (inStoreMov) {
+                alreadyReceived = true;
+              } else {
+                try {
+                  const { data: existingPoMovs } = await (supabaseAdmin
+                    .from("stock_movements" as any)
+                    .select("id")
+                    .in("business_id", allIds)
+                    .eq("movement_type", "stock_in") as any)
+                    .ilike("notes", `%Purchase Order ${poNumber}%`)
+                    .limit(1);
+                  if (Array.isArray(existingPoMovs) && existingPoMovs.length > 0) {
+                    alreadyReceived = true;
+                  }
+                } catch {}
+              }
+            }
+
+            if (status === "received" && alreadyReceived) {
+              // PO was already received — reject duplicate stock-in so double-clicks never inflate inventory
+              return Response.json({
+                success: true,
+                already_received: true,
+                message: `Purchase Order ${poNumber} sudah berstatus received — penambahan stok ganda ditolak.`,
+                data: targetPO,
+              });
+            }
+
+            // Atomic DB claim before incrementing stock
+            let claimedPoInDb = true;
+            if (status === "received" && dbPO?.id) {
+              try {
+                const claimRes = await (supabaseAdmin
+                  .from("purchase_orders" as any)
+                  .update({ status: "received", updated_at: new Date().toISOString() })
+                  .eq("id", dbPO.id)
+                  .in("business_id", allIds) as any)
+                  .neq("status", "received")
+                  .select("id")
+                  .maybeSingle();
+                if (!claimRes.error && !claimRes.data) {
+                  claimedPoInDb = false;
+                }
+              } catch {}
+            }
+
+            if (status === "received" && !claimedPoInDb) {
+              return Response.json({
+                success: true,
+                already_received: true,
+                message: `Purchase Order ${poNumber} sudah diterima sebelumnya.`,
+                data: targetPO,
+              });
+            }
+
             if (targetPO) {
               targetPO.status = status;
               if (status === "received") {
                 targetPO.received_at = new Date().toISOString();
+                targetPO.stock_received = true;
 
-                // Auto-increment inventory_items
+                // Auto-increment inventory_items strictly once
                 for (const it of targetPO.items || []) {
                   if (it.inventory_item_id) {
                     const { data: invRow } = await supabaseAdmin
                       .from("inventory_items")
-                      .select("stock, unit")
+                      .select("*")
                       .eq("id", it.inventory_item_id)
-                      .single();
+                      .in("business_id", allIds)
+                      .maybeSingle();
 
                     if (invRow) {
                       const newStock = Number(invRow.stock) + Number(it.quantity);
                       await supabaseAdmin
                         .from("inventory_items")
                         .update({ stock: newStock, updated_at: new Date().toISOString() })
-                        .eq("id", it.inventory_item_id);
+                        .eq("id", it.inventory_item_id)
+                        .in("business_id", allIds);
 
                       // Log stock movement
                       const movRecord = {
-                        id: `mov-${Date.now()}-${Math.random()}`,
+                        id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
                         business_id: businessId,
+                        outlet_id: targetPO.outlet_id || (invRow as any).outlet_id || null,
                         inventory_item_id: it.inventory_item_id,
                         item_name: it.item_name,
                         movement_type: "stock_in",
                         quantity: Number(it.quantity),
-                        unit: it.unit,
+                        unit: it.unit || invRow.unit,
                         remaining_stock: newStock,
                         notes: `Penerimaan Purchase Order ${targetPO.po_number}`,
                         created_at: new Date().toISOString(),
                       };
                       store.stock_movements = [movRecord, ...store.stock_movements];
+                      await insertStockMovementDb(supabaseAdmin, movRecord);
                     }
                   }
                 }
@@ -895,7 +1038,8 @@ export const Route = createFileRoute("/api/inventory")({
               await supabaseAdmin
                 .from("purchase_orders" as any)
                 .update({ status, updated_at: new Date().toISOString() })
-                .eq("id", po_id);
+                .eq("id", po_id)
+                .in("business_id", allIds);
             } catch {}
 
             await saveProcurementStore(allIds, store);
@@ -1081,11 +1225,20 @@ export const Route = createFileRoute("/api/inventory")({
 
                 if (originItem) {
                   const originId = originItem.id;
-                  const newOriginStock = Math.max(0, (Number(originItem.stock) || 0) - qty);
+                  const availableOriginStock = Math.max(0, Number(originItem.stock) || 0);
+                  // NEVER transfer more than the actual stock available in the origin branch
+                  // (prevents creating phantom/fictitious stock in the destination branch)
+                  const actualTransferQty = Math.min(qty, availableOriginStock);
+                  if (actualTransferQty <= 0) {
+                    continue;
+                  }
+                  it.transferred_quantity = actualTransferQty;
+                  const newOriginStock = Math.max(0, availableOriginStock - actualTransferQty);
                   await supabaseAdmin
                     .from("inventory_items")
                     .update({ stock: newOriginStock, updated_at: new Date().toISOString() })
-                    .eq("id", originId);
+                    .eq("id", originId)
+                    .in("business_id", allIds);
 
                   // Log stock movement transfer_out (store keeps string ID; DB auto-generates UUID)
                   const movOut = {
@@ -1095,7 +1248,7 @@ export const Route = createFileRoute("/api/inventory")({
                     item_name: it.item_name || originItem.name,
                     outlet_id: originOutletId,
                     movement_type: "transfer_out",
-                    quantity: qty,
+                    quantity: actualTransferQty,
                     unit: it.unit || originItem.unit || "pcs",
                     remaining_stock: newOriginStock,
                     notes: `Transfer Keluar ke ${destName} (${targetTransfer.transfer_number || transfer_id})`,
@@ -1139,7 +1292,7 @@ export const Route = createFileRoute("/api/inventory")({
                     originItem.category || originMeta.category || "Bahan Baku";
                   const resolvedUnit = it.unit || originItem.unit || "pcs";
 
-                  // 2. Add or insert stock in destination outlet
+                  // 2. Add or insert stock in destination outlet (strictly capped to actualTransferQty)
                   let destItem: any = null;
                   if (destOutletId) {
                     const { data: existingDest } = await (supabaseAdmin
@@ -1153,11 +1306,12 @@ export const Route = createFileRoute("/api/inventory")({
                   }
 
                   if (destItem) {
-                    const newDestStock = (Number(destItem.stock) || 0) + qty;
+                    const newDestStock = (Number(destItem.stock) || 0) + actualTransferQty;
                     await supabaseAdmin
                       .from("inventory_items")
                       .update({ stock: newDestStock, updated_at: new Date().toISOString() })
-                      .eq("id", destItem.id);
+                      .eq("id", destItem.id)
+                      .in("business_id", allIds);
 
                     const existingDestMeta = store.item_meta[destItem.id] || {};
                     store.item_meta[destItem.id] = {
@@ -1178,7 +1332,7 @@ export const Route = createFileRoute("/api/inventory")({
                       item_name: destItem.name,
                       outlet_id: destOutletId,
                       movement_type: "transfer_in",
-                      quantity: qty,
+                      quantity: actualTransferQty,
                       unit: destItem.unit || resolvedUnit,
                       remaining_stock: newDestStock,
                       notes: `Transfer Masuk dari ${originName} (${targetTransfer.transfer_number || transfer_id})`,
@@ -1196,7 +1350,7 @@ export const Route = createFileRoute("/api/inventory")({
                         name: resolvedName,
                         category: resolvedCategory,
                         unit: resolvedUnit,
-                        stock: qty,
+                        stock: actualTransferQty,
                         minimum_stock: resolvedMinStock,
                         cost_price: resolvedCostPrice,
                         yield_per_unit: resolvedYieldPerUnit,
@@ -1222,7 +1376,7 @@ export const Route = createFileRoute("/api/inventory")({
                             name: resolvedName,
                             category: resolvedCategory,
                             unit: resolvedUnit,
-                            stock: qty,
+                            stock: actualTransferQty,
                             minimum_stock: resolvedMinStock,
                             health_score: 100,
                           } as any) as any)
@@ -1252,9 +1406,9 @@ export const Route = createFileRoute("/api/inventory")({
                           item_name: createdDest.name,
                           outlet_id: destOutletId,
                           movement_type: "transfer_in",
-                          quantity: qty,
+                          quantity: actualTransferQty,
                           unit: createdDest.unit || resolvedUnit,
-                          remaining_stock: qty,
+                          remaining_stock: actualTransferQty,
                           notes: `Transfer Masuk dari ${originName} (${targetTransfer.transfer_number || transfer_id})`,
                           created_at: new Date().toISOString(),
                         };

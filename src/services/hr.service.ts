@@ -152,16 +152,52 @@ export const DEFAULT_SHIFTS: StaffShift[] = [
   },
 ];
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidUuid(val: unknown): val is string {
+  return typeof val === "string" && UUID_PATTERN.test(val);
+}
+
 /**
- * Resolves current active business IDs
+ * Formats a Date into local Indonesian date string "YYYY-MM-DD" (Asia/Jakarta / WIB)
+ * so early-morning attendance (e.g. 06:00 WIB) never shifts to yesterday's UTC date.
  */
-async function resolveBusinessId(): Promise<string> {
+export function formatLocalDateWIB(date: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Asia/Jakarta",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(date);
+    const y = parts.find((p) => p.type === "year")?.value;
+    const m = parts.find((p) => p.type === "month")?.value;
+    const d = parts.find((p) => p.type === "day")?.value;
+    if (y && m && d) return `${y}-${m}-${d}`;
+  } catch {
+    // Fallback to device local time components (never toISOString() UTC!)
+  }
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+/**
+ * Resolves current active business ID (never falls back to an unrelated tenant's business)
+ */
+async function resolveBusinessId(explicitBusinessId?: string): Promise<string> {
+  if (explicitBusinessId && isValidUuid(explicitBusinessId)) {
+    return explicitBusinessId;
+  }
+
   const { data: authData } = await supabase.auth.getUser();
   if (authData?.user) {
     const { data: owned } = await supabase
       .from("businesses")
       .select("id")
       .eq("owner_id", authData.user.id)
+      .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
 
@@ -177,16 +213,21 @@ async function resolveBusinessId(): Promise<string> {
     if (member?.business_id) return member.business_id;
   }
 
-  const { data: anyBiz } = await supabase.from("businesses").select("id").limit(1).maybeSingle();
-  return anyBiz?.id || "00000000-0000-0000-0000-000000000000";
+  if (typeof window !== "undefined") {
+    const cachedBid = localStorage.getItem("kebabschoicepos_active_business_id");
+    if (cachedBid && isValidUuid(cachedBid)) return cachedBid;
+  }
+
+  return "";
 }
 
 // -------------------------------------------------------------
 // 1. HR STAFF PROFILES
 // -------------------------------------------------------------
 
-export async function getHRStaffProfiles(): Promise<StaffProfile[]> {
+export async function getHRStaffProfiles(businessId?: string): Promise<StaffProfile[]> {
   try {
+    const resolvedBid = await resolveBusinessId(businessId);
     const [staffList, outlets] = await Promise.all([
       getStaffList().catch(() => [] as StaffItem[]),
       getOutletList().catch(() => [] as OutletItem[]),
@@ -194,15 +235,20 @@ export async function getHRStaffProfiles(): Promise<StaffProfile[]> {
 
     const outletMap = new Map(outlets.map((o) => [o.id, o.outlet_name]));
 
-    // Check supabase table
+    // Check supabase table strictly scoped by business_id
     let dbProfiles: any[] = [];
-    try {
-      const { data } = await supabase.from("staff_profiles" as any).select("*");
-      if (data && Array.isArray(data)) {
-        dbProfiles = data;
+    if (resolvedBid) {
+      try {
+        const { data } = await supabase
+          .from("staff_profiles" as any)
+          .select("*")
+          .eq("business_id", resolvedBid);
+        if (data && Array.isArray(data)) {
+          dbProfiles = data;
+        }
+      } catch {
+        // fallback
       }
-    } catch {
-      // fallback
     }
 
     const localSaved =
@@ -234,13 +280,13 @@ export async function getHRStaffProfiles(): Promise<StaffProfile[]> {
       return {
         id: db.id || `hr-prof-${staff.user_id}`,
         user_id: staff.user_id,
-        business_id: db.business_id,
-        outlet_id: staff.outlet_id || null,
+        business_id: db.business_id || resolvedBid || undefined,
+        outlet_id: staff.outlet_id || db.outlet_id || null,
         outlet_name:
           (staff.outlet_id ? outletMap.get(staff.outlet_id) : null) ||
           staff.outlet_name ||
           "Semua Cabang (HQ)",
-        full_name: staff.name,
+        full_name: db.full_name || staff.name,
         phone: db.phone || local.phone || "081234567890",
         address: db.address || local.address || "Jl. Kebon Jeruk No. 12, Jakarta",
         avatar_url: db.avatar_url || local.avatar_url || staff.avatar_url || null,
@@ -265,24 +311,84 @@ export async function updateHRStaffProfile(
   data: Partial<StaffProfile>,
 ): Promise<boolean> {
   try {
-    // 1. Save to localStorage
+    const businessId = await resolveBusinessId(data.business_id);
+    const nowIso = new Date().toISOString();
+
+    // 1. Save to localStorage cache
     if (typeof window !== "undefined") {
       const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PROFILES_KEY) || "{}");
-      local[userId] = { ...(local[userId] || {}), ...data, updated_at: new Date().toISOString() };
+      local[userId] = { ...(local[userId] || {}), ...data, updated_at: nowIso };
       localStorage.setItem(LOCAL_STORAGE_PROFILES_KEY, JSON.stringify(local));
     }
 
-    // 2. Update outlets.settings (both hr_profiles and outlet_staff_roster)
-    try {
-      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
-      if (allOutlets && Array.isArray(allOutlets)) {
+    let persistedToSupabase = false;
+
+    // 2. Persist directly to Supabase staff_profiles table (authoritative DB storage)
+    if (businessId && isValidUuid(userId)) {
+      const dbPayload: Record<string, any> = {
+        user_id: userId,
+        business_id: businessId,
+        outlet_id: isValidUuid(data.outlet_id) ? data.outlet_id : null,
+        full_name: data.full_name || "Karyawan",
+        phone: data.phone ?? null,
+        address: data.address ?? null,
+        avatar_url: data.avatar_url ?? null,
+        job_title: data.job_title || "Staff Operasional",
+        role: data.role || "cashier",
+        employment_status: data.employment_status || "Tetap",
+        ...(data.join_date ? { join_date: data.join_date } : {}),
+        ...(data.base_salary !== undefined ? { base_salary: Number(data.base_salary) } : {}),
+        ...(data.daily_allowance !== undefined ? { daily_allowance: Number(data.daily_allowance) } : {}),
+        ...(data.late_deduction !== undefined ? { late_deduction: Number(data.late_deduction) } : {}),
+        ...(data.absence_deduction !== undefined ? { absence_deduction: Number(data.absence_deduction) } : {}),
+        updated_at: nowIso,
+      };
+
+      const { data: existingProf, error: findErr } = await supabase
+        .from("staff_profiles" as any)
+        .select("id")
+        .eq("business_id", businessId)
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!findErr && (existingProf as any)?.id) {
+        const { error: updErr } = await supabase
+          .from("staff_profiles" as any)
+          .update(dbPayload)
+          .eq("id", (existingProf as any).id)
+          .eq("business_id", businessId);
+        if (updErr) {
+          console.error("[updateHRStaffProfile] staff_profiles update error:", updErr.message);
+        } else {
+          persistedToSupabase = true;
+        }
+      } else {
+        const { error: insErr } = await supabase
+          .from("staff_profiles" as any)
+          .insert({ ...dbPayload, created_at: nowIso });
+        if (insErr) {
+          console.error("[updateHRStaffProfile] staff_profiles insert error:", insErr.message);
+        } else {
+          persistedToSupabase = true;
+        }
+      }
+    }
+
+    // 3. Update outlets.settings (both hr_profiles and outlet_staff_roster) strictly scoped by business_id
+    if (businessId) {
+      const { data: allOutlets, error: outletsErr } = await supabase
+        .from("outlets")
+        .select("id, settings")
+        .eq("business_id", businessId);
+
+      if (!outletsErr && allOutlets && Array.isArray(allOutlets)) {
         for (const out of allOutlets) {
           const s =
             out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
               ? (out.settings as Record<string, any>)
               : {};
           let shouldUpdate = false;
-          let updatedRoster = Array.isArray(s.outlet_staff_roster) ? [...s.outlet_staff_roster] : [];
+          const updatedRoster = Array.isArray(s.outlet_staff_roster) ? [...s.outlet_staff_roster] : [];
           const idx = updatedRoster.findIndex((e: any) => (e.id || e.user_id) === userId);
           if (idx >= 0) {
             updatedRoster[idx] = {
@@ -312,12 +418,12 @@ export async function updateHRStaffProfile(
             [userId]: {
               ...(existingHR[userId] || {}),
               ...data,
-              updated_at: new Date().toISOString(),
+              updated_at: nowIso,
             },
           };
 
-          if (shouldUpdate || existingHR[userId]) {
-            await supabase
+          if (shouldUpdate || existingHR[userId] || !persistedToSupabase) {
+            const { error: outUpdErr } = await supabase
               .from("outlets")
               .update({
                 settings: {
@@ -326,15 +432,17 @@ export async function updateHRStaffProfile(
                   hr_profiles: updatedHR,
                 },
               })
-              .eq("id", out.id);
+              .eq("id", out.id)
+              .eq("business_id", businessId);
+            if (!outUpdErr) {
+              persistedToSupabase = true;
+            }
           }
         }
       }
-    } catch (e) {
-      // non-critical
     }
 
-    // 3. Update branch employees cache in localStorage
+    // 4. Update branch employees cache in localStorage
     if (typeof window !== "undefined") {
       try {
         const raw = localStorage.getItem("kebabschoicepos_branch_employees");
@@ -351,17 +459,17 @@ export async function updateHRStaffProfile(
             localStorage.setItem("kebabschoicepos_branch_employees", JSON.stringify(map));
           }
         }
-      } catch (e) {}
+      } catch {}
     }
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("hr:profile-updated", { detail: { userId } }));
     }
 
-    return true;
+    return persistedToSupabase;
   } catch (err) {
-    console.warn("[updateHRStaffProfile] Warning:", err);
-    return true;
+    console.error("[updateHRStaffProfile] Failed to persist staff profile:", err);
+    return false;
   }
 }
 
@@ -371,9 +479,11 @@ export async function updateHRStaffProfile(
 
 export async function getStaffShifts(outletId?: string): Promise<StaffShift[]> {
   try {
-    // 1. Check outlets.settings.master_shifts in Supabase
+    // 1. Check outlets.settings.master_shifts in Supabase (scoped by business_id)
+    const businessId = await resolveBusinessId();
     try {
       let query = supabase.from("outlets").select("id, settings");
+      if (businessId) query = query.eq("business_id", businessId);
       if (outletId) query = query.eq("id", outletId);
       const { data: outRows } = await query;
       if (outRows && outRows.length > 0) {
@@ -427,19 +537,25 @@ export async function getStaffShifts(outletId?: string): Promise<StaffShift[]> {
       localStorage.setItem(LOCAL_STORAGE_SHIFTS_KEY, JSON.stringify(DEFAULT_SHIFTS));
     }
 
-    // Also persist to outlets.settings.master_shifts in background
+    // Also persist to outlets.settings.master_shifts in background (scoped by business_id)
     try {
-      const { data: allOuts } = await supabase.from("outlets").select("id, settings");
-      if (allOuts && Array.isArray(allOuts)) {
-        for (const out of allOuts) {
-          const curr =
-            out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
-              ? (out.settings as Record<string, any>)
-              : {};
-          await supabase
-            .from("outlets")
-            .update({ settings: { ...curr, master_shifts: DEFAULT_SHIFTS } as any })
-            .eq("id", out.id);
+      if (businessId) {
+        const { data: allOuts } = await supabase
+          .from("outlets")
+          .select("id, settings")
+          .eq("business_id", businessId);
+        if (allOuts && Array.isArray(allOuts)) {
+          for (const out of allOuts) {
+            const curr =
+              out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
+                ? (out.settings as Record<string, any>)
+                : {};
+            await supabase
+              .from("outlets")
+              .update({ settings: { ...curr, master_shifts: DEFAULT_SHIFTS } as any })
+              .eq("id", out.id)
+              .eq("business_id", businessId);
+          }
         }
       }
     } catch {}
@@ -457,24 +573,31 @@ export async function saveStaffShifts(shifts: StaffShift[]): Promise<boolean> {
       localStorage.setItem(LOCAL_STORAGE_SHIFTS_KEY, JSON.stringify(shifts));
     }
 
-    // Persist into outlets.settings.master_shifts via JSONB (zero 400 Bad Request error)
+    // Persist into outlets.settings.master_shifts via JSONB (strictly scoped by business_id)
     try {
-      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
-      if (allOutlets && Array.isArray(allOutlets)) {
-        for (const out of allOutlets) {
-          const s =
-            out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
-              ? (out.settings as Record<string, any>)
-              : {};
-          await supabase
-            .from("outlets")
-            .update({
-              settings: {
-                ...s,
-                master_shifts: shifts,
-              } as any,
-            })
-            .eq("id", out.id);
+      const businessId = await resolveBusinessId();
+      if (businessId) {
+        const { data: allOutlets } = await supabase
+          .from("outlets")
+          .select("id, settings")
+          .eq("business_id", businessId);
+        if (allOutlets && Array.isArray(allOutlets)) {
+          for (const out of allOutlets) {
+            const s =
+              out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
+                ? (out.settings as Record<string, any>)
+                : {};
+            await supabase
+              .from("outlets")
+              .update({
+                settings: {
+                  ...s,
+                  master_shifts: shifts,
+                } as any,
+              })
+              .eq("id", out.id)
+              .eq("business_id", businessId);
+          }
         }
       }
     } catch (dbErr) {
@@ -553,7 +676,9 @@ export interface RecordAttendanceInput {
 
 export async function recordAttendance(input: RecordAttendanceInput): Promise<StaffAttendance> {
   const now = input.checkTime || new Date();
-  const dateStr = now.toISOString().split("T")[0] ?? ""; // YYYY-MM-DD
+  // Use local Indonesian date (Asia/Jakarta / WIB) — NEVER now.toISOString().split("T")[0] (UTC),
+  // which shifts 00:00-06:59 WIB morning check-ins back to yesterday's date!
+  const dateStr = formatLocalDateWIB(now); // YYYY-MM-DD (WIB / Local)
   const hours = now.getHours();
   const minutes = now.getMinutes();
   const timeFormatted = `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
@@ -654,33 +779,71 @@ export async function recordAttendance(input: RecordAttendanceInput): Promise<St
     created_at: now.toISOString(),
   };
 
-  // 1. Persist to localStorage
+  // 1. Try Supabase first (checking error & falling back to core schema columns if late_minutes is absent)
+  if (businessId) {
+    try {
+      const safeOutletUuid = isValidUuid(input.outletId) ? input.outletId : null;
+      let { data: insertedAtt, error: attErr } = await supabase
+        .from("staff_attendances" as any)
+        .insert({
+          business_id: businessId,
+          outlet_id: safeOutletUuid,
+          user_id: input.userId,
+          staff_name: input.staffName,
+          date: dateStr,
+          check_in_time: record.check_in_time,
+          check_out_time: record.check_out_time,
+          type: record.type,
+          status: record.status,
+          late_minutes: record.late_minutes,
+          device: record.device,
+          face_snapshot_url: record.face_snapshot_url,
+          notes: record.notes,
+          created_at: record.created_at,
+        })
+        .select("id")
+        .maybeSingle();
+
+      if (attErr) {
+        console.warn("[recordAttendance] Retrying staff_attendances insert with core schema columns:", attErr.message);
+        const retryRes = await supabase
+          .from("staff_attendances" as any)
+          .insert({
+            business_id: businessId,
+            outlet_id: safeOutletUuid,
+            user_id: input.userId,
+            staff_name: input.staffName,
+            date: dateStr,
+            check_in_time: record.check_in_time,
+            check_out_time: record.check_out_time,
+            type: record.type,
+            status: record.status,
+            device: record.device,
+            face_snapshot_url: record.face_snapshot_url,
+            notes: record.notes,
+            created_at: record.created_at,
+          })
+          .select("id")
+          .maybeSingle();
+        insertedAtt = retryRes.data;
+        attErr = retryRes.error;
+      }
+
+      if (attErr) {
+        console.error("[recordAttendance] Gagal menyimpan absensi ke Supabase staff_attendances:", attErr.message);
+      } else if ((insertedAtt as any)?.id) {
+        record.id = (insertedAtt as any).id;
+      }
+    } catch (err) {
+      console.warn("[recordAttendance] Supabase sync warning:", err);
+    }
+  }
+
+  // 2. Persist to localStorage cache (with authoritative DB id when available)
   if (typeof window !== "undefined") {
     const saved = JSON.parse(localStorage.getItem(LOCAL_STORAGE_ATTENDANCES_KEY) || "[]");
     saved.unshift(record);
     localStorage.setItem(LOCAL_STORAGE_ATTENDANCES_KEY, JSON.stringify(saved));
-  }
-
-  // 2. Try Supabase
-  try {
-    await supabase.from("staff_attendances" as any).insert({
-      business_id: businessId,
-      outlet_id: input.outletId,
-      user_id: input.userId,
-      staff_name: input.staffName,
-      date: dateStr,
-      check_in_time: record.check_in_time,
-      check_out_time: record.check_out_time,
-      type: record.type,
-      status: record.status,
-      late_minutes: record.late_minutes,
-      device: record.device,
-      face_snapshot_url: record.face_snapshot_url,
-      notes: record.notes,
-      created_at: record.created_at,
-    });
-  } catch (err) {
-    console.warn("[recordAttendance] Supabase sync warning:", err);
   }
 
   // 3. Dispatch global event
@@ -700,18 +863,21 @@ export async function getAttendanceList(filter?: {
 }): Promise<StaffAttendance[]> {
   let list: StaffAttendance[] = [];
 
-  // 1. Try Supabase
+  // 1. Try Supabase (strictly scoped by business_id)
   try {
-    let query = supabase
-      .from("staff_attendances" as any)
-      .select("*")
-      .order("created_at", { ascending: false });
-    if (filter?.date) query = query.eq("date", filter.date);
-    if (filter?.userId) query = query.eq("user_id", filter.userId);
-    if (filter?.outletId) query = query.eq("outlet_id", filter.outletId);
+    const businessId = await resolveBusinessId();
+    if (businessId) {
+      let query = supabase
+        .from("staff_attendances" as any)
+        .select("*")
+        .eq("business_id", businessId)
+        .order("created_at", { ascending: false });
+      if (filter?.date) query = query.eq("date", filter.date);
+      if (filter?.userId) query = query.eq("user_id", filter.userId);
+      if (filter?.outletId && filter.outletId !== "all") query = query.eq("outlet_id", filter.outletId);
 
-    const { data } = await query;
-    if (data && Array.isArray(data) && data.length > 0) {
+      const { data, error } = await query;
+      if (!error && data && Array.isArray(data) && data.length > 0) {
       list = (data as any[]).map((d: any) => ({
         id: d.id,
         business_id: d.business_id,
@@ -730,6 +896,7 @@ export async function getAttendanceList(filter?: {
         notes: d.notes,
         created_at: d.created_at,
       }));
+      }
     }
   } catch {
     // fallback
@@ -910,19 +1077,43 @@ export async function generateMonthlyPayrollList(
   month: number = new Date().getMonth() + 1,
   year: number = new Date().getFullYear(),
   outletId?: string,
+  explicitBusinessId?: string,
 ): Promise<StaffPayroll[]> {
-  const [profiles, allAttendances, businessId] = await Promise.all([
-    getHRStaffProfiles(),
+  const businessId = await resolveBusinessId(explicitBusinessId);
+  const [profiles, allAttendances] = await Promise.all([
+    getHRStaffProfiles(businessId),
     getAttendanceList({ month, year, outletId }),
-    resolveBusinessId(),
   ]);
 
-  const targetProfiles = outletId
-    ? profiles.filter((p) => p.outlet_id === outletId)
-    : profiles;
+  const targetProfiles =
+    outletId && outletId !== "all"
+      ? profiles.filter((p) => p.outlet_id === outletId)
+      : profiles;
 
-  // Load existing payrolls from local or DB
-  const localSaved =
+  // 1. Read authoritative payroll records from Supabase staff_payrolls table (strictly scoped by business_id)
+  let dbPayrolls: StaffPayroll[] = [];
+  if (businessId) {
+    try {
+      let pq = supabase
+        .from("staff_payrolls" as any)
+        .select("*")
+        .eq("business_id", businessId)
+        .eq("period_month", month)
+        .eq("period_year", year);
+      if (outletId && outletId !== "all" && isValidUuid(outletId)) {
+        pq = pq.eq("outlet_id", outletId);
+      }
+      const { data, error } = await pq;
+      if (!error && Array.isArray(data)) {
+        dbPayrolls = data as unknown as StaffPayroll[];
+      }
+    } catch (err) {
+      console.warn("[generateMonthlyPayrollList] staff_payrolls read warning:", err);
+    }
+  }
+
+  // 2. Offline localStorage cache fallback
+  const localSaved: StaffPayroll[] =
     typeof window !== "undefined"
       ? JSON.parse(localStorage.getItem(LOCAL_STORAGE_PAYROLLS_KEY) || "[]")
       : [];
@@ -949,10 +1140,18 @@ export async function generateMonthlyPayrollList(
       attendances: allAttendances,
       roster: cachedRoster,
     });
-    const existing = localSaved.find(
+
+    const existingDb = dbPayrolls.find(
+      (p) =>
+        p.user_id === staff.user_id &&
+        Number(p.period_month) === month &&
+        Number(p.period_year) === year,
+    );
+    const existingLocal = localSaved.find(
       (p: StaffPayroll) =>
         p.user_id === staff.user_id && p.period_month === month && p.period_year === year,
     );
+    const existing = existingDb || existingLocal;
 
     const bonus =
       Number(existing ? existing.bonus_amount : calc.totalDaysPresent >= 25 ? 150000 : 0) || 0;
@@ -961,8 +1160,8 @@ export async function generateMonthlyPayrollList(
       Math.round(calc.baseSalary + calc.allowanceAmount + bonus - calc.totalDeductions),
     );
 
-    payrolls.push({
-      id: existing?.id || `pr-${staff.user_id}-${month}-${year}`,
+    const payrollItem: StaffPayroll = {
+      id: existingDb?.id || existing?.id || `pr-${staff.user_id}-${month}-${year}`,
       business_id: businessId,
       outlet_id: staff.outlet_id,
       outlet_name: staff.outlet_name || "Semua Cabang (HQ)",
@@ -978,12 +1177,61 @@ export async function generateMonthlyPayrollList(
       deduction_amount: calc.totalDeductions,
       bonus_amount: bonus,
       net_salary: netSalary,
-      status: existing?.status || "draft",
+      status: (existing?.status as StaffPayroll["status"]) || "draft",
       payment_date: existing?.payment_date || null,
       notes: existing?.notes || `Gaji ${staff.full_name} periode ${month}/${year}`,
-    });
+    };
+
+    // 3. Persist / sync payroll row to Supabase staff_payrolls table so it syncs across devices & MoneyAllocationPage
+    if (businessId) {
+      try {
+        const dbRowPayload = {
+          business_id: businessId,
+          outlet_id: isValidUuid(payrollItem.outlet_id) ? payrollItem.outlet_id : null,
+          user_id: payrollItem.user_id,
+          staff_name: payrollItem.staff_name,
+          period_month: payrollItem.period_month,
+          period_year: payrollItem.period_year,
+          base_salary: payrollItem.base_salary,
+          total_days_present: payrollItem.total_days_present,
+          total_times_late: payrollItem.total_times_late,
+          total_days_absent: payrollItem.total_days_absent,
+          allowance_amount: payrollItem.allowance_amount,
+          deduction_amount: payrollItem.deduction_amount,
+          bonus_amount: payrollItem.bonus_amount,
+          net_salary: payrollItem.net_salary,
+          status: payrollItem.status,
+          payment_date: payrollItem.payment_date,
+          notes: payrollItem.notes,
+          updated_at: new Date().toISOString(),
+        };
+
+        if (existingDb && isValidUuid(existingDb.id)) {
+          await supabase
+            .from("staff_payrolls" as any)
+            .update(dbRowPayload)
+            .eq("id", existingDb.id)
+            .eq("business_id", businessId);
+          payrollItem.id = existingDb.id;
+        } else {
+          const { data: insertedPr, error: insPrErr } = await supabase
+            .from("staff_payrolls" as any)
+            .insert({ ...dbRowPayload, created_at: new Date().toISOString() })
+            .select("id")
+            .maybeSingle();
+          if (!insPrErr && (insertedPr as any)?.id) {
+            payrollItem.id = (insertedPr as any).id;
+          }
+        }
+      } catch (prSyncErr) {
+        console.warn("[generateMonthlyPayrollList] staff_payrolls sync warning:", prSyncErr);
+      }
+    }
+
+    payrolls.push(payrollItem);
   }
 
+  // 4. Update offline cache in localStorage
   if (typeof window !== "undefined") {
     localStorage.setItem(LOCAL_STORAGE_PAYROLLS_KEY, JSON.stringify(payrolls));
   }
@@ -996,6 +1244,10 @@ export async function updatePayrollStatus(
   status: "draft" | "approved" | "paid",
   bonusAmount?: number,
 ): Promise<boolean> {
+  const businessId = await resolveBusinessId();
+  const nowIso = new Date().toISOString();
+  let targetItem: StaffPayroll | null = null;
+
   if (typeof window !== "undefined") {
     const list: StaffPayroll[] = JSON.parse(
       localStorage.getItem(LOCAL_STORAGE_PAYROLLS_KEY) || "[]",
@@ -1005,7 +1257,7 @@ export async function updatePayrollStatus(
       const item = list[idx]!;
       item.status = status;
       if (status === "paid") {
-        item.payment_date = new Date().toISOString();
+        item.payment_date = nowIso;
       }
       if (bonusAmount !== undefined) {
         const safeBonus = Number(bonusAmount) || 0;
@@ -1020,12 +1272,117 @@ export async function updatePayrollStatus(
           ),
         );
       }
+      targetItem = item;
       localStorage.setItem(LOCAL_STORAGE_PAYROLLS_KEY, JSON.stringify(list));
-      window.dispatchEvent(new CustomEvent("hr:payroll-updated", { detail: item }));
     }
   }
 
-  return true;
+  // Persist status & bonus update directly to Supabase staff_payrolls table
+  let persistedDb = false;
+  if (businessId) {
+    try {
+      let existingDbRow: any = null;
+      if (isValidUuid(payrollId)) {
+        const { data } = await supabase
+          .from("staff_payrolls" as any)
+          .select("*")
+          .eq("id", payrollId)
+          .eq("business_id", businessId)
+          .maybeSingle();
+        existingDbRow = data;
+      } else if (targetItem) {
+        const { data } = await supabase
+          .from("staff_payrolls" as any)
+          .select("*")
+          .eq("business_id", businessId)
+          .eq("user_id", targetItem.user_id)
+          .eq("period_month", targetItem.period_month)
+          .eq("period_year", targetItem.period_year)
+          .maybeSingle();
+        existingDbRow = data;
+      }
+
+      const sourceRow = existingDbRow || targetItem;
+      if (sourceRow) {
+        const safeBonus =
+          bonusAmount !== undefined
+            ? Number(bonusAmount) || 0
+            : Number(sourceRow.bonus_amount || 0);
+        const computedNet = Math.max(
+          0,
+          Math.round(
+            Number(sourceRow.base_salary || 0) +
+              Number(sourceRow.allowance_amount || 0) +
+              safeBonus -
+              Number(sourceRow.deduction_amount || 0),
+          ),
+        );
+
+        const updatePayload: Record<string, any> = {
+          status,
+          bonus_amount: safeBonus,
+          net_salary: computedNet,
+          updated_at: nowIso,
+          ...(status === "paid" ? { payment_date: nowIso } : {}),
+        };
+
+        if (existingDbRow?.id) {
+          const { error: updErr } = await supabase
+            .from("staff_payrolls" as any)
+            .update(updatePayload)
+            .eq("id", existingDbRow.id)
+            .eq("business_id", businessId);
+          if (updErr) {
+            console.error("[updatePayrollStatus] staff_payrolls update error:", updErr.message);
+          } else {
+            persistedDb = true;
+          }
+        } else if (targetItem) {
+          const { data: inserted, error: insErr } = await supabase
+            .from("staff_payrolls" as any)
+            .insert({
+              business_id: businessId,
+              outlet_id: isValidUuid(targetItem.outlet_id) ? targetItem.outlet_id : null,
+              user_id: targetItem.user_id,
+              staff_name: targetItem.staff_name,
+              period_month: targetItem.period_month,
+              period_year: targetItem.period_year,
+              base_salary: targetItem.base_salary,
+              total_days_present: targetItem.total_days_present,
+              total_times_late: targetItem.total_times_late,
+              total_days_absent: targetItem.total_days_absent,
+              allowance_amount: targetItem.allowance_amount,
+              deduction_amount: targetItem.deduction_amount,
+              bonus_amount: safeBonus,
+              net_salary: computedNet,
+              status,
+              payment_date: status === "paid" ? nowIso : targetItem.payment_date,
+              notes: targetItem.notes,
+              created_at: nowIso,
+              updated_at: nowIso,
+            })
+            .select("id")
+            .maybeSingle();
+          if (insErr) {
+            console.error("[updatePayrollStatus] staff_payrolls insert error:", insErr.message);
+          } else {
+            persistedDb = true;
+            if ((inserted as any)?.id && targetItem) {
+              targetItem.id = (inserted as any).id;
+            }
+          }
+        }
+      }
+    } catch (dbErr) {
+      console.error("[updatePayrollStatus] Supabase error:", dbErr);
+    }
+  }
+
+  if (typeof window !== "undefined" && targetItem) {
+    window.dispatchEvent(new CustomEvent("hr:payroll-updated", { detail: targetItem }));
+  }
+
+  return persistedDb || Boolean(targetItem);
 }
 
 // -------------------------------------------------------------

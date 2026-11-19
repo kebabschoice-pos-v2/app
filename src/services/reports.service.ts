@@ -115,6 +115,68 @@ export interface BusinessAnalyticsSummary {
 }
 
 /**
+ * Resolves ISO start/end boundaries for server-side Supabase .gte/.lte filtering
+ * so getComprehensiveAnalytics does not fetch lifetime order history unless dateRange is "all".
+ */
+export function resolveFilterDateBounds(
+  filter?: AnalyticsFilter,
+): { startIso: string | null; endIso: string | null } {
+  if (!filter || (!filter.dateRange && !filter.startDate && !filter.endDate)) {
+    return { startIso: null, endIso: null };
+  }
+  const now = new Date();
+  const range = filter.dateRange || (filter.startDate || filter.endDate ? "custom" : undefined);
+  if (!range || range === "all") {
+    return { startIso: null, endIso: null };
+  }
+  if (range === "today") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return { startIso: start.toISOString(), endIso: end.toISOString() };
+  }
+  if (range === "last_7_days") {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 6, 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return { startIso: start.toISOString(), endIso: end.toISOString() };
+  }
+  if (range === "this_month") {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+    const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+    return { startIso: start.toISOString(), endIso: end.toISOString() };
+  }
+  if (range === "custom") {
+    let startIso: string | null = null;
+    let endIso: string | null = null;
+    if (filter.startDate) {
+      const parts = filter.startDate.split("-").map(Number);
+      startIso = new Date(
+        parts[0] ?? now.getFullYear(),
+        (parts[1] ?? 1) - 1,
+        parts[2] ?? 1,
+        0,
+        0,
+        0,
+        0,
+      ).toISOString();
+    }
+    if (filter.endDate) {
+      const parts = filter.endDate.split("-").map(Number);
+      endIso = new Date(
+        parts[0] ?? now.getFullYear(),
+        (parts[1] ?? 1) - 1,
+        parts[2] ?? 1,
+        23,
+        59,
+        59,
+        999,
+      ).toISOString();
+    }
+    return { startIso, endIso };
+  }
+  return { startIso: null, endIso: null };
+}
+
+/**
  * Filter a date against date range presets or custom start/end date
  */
 export function isDateWithinFilter(
@@ -305,14 +367,23 @@ export async function getComprehensiveAnalytics(
 
     const customers = customersData || [];
 
-    // 5. Fetch Sales Orders (including outlet_id, status, channel)
-    const { data: ordersData } = await supabase
+    // 5. Fetch Sales Orders (including outlet_id, status, channel) — apply server-side .gte/.lte date bounds unless range is "all"
+    const { startIso: filterStartIso, endIso: filterEndIso } = resolveFilterDateBounds(filter);
+    let ordersQuery = supabase
       .from("sales_orders")
       .select(
         "id, order_number, total, payment_method, status, channel, paid_at, created_at, customer_id, outlet_id",
       )
-      .in("business_id", targetBizIds)
-      .order("created_at", { ascending: false });
+      .in("business_id", targetBizIds);
+
+    if (filterStartIso) {
+      ordersQuery = ordersQuery.gte("created_at", filterStartIso);
+    }
+    if (filterEndIso) {
+      ordersQuery = ordersQuery.lte("created_at", filterEndIso);
+    }
+
+    const { data: ordersData } = await ordersQuery.order("created_at", { ascending: false });
 
     const rawAllOrders = ordersData || [];
 
@@ -416,12 +487,12 @@ export async function getComprehensiveAnalytics(
       (ord as any).outlet_id = normalizeOutletForOrder(ord);
     }
 
-    // Apply Filter (Outlet & Date Range) to orders
+    // Apply Filter (Outlet & Date Range) to orders — never bypass outletId filter even when only 1 outlet exists
     const orders = rawOrders.filter((ord) => {
       // Outlet Filter
       if (filter?.outletId && filter.outletId !== "all") {
         const resolvedOutletId = normalizeOutletForOrder(ord);
-        if (resolvedOutletId !== filter.outletId && outlets.length > 1) return false;
+        if (resolvedOutletId !== filter.outletId) return false;
       }
 
       // Date Range Filter
@@ -558,11 +629,8 @@ export async function getComprehensiveAnalytics(
     // Sort by sold count descending
     menuItems.sort((a, b) => b.soldCount - a.soldCount);
 
-    // Total profit estimate
-    let totalProfitEstimate = bomMetrics.grossProfit;
-    if (totalProfitEstimate <= 0 && totalRevenue > 0 && bomMetrics.totalBomCost <= 0) {
-      totalProfitEstimate = Math.round(totalRevenue * 0.58);
-    }
+    // Total profit estimate strictly from real BOM calculation (0 if no HPP/recipe cost is configured)
+    const totalProfitEstimate = bomMetrics.totalBomCost > 0 ? bomMetrics.grossProfit : 0;
 
     // --- OUTLET METRICS ---
     const outletsReport: OutletMetric[] = [];

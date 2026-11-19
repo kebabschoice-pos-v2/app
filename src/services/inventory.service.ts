@@ -232,6 +232,42 @@ async function getAuthHeader(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
+// Helper: slice a combined business procurement store down to the subset belonging to one outlet
+function sliceProcurementStoreForOutletClient(
+  store: Record<string, any>,
+  outletId: string | null,
+  isPrimaryOutlet: boolean,
+): Record<string, any> {
+  const belongsToOutlet = (recOutletId: string | null | undefined) => {
+    if (outletId && recOutletId === outletId) return true;
+    if (!recOutletId && isPrimaryOutlet) return true;
+    return false;
+  };
+
+  const rawMeta = store.item_meta && typeof store.item_meta === "object" ? store.item_meta : {};
+  const item_meta: Record<string, any> = {};
+  for (const [itemId, metaVal] of Object.entries(rawMeta)) {
+    const m = (metaVal as any) || {};
+    if (belongsToOutlet(m.outlet_id)) {
+      item_meta[itemId] = m;
+    }
+  }
+
+  return {
+    suppliers: isPrimaryOutlet ? store.suppliers || [] : [],
+    item_meta,
+    purchase_orders: (store.purchase_orders || []).filter((p: any) => belongsToOutlet(p?.outlet_id)),
+    stock_transfers: (store.stock_transfers || []).filter(
+      (t: any) =>
+        belongsToOutlet(t?.origin_outlet_id) ||
+        (outletId && t?.destination_outlet_id === outletId),
+    ),
+    stock_opnames: (store.stock_opnames || []).filter((o: any) => belongsToOutlet(o?.outlet_id)),
+    waste_records: (store.waste_records || []).filter((w: any) => belongsToOutlet(w?.outlet_id)),
+    stock_movements: (store.stock_movements || []).filter((m: any) => belongsToOutlet(m?.outlet_id)),
+  };
+}
+
 // Helper: load stored procurement data from outlets.settings & localStorage fallback
 async function loadProcurementStore(businessId: string): Promise<Record<string, any>> {
   let localData: Record<string, any> = {};
@@ -242,17 +278,47 @@ async function loadProcurementStore(businessId: string): Promise<Record<string, 
     } catch (_) {}
   }
 
+  if (!businessId) return localData;
+
   try {
     const { data: outlets } = await supabase
       .from("outlets")
       .select("id, settings")
       .eq("business_id", businessId)
-      .limit(1);
+      .order("created_at", { ascending: true });
 
-    if (outlets && outlets.length > 0 && outlets[0]) {
-      const s = (outlets[0].settings as any) || {};
-      const serverProc = s.procurement || {};
-      const merged = { ...localData, ...serverProc };
+    if (outlets && outlets.length > 0) {
+      let merged: Record<string, any> = { ...localData };
+      for (const o of outlets) {
+        const s = (o.settings as any) || {};
+        const proc = s.procurement || {};
+        merged = {
+          ...merged,
+          ...proc,
+          item_meta: { ...(merged.item_meta || {}), ...(proc.item_meta || {}) },
+          suppliers: [...(merged.suppliers || []), ...(proc.suppliers || [])],
+          purchase_orders: [...(merged.purchase_orders || []), ...(proc.purchase_orders || [])],
+          stock_transfers: [...(merged.stock_transfers || []), ...(proc.stock_transfers || [])],
+          stock_opnames: [...(merged.stock_opnames || []), ...(proc.stock_opnames || [])],
+          waste_records: [...(merged.waste_records || []), ...(proc.waste_records || [])],
+          stock_movements: [...(merged.stock_movements || []), ...(proc.stock_movements || [])],
+        };
+      }
+      const dedup = (arr: any[]) => {
+        const seen = new Set();
+        return (arr || []).filter((item) => {
+          if (!item || !item.id) return true;
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        });
+      };
+      merged.suppliers = dedup(merged.suppliers);
+      merged.purchase_orders = dedup(merged.purchase_orders);
+      merged.stock_transfers = dedup(merged.stock_transfers);
+      merged.stock_opnames = dedup(merged.stock_opnames);
+      merged.waste_records = dedup(merged.waste_records);
+      merged.stock_movements = dedup(merged.stock_movements);
       return merged;
     }
   } catch (err) {
@@ -261,7 +327,7 @@ async function loadProcurementStore(businessId: string): Promise<Record<string, 
   return localData;
 }
 
-// Helper: save procurement store to outlets.settings & localStorage
+// Helper: save procurement store partitioned per outlet_id (never dumping the combined store into every outlet)
 async function saveProcurementStore(businessId: string, store: Record<string, any>): Promise<void> {
   if (typeof window !== "undefined" && window.localStorage) {
     try {
@@ -269,15 +335,21 @@ async function saveProcurementStore(businessId: string, store: Record<string, an
     } catch (_) {}
   }
 
+  if (!businessId) return;
+
   try {
     const { data: outlets } = await supabase
       .from("outlets")
       .select("id, settings")
-      .eq("business_id", businessId);
+      .eq("business_id", businessId)
+      .order("created_at", { ascending: true });
 
-    for (const o of outlets || []) {
+    const outletList = outlets || [];
+    for (let idx = 0; idx < outletList.length; idx++) {
+      const o = outletList[idx]!;
       const current = (o.settings as any) || {};
-      const updated = { ...current, procurement: store };
+      const outletSlice = sliceProcurementStoreForOutletClient(store, o.id, idx === 0);
+      const updated = { ...current, procurement: outletSlice };
       await supabase
         .from("outlets")
         .update({ settings: updated, updated_at: new Date().toISOString() })
@@ -418,9 +490,14 @@ export async function saveBranchMoneyLedger(
           .eq("id", outletId);
       }
     } else {
-      // If outletId is all/null, sync to all business outlets
-      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
-      for (const o of allOutlets || []) {
+      // If outletId is all/null, sync only to the current business's outlets
+      const bid = await resolveActiveBusinessId();
+      if (bid) {
+        const { data: allOutlets } = await supabase
+          .from("outlets")
+          .select("id, settings")
+          .eq("business_id", bid);
+        for (const o of allOutlets || []) {
         const currSettings = (o.settings as any) || {};
         const currLedger = currSettings.money_allocation_ledger || currSettings.money_allocation || {};
         const updatedLedger = {
@@ -431,17 +508,18 @@ export async function saveBranchMoneyLedger(
           updated_at: new Date().toISOString(),
         };
 
-        await supabase
-          .from("outlets")
-          .update({
-            settings: {
-              ...currSettings,
-              money_allocation_ledger: updatedLedger,
-              money_allocation: updatedLedger,
-            },
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", o.id);
+          await supabase
+            .from("outlets")
+            .update({
+              settings: {
+                ...currSettings,
+                money_allocation_ledger: updatedLedger,
+                money_allocation: updatedLedger,
+              },
+              updated_at: new Date().toISOString(),
+            })
+            .eq("id", o.id);
+        }
       }
     }
   } catch (err) {
@@ -526,41 +604,37 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
     console.warn("[inventory.service] /api/inventory?type=items fetch failed, falling back to client:", apiErr);
   }
 
-  // 2. Client fallback with allBusinessIds
+  // 2. Client fallback strictly scoped to effectiveBusinessIds (never query without business_id filter!)
   const store = await loadProcurementStore(bid);
   const suppliers: SupplierItem[] = store.suppliers || [];
 
-  let dbItems: any[] | null = null;
+  let dbItems: any[] = [];
   if (effectiveBusinessIds.length > 0) {
     const { data, error } = await supabase
       .from("inventory_items")
       .select("*")
       .in("business_id", effectiveBusinessIds)
       .order("name", { ascending: true });
-    if (!error && Array.isArray(data) && data.length > 0) {
+    if (!error && Array.isArray(data)) {
       dbItems = data;
     }
   }
 
-  if (!dbItems || dbItems.length === 0) {
-    // Fallback without business_id filter
-    const { data } = await supabase
-      .from("inventory_items")
-      .select("*")
-      .order("name", { ascending: true });
-    dbItems = data || [];
-  }
-
   const extraMeta = store.item_meta || {};
 
-  // Resolve outlet names from outlets table (including archived branches holding stock)
+  // Resolve outlet names from outlets table (strictly scoped to effectiveBusinessIds)
   const outletNameMap = new Map<string, string>();
-  try {
-    const { data: outletRows } = await supabase.from("outlets").select("id, name");
-    for (const o of outletRows || []) {
-      if (o.id && o.name) outletNameMap.set(o.id, o.name);
-    }
-  } catch {}
+  if (effectiveBusinessIds.length > 0) {
+    try {
+      const { data: outletRows } = await supabase
+        .from("outlets")
+        .select("id, name")
+        .in("business_id", effectiveBusinessIds);
+      for (const o of outletRows || []) {
+        if (o.id && o.name) outletNameMap.set(o.id, o.name);
+      }
+    } catch {}
+  }
 
   const mappedItems: InventoryItemDetail[] = (dbItems || []).map((row) => {
     const meta = extraMeta[row.id] || {};
@@ -1614,13 +1688,20 @@ export async function updatePOStatus(
     console.warn("[inventory.service] API update-po-status error, fallback:", err);
   }
 
-  // Direct client fallback
+  // Direct client fallback (with idempotent double-receive guard)
   const store = await loadProcurementStore(bid);
   const target = (store.purchase_orders || []).find((p: any) => p.id === poId);
   if (target) {
+    const prevPoStatus = target.status;
+    const alreadyReceived =
+      prevPoStatus === "received" || Boolean(target.stock_received) || Boolean(target.received_at);
+    if (status === "received" && alreadyReceived) {
+      return;
+    }
     target.status = status;
     if (status === "received") {
       target.received_at = new Date().toISOString();
+      target.stock_received = true;
       for (const item of target.items || []) {
         if (item.inventory_item_id) {
           const { data: invRow } = await supabase
@@ -2218,7 +2299,11 @@ export async function updateStockTransferStatus(
 
         if (originItem) {
           const originId = originItem.id;
-          const newOriginStock = Math.max(0, (Number(originItem.stock) || 0) - qty);
+          const availableOriginStock = Math.max(0, Number(originItem.stock) || 0);
+          // Never transfer more than actual origin stock
+          const actualTransferQty = Math.min(qty, availableOriginStock);
+          if (actualTransferQty <= 0) continue;
+          const newOriginStock = Math.max(0, availableOriginStock - actualTransferQty);
           await supabase
             .from("inventory_items")
             .update({ stock: newOriginStock, updated_at: new Date().toISOString() })
@@ -2231,7 +2316,7 @@ export async function updateStockTransferStatus(
             item_name: it.item_name || originItem.name,
             outlet_id: originOutletId,
             movement_type: "transfer_out",
-            quantity: qty,
+            quantity: actualTransferQty,
             unit: it.unit || originItem.unit || "pcs",
             remaining_stock: newOriginStock,
             notes: `Transfer Keluar ke ${destName} (${target.transfer_number || transferId})`,
@@ -2269,7 +2354,7 @@ export async function updateStockTransferStatus(
           }
 
           if (destItem) {
-            const newDestStock = (Number(destItem.stock) || 0) + qty;
+            const newDestStock = (Number(destItem.stock) || 0) + actualTransferQty;
             await supabase
               .from("inventory_items")
               .update({ stock: newDestStock, updated_at: new Date().toISOString() })
@@ -2294,7 +2379,7 @@ export async function updateStockTransferStatus(
               item_name: destItem.name,
               outlet_id: destOutletId,
               movement_type: "transfer_in",
-              quantity: qty,
+              quantity: actualTransferQty,
               unit: destItem.unit || params.unit,
               remaining_stock: newDestStock,
               notes: `Transfer Masuk dari ${originName} (${target.transfer_number || transferId})`,
@@ -2313,7 +2398,7 @@ export async function updateStockTransferStatus(
                   name: resolvedName,
                   category: resolvedCategory,
                   unit: params.unit,
-                  stock: qty,
+                  stock: actualTransferQty,
                   minimum_stock: resolvedMinStock,
                   cost_price: params.costPrice,
                   yield_per_unit: params.yieldPerUnit,
@@ -2335,7 +2420,7 @@ export async function updateStockTransferStatus(
                     name: resolvedName,
                     category: resolvedCategory,
                     unit: params.unit,
-                    stock: qty,
+                    stock: actualTransferQty,
                     minimum_stock: resolvedMinStock,
                     health_score: 100,
                   } as any) as any)
@@ -2365,9 +2450,9 @@ export async function updateStockTransferStatus(
                   item_name: createdDest.name,
                   outlet_id: destOutletId,
                   movement_type: "transfer_in",
-                  quantity: qty,
+                  quantity: actualTransferQty,
                   unit: createdDest.unit || params.unit,
-                  remaining_stock: qty,
+                  remaining_stock: actualTransferQty,
                   notes: `Transfer Masuk dari ${originName} (${target.transfer_number || transferId})`,
                   created_at: new Date().toISOString(),
                 };

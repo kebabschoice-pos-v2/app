@@ -1628,7 +1628,7 @@ export function MoneyAllocationPage({
         ) : (
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4 border-t border-border/60 pt-5">
           {/* Omzet Masuk */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground leading-snug">1. Total Omzet</span>
               <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
@@ -1644,7 +1644,7 @@ export function MoneyAllocationPage({
           </div>
 
           {/* Tabungan BOM */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground leading-snug">
                 2. Celengan Bahan (BOM)
@@ -1662,7 +1662,7 @@ export function MoneyAllocationPage({
           </div>
 
           {/* Tabungan Operasional Harian */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground leading-snug">
                 3. Celengan Operasional
@@ -1680,7 +1680,7 @@ export function MoneyAllocationPage({
           </div>
 
           {/* Kas Keluar & Realisasi Gaji Cair */}
-          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground leading-snug">
                 4. Kas &amp; Gaji Keluar
@@ -1699,7 +1699,7 @@ export function MoneyAllocationPage({
 
           {/* Laba Bersih Murni Owner */}
           {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
-            <div className="rounded-2xl border border-emerald-500/35 bg-card p-4 shadow-xs overflow-hidden">
+            <div className="bg-card rounded-2xl border border-emerald-500/35 shadow-sm p-4 overflow-hidden">
               <div className="flex items-start justify-between gap-2 min-w-0">
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 leading-snug">
                   5. Laba Bersih Owner

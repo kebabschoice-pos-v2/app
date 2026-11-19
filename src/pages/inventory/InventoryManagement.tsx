@@ -1194,7 +1194,7 @@ export function InventoryManagement() {
 
       {/* 2. Metric Cards (1 Design System TOMORO — Tanpa Truncate) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Item Bahan</p>
             <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -1207,7 +1207,7 @@ export function InventoryManagement() {
           <p className="mt-1 text-xs text-muted-foreground">Bahan baku terdaftar</p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Nilai Stok</p>
             <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
@@ -1220,7 +1220,7 @@ export function InventoryManagement() {
           <p className="mt-1 text-xs text-muted-foreground">Kalkulasi modal fisik</p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Stok Menipis</p>
             <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
@@ -1233,7 +1233,7 @@ export function InventoryManagement() {
           <p className="mt-1 text-xs text-muted-foreground">Di bawah minimum stok</p>
         </div>
 
-        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden">
           <div className="flex items-start justify-between gap-2">
             <p className="text-xs font-semibold text-muted-foreground leading-snug">Stok Habis</p>
             <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
@@ -1248,7 +1248,7 @@ export function InventoryManagement() {
       </div>
 
       {/* 2B. PANEL: Ringkasan Pemakaian, Restock & Kerusakan (Waste) Bahan Hari Ini (Real-Time per Cabang) */}
-      <div className="rounded-[1.75rem] border border-border bg-card/85 p-5 shadow-soft backdrop-blur-md space-y-3">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-5 space-y-3">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">

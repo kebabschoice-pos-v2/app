@@ -3483,14 +3483,17 @@ test("Enforces streamlined 5-group TOMORO HQ sidebar (Pengaturan closed by defau
     "HQ Sidebar must be w-64 with 5 clean groups, Pengaturan closed by default, no duplicate /analytics link (highlighting Ringkasan & Insight for legacy /analytics), and preserve onOpenThemeModal",
   );
 
-  // 2. Unified non-rainbow TOMORO KPI card surfaces & responsive grids (no cramped xl:grid-cols-6 or truncated KPI titles)
+  // 2. Unified non-rainbow TOMORO KPI card surfaces, bg-muted/30 soft canvas & responsive grids (no cramped xl:grid-cols-6 or truncated KPI titles)
   assert.ok(
-    posAppCode.includes("rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden") &&
+    posAppCode.includes("min-h-[calc(100vh-5rem)] bg-muted/30") &&
+      posAppCode.includes("bg-card rounded-2xl border border-border/60 shadow-sm p-4 xl:p-5 overflow-hidden") &&
+      moneyPageCode.includes("bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden") &&
+      invPageCode.includes("bg-card rounded-2xl border border-border/60 shadow-sm p-4 overflow-hidden") &&
       perfOutletCode.includes("grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4") &&
       !/\bxl:grid-cols-6\b/.test(perfOutletCode) &&
       !perfMenuCode.includes("text-base font-black text-foreground truncate") &&
       !menuPageCode.includes("bg-violet-500/10"),
-    "HQ KPI cards across Dashboard, PerformanceOutlet, PerformanceMenu, and MenuManagement must use unified TOMORO surfaces and responsive non-cramped grids without truncation",
+    "HQ workspace must use soft bg-muted/30 canvas with unified bg-card rounded-2xl border border-border/60 shadow-sm KPI surfaces and responsive non-cramped grids without truncation",
   );
 
   // 3. Sticky right columns on PerformanceOutlet, PerformanceMenu, and OutletManagement wide tables

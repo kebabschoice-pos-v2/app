@@ -1069,7 +1069,7 @@ function StatCard({
     <motion.div
       whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden"
+      className="bg-card rounded-2xl border border-border/60 shadow-sm p-4 xl:p-5 overflow-hidden"
     >
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0 flex-1">
@@ -2340,21 +2340,21 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         <motion.div
           initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-[2rem] border border-border bg-card p-6 shadow-float lg:p-8"
+          className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 lg:p-8"
         >
           <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
             <div>
-              <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-card/72 px-4 py-2 text-sm font-bold text-primary shadow-soft">
+              <p className="mb-3 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-1.5 text-xs font-bold text-primary">
                 <Zap className="size-4" />
                 {t("dashboard.welcome_hq", "Selamat datang di HQ Monitor")}
               </p>
-              <h1 className="max-w-2xl text-balance text-4xl font-black leading-tight tracking-normal lg:text-5xl">
+              <h1 className="max-w-2xl text-balance text-3xl font-black leading-tight tracking-normal lg:text-4xl">
                 {t(
                   "dashboard.integrated_title",
                   "Operasional Bisnis & Data Transaksi Terintegrasi.",
                 )}
               </h1>
-              <p className="mt-4 max-w-2xl text-base leading-7 text-muted-foreground">
+              <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
                 {t(
                   "dashboard.integrated_desc",
                   "Semua cabang outlet, stok bahan baku, kasir POS, dan laporan keuangan terhubung dalam Single Source of Truth.",
@@ -2369,7 +2369,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
             </Link>
           </div>
         </motion.div>
-        <div className="rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6">
           <p className="text-sm font-bold text-muted-foreground">
             {t("dashboard.stock_health_score", "Stock Health Score")}
           </p>
@@ -2424,7 +2424,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
       {/* Performa Outlet & Produk Terlaris Grid */}
       <section className="grid gap-6 lg:grid-cols-2">
         {/* 1. Performa Outlet */}
-        <div className="rounded-[1.75rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -2492,7 +2492,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         </div>
 
         {/* 2. Produk Terlaris */}
-        <div className="rounded-[1.75rem] border border-border bg-card/90 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-5">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
               <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -2552,7 +2552,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[0.95fr_1.05fr]">
-        <div className="rounded-[1.75rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-5">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h2 className="text-xl font-black tracking-normal">
@@ -2588,12 +2588,14 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                   className="flex items-center justify-between gap-4 rounded-2xl bg-secondary/70 px-4 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-bold">{order.order_number}</p>
+                    <p className="text-sm font-bold text-foreground">{order.order_number}</p>
                     <p className="text-xs capitalize text-muted-foreground">
                       {order.channel} · {order.payment_method}
                     </p>
                   </div>
-                  <p className="text-sm font-black">{formatRupiah(order.total)}</p>
+                  <p className="text-sm font-black whitespace-nowrap shrink-0">
+                    {formatRupiah(order.total)}
+                  </p>
                 </div>
               ))}
             </div>
@@ -2615,7 +2617,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
           return (
             <div
               key={insight.id}
-              className="rounded-2xl border border-border bg-card p-5 shadow-xs"
+              className="bg-card rounded-2xl border border-border/60 shadow-sm p-5"
             >
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -10538,7 +10540,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
         />
         <section
           className={cn(
-            "min-w-0 flex-1 w-full pb-28 lg:pb-6 transition-all duration-300",
+            "min-w-0 flex-1 w-full min-h-[calc(100vh-5rem)] bg-muted/30 pb-28 lg:pb-6 transition-all duration-300",
             page === "pos"
               ? "px-3 py-4 lg:px-5 lg:py-4"
               : "px-4 py-6 lg:px-8 lg:pb-8",

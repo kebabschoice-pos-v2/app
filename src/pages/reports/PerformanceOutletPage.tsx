@@ -289,7 +289,7 @@ export function PerformanceOutletPage() {
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
               <Store className="size-4 text-primary shrink-0" />
               <div className="text-xs">
-                <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+                <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Cabang
                 </span>
                 <select
@@ -311,7 +311,7 @@ export function PerformanceOutletPage() {
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
               <Calendar className="size-4 text-primary shrink-0" />
               <div className="text-xs">
-                <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+                <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Periode
                 </span>
                 <select
@@ -336,7 +336,7 @@ export function PerformanceOutletPage() {
                   onChange={(e) => setStartDate(e.target.value)}
                   className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
                 />
-                <span className="text-muted-foreground text-[10px] font-bold">-</span>
+                <span className="text-muted-foreground text-xs font-bold">-</span>
                 <input
                   type="date"
                   value={endDate}
@@ -374,51 +374,53 @@ export function PerformanceOutletPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <p className="text-xs font-bold text-muted-foreground uppercase">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <p className="text-xs font-semibold text-muted-foreground leading-snug">
             {selectedOutlet ? `Omzet ${selectedOutlet.name}` : "Total Omzet Semua Cabang"}
           </p>
-          <h3 className="mt-2 text-2xl font-black text-foreground">
+          <h3 className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
             {formatRupiah(displayRevenue)}
           </h3>
           <p className="mt-1 text-xs text-emerald-600 font-bold">+18.5% Periode ini</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <p className="text-xs font-bold text-muted-foreground uppercase">Total Transaksi</p>
-          <h3 className="mt-2 text-2xl font-black text-foreground">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Transaksi</p>
+          <h3 className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
             {displayOrders.toLocaleString()} Order
           </h3>
           <p className="mt-1 text-xs text-primary font-bold">POS Kasir Terhubung</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <p className="text-xs font-bold text-muted-foreground uppercase">Produk Terjual</p>
-          <h3 className="mt-2 text-2xl font-black text-foreground">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <p className="text-xs font-semibold text-muted-foreground leading-snug">Produk Terjual</p>
+          <h3 className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
             {displayItemsSold.toLocaleString()} Porsi
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">Akumulasi Menu</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <p className="text-xs font-bold text-muted-foreground uppercase">Estimasi Profit</p>
-          <h3 className="mt-2 text-2xl font-black text-emerald-600">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <p className="text-xs font-semibold text-muted-foreground leading-snug">Estimasi Profit</p>
+          <h3 className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-emerald-600">
             {formatRupiah(displayProfit)}
           </h3>
           <p className="mt-1 text-xs text-muted-foreground">Gross Margin {displayMarginPct}%</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <p className="text-xs font-bold text-muted-foreground uppercase">Rata-rata Order (AOV)</p>
-          <h3 className="mt-2 text-2xl font-black text-foreground">{formatRupiah(displayAov)}</h3>
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <p className="text-xs font-semibold text-muted-foreground leading-snug">Rata-rata Order (AOV)</p>
+          <h3 className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
+            {formatRupiah(displayAov)}
+          </h3>
           <p className="mt-1 text-xs text-muted-foreground">Basket Size per Transaksi</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <p className="text-xs font-bold text-muted-foreground uppercase">Cabang Unggulan</p>
-          <h3 className="mt-2 text-base font-black text-foreground truncate">{topOutlet.name}</h3>
-          <p className="mt-1 text-xs text-amber-500 font-bold">{formatRupiah(topOutlet.revenue)}</p>
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <p className="text-xs font-semibold text-muted-foreground leading-snug">Cabang Unggulan</p>
+          <h3 className="mt-2 text-base font-bold text-foreground leading-snug">{topOutlet.name}</h3>
+          <p className="mt-1 text-xs text-primary font-bold whitespace-nowrap">{formatRupiah(topOutlet.revenue)}</p>
         </div>
       </div>
 
@@ -467,7 +469,7 @@ export function PerformanceOutletPage() {
                 </div>
                 <div>
                   <p className="text-xs font-bold">Tunai (Cash)</p>
-                  <p className="text-[10px] text-muted-foreground">Kasir POS</p>
+                  <p className="text-xs text-muted-foreground">Kasir POS</p>
                 </div>
               </div>
               <p className="text-sm font-black">{formatRupiah(paymentBreakdown.cash)}</p>
@@ -480,7 +482,7 @@ export function PerformanceOutletPage() {
                 </div>
                 <div>
                   <p className="text-xs font-bold">QRIS Instant</p>
-                  <p className="text-[10px] text-muted-foreground">Digital Payment</p>
+                  <p className="text-xs text-muted-foreground">Digital Payment</p>
                 </div>
               </div>
               <p className="text-sm font-black">{formatRupiah(paymentBreakdown.qris)}</p>
@@ -493,7 +495,7 @@ export function PerformanceOutletPage() {
                 </div>
                 <div>
                   <p className="text-xs font-bold">E-Wallet</p>
-                  <p className="text-[10px] text-muted-foreground">Gopay / Ovo / Dana</p>
+                  <p className="text-xs text-muted-foreground">Gopay / Ovo / Dana</p>
                 </div>
               </div>
               <p className="text-sm font-black">{formatRupiah(paymentBreakdown.ewallet)}</p>
@@ -506,7 +508,7 @@ export function PerformanceOutletPage() {
                 </div>
                 <div>
                   <p className="text-xs font-bold">Kartu Debit / EDC</p>
-                  <p className="text-[10px] text-muted-foreground">Bank Settlement</p>
+                  <p className="text-xs text-muted-foreground">Bank Settlement</p>
                 </div>
               </div>
               <p className="text-sm font-black">{formatRupiah(paymentBreakdown.card)}</p>
@@ -520,7 +522,7 @@ export function PerformanceOutletPage() {
                   </div>
                   <div>
                     <p className="text-xs font-bold text-orange-700 dark:text-orange-400">Online / Ojol</p>
-                    <p className="text-[10px] text-muted-foreground">GoFood / GrabFood / ShopeeFood</p>
+                    <p className="text-xs text-muted-foreground">GoFood / GrabFood / ShopeeFood</p>
                   </div>
                 </div>
                 <p className="text-sm font-black text-orange-600">{formatRupiah(paymentBreakdown.ojol)}</p>
@@ -541,11 +543,11 @@ export function PerformanceOutletPage() {
               <h2 className="text-base font-black flex items-center gap-2">
                 Detektor Kebocoran & Audit Keamanan Cabang (Fraud & Variance Alert)
                 {outletsWithIssues.length > 0 ? (
-                  <span className="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-[10px] font-black text-rose-600">
+                  <span className="rounded-full bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 text-xs font-black text-rose-600">
                     {outletsWithIssues.length} Cabang Perlu Investigasi
                   </span>
                 ) : (
-                  <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-black text-emerald-600">
+                  <span className="rounded-full bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-xs font-black text-emerald-600">
                     Semua Cabang Kondusif
                   </span>
                 )}
@@ -567,7 +569,7 @@ export function PerformanceOutletPage() {
             <p className={cn("text-lg font-black", totalCashDifference < 0 ? "text-rose-600" : "text-emerald-600")}>
               {totalCashDifference < 0 ? `-${formatRupiah(Math.abs(totalCashDifference))}` : "Rp 0 (Seimbang)"}
             </p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {totalCashDifference < 0 ? "Akumulasi uang kas fisik hilang/tekor saat tutup shift kasir" : "Laci kas fisik tertib & seimbang"}
             </p>
           </div>
@@ -580,7 +582,7 @@ export function PerformanceOutletPage() {
             <p className={cn("text-lg font-black", totalVoidCount > 0 ? "text-amber-600" : "text-foreground")}>
               {totalVoidCount} Order ({formatRupiah(totalVoidAmount)})
             </p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {totalVoidCount > 0 ? "Waspadai transaksi fiktif / uang dikantongi kasir nakal" : "Tidak ada transaksi void"}
             </p>
           </div>
@@ -593,7 +595,7 @@ export function PerformanceOutletPage() {
             <p className={cn("text-lg font-black", totalWasteLoss > 0 ? "text-rose-600" : "text-foreground")}>
               {formatRupiah(totalWasteLoss)}
             </p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               Biaya HPP terbuang dari inventaris (waste_records)
             </p>
           </div>
@@ -615,74 +617,76 @@ export function PerformanceOutletPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border text-muted-foreground font-black uppercase">
-                <th className="py-3 px-3">Cabang & Audit Status</th>
-                <th className="py-3 px-3 text-right">Total Omzet</th>
-                <th className="py-3 px-3 text-right">Penerimaan Cash</th>
-                <th className="py-3 px-3 text-right">Non-Cash / Ojol</th>
-                <th className="py-3 px-3 text-right">Estimasi HPP</th>
-                <th className="py-3 px-3 text-right">Kas Keluar Ops</th>
-                <th className="py-3 px-3 text-right">Net Profit</th>
-                <th className="py-3 px-3 text-center">Audit Anomali</th>
+                <th className="py-2.5 px-3">Cabang &amp; Audit Status</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Total Omzet</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Penerimaan Cash</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Non-Cash / Ojol</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Estimasi HPP</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Kas Keluar Ops</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Net Profit</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                  Audit Anomali
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {outlets.map((outlet, index) => (
                 <tr key={outlet.id} className="hover:bg-secondary/40 transition-colors">
-                  <td className="py-3 px-3 font-bold text-foreground">
+                  <td className="py-2.5 px-3 font-bold text-foreground">
                     <div className="flex items-center gap-2">
-                      <span className="flex size-5 items-center justify-center rounded-full bg-secondary font-black text-[10px]">
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-secondary font-black text-xs">
                         #{index + 1}
                       </span>
                       <div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="font-black">{outlet.name}</span>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <span className="font-black whitespace-nowrap">{outlet.name}</span>
                           {outlet.isTop && (
-                            <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[9px] font-black text-amber-600">
+                            <span className="rounded-full bg-primary/10 px-2 py-0.5 text-xs font-bold text-primary whitespace-nowrap">
                               TOP 1
                             </span>
                           )}
                         </div>
-                        <span className="text-[10px] text-muted-foreground block truncate max-w-[150px]">
+                        <span className="text-xs text-muted-foreground block">
                           {outlet.address}
                         </span>
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-right font-black text-primary">
+                  <td className="py-2.5 px-3 text-right font-black text-primary whitespace-nowrap">
                     <div>{formatRupiah(outlet.revenue)}</div>
-                    <span className="text-[10px] text-muted-foreground font-normal">
+                    <span className="text-xs text-muted-foreground font-normal">
                       {outlet.ordersCount} Order
                     </span>
                   </td>
-                  <td className="py-3 px-3 text-right font-bold text-emerald-600">
+                  <td className="py-2.5 px-3 text-right font-bold text-emerald-600 whitespace-nowrap">
                     <div>{formatRupiah(outlet.cashRevenue)}</div>
-                    <span className="text-[10px] text-muted-foreground font-normal">Fisik Laci</span>
+                    <span className="text-xs text-muted-foreground font-normal">Fisik Laci</span>
                   </td>
-                  <td className="py-3 px-3 text-right font-bold text-foreground">
+                  <td className="py-2.5 px-3 text-right font-bold text-foreground whitespace-nowrap">
                     <div>{formatRupiah(outlet.digitalRevenue)}</div>
-                    <span className="text-[10px] text-muted-foreground font-normal">
+                    <span className="text-xs text-muted-foreground font-normal">
                       QRIS / Ojol / Kartu
                     </span>
                   </td>
-                  <td className="py-3 px-3 text-right font-semibold text-muted-foreground">
+                  <td className="py-2.5 px-3 text-right font-semibold text-muted-foreground whitespace-nowrap">
                     <div>{formatRupiah(outlet.cpmEstimate)}</div>
-                    <span className="text-[10px] text-muted-foreground">~40% Omzet</span>
+                    <span className="text-xs text-muted-foreground">~40% Omzet</span>
                   </td>
-                  <td className="py-3 px-3 text-right font-semibold text-rose-600 dark:text-rose-400">
+                  <td className="py-2.5 px-3 text-right font-semibold text-rose-600 dark:text-rose-400 whitespace-nowrap">
                     <div>{formatRupiah(outlet.operationalCashOut)}</div>
-                    <span className="text-[10px] text-muted-foreground">Biaya Shift</span>
+                    <span className="text-xs text-muted-foreground">Biaya Shift</span>
                   </td>
-                  <td className="py-3 px-3 text-right font-black text-emerald-600 dark:text-emerald-400">
+                  <td className="py-2.5 px-3 text-right font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                     <div>{formatRupiah(outlet.netProfit)}</div>
-                    <span className="text-[10px] text-muted-foreground font-normal">
+                    <span className="text-xs text-muted-foreground font-normal">
                       Margin {outlet.revenue > 0 ? Math.round((outlet.netProfit / outlet.revenue) * 100) : 0}%
                     </span>
                   </td>
-                  <td className="py-3 px-3 text-center">
+                  <td className="py-2.5 px-3 text-center sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
                     <div className="flex flex-col items-center gap-1">
                       <span
                         className={cn(
-                          "rounded-full px-2 py-0.5 text-[10px] font-black inline-flex items-center gap-1",
+                          "rounded-full px-2.5 py-0.5 text-xs font-bold inline-flex items-center gap-1 whitespace-nowrap",
                           outlet.healthStatus === "danger"
                             ? "bg-rose-500/15 text-rose-600 border border-rose-500/30"
                             : outlet.healthStatus === "warning"
@@ -693,7 +697,7 @@ export function PerformanceOutletPage() {
                         {outlet.healthScoreLabel}
                       </span>
                       {outlet.anomalyNotes && outlet.anomalyNotes.length > 0 && (
-                        <span className="text-[10px] text-rose-500 font-semibold max-w-[160px] truncate" title={outlet.anomalyNotes.join(", ")}>
+                        <span className="text-xs text-rose-500 font-semibold" title={outlet.anomalyNotes.join(", ")}>
                           ⚠️ {outlet.anomalyNotes[0]}
                         </span>
                       )}

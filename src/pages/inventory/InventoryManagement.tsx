@@ -1192,56 +1192,58 @@ export function InventoryManagement() {
         </div>
       </div>
 
-      {/* 2. Metric Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-muted-foreground">Total Item Bahan</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
+      {/* 2. Metric Cards (1 Design System TOMORO — Tanpa Truncate) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Item Bahan</p>
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Boxes className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black">{metrics.totalItems}</p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Bahan baku terdaftar</p>
+          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
+            {metrics.totalItems}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">Bahan baku terdaftar</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft overflow-hidden">
-          <div className="flex items-center justify-between gap-2">
-            <p className="text-xs font-semibold text-muted-foreground truncate">Total Nilai Stok</p>
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Nilai Stok</p>
             <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
               <DollarSign className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap truncate text-emerald-600 dark:text-emerald-400">
+          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-emerald-600 dark:text-emerald-400">
             {formatRupiah(metrics.totalStockValue)}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground truncate">Kalkulasi modal fisik</p>
+          <p className="mt-1 text-xs text-muted-foreground">Kalkulasi modal fisik</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-muted-foreground">Stok Menipis</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">Stok Menipis</p>
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400">
               <AlertTriangle className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black text-amber-600 dark:text-amber-400">
+          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-amber-600 dark:text-amber-400">
             {metrics.lowStockCount}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Di bawah minimum stok</p>
+          <p className="mt-1 text-xs text-muted-foreground">Di bawah minimum stok</p>
         </div>
 
-        <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-semibold text-muted-foreground">Stok Habis</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
+        <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">Stok Habis</p>
+            <div className="flex w-8 h-8 shrink-0 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600 dark:text-rose-400">
               <XCircle className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black text-rose-600 dark:text-rose-400">
+          <p className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-rose-600 dark:text-rose-400">
             {metrics.outOfStockCount}
           </p>
-          <p className="mt-1 text-[11px] text-muted-foreground">Perlu segera restock</p>
+          <p className="mt-1 text-xs text-muted-foreground">Perlu segera restock</p>
         </div>
       </div>
 
@@ -1255,7 +1257,7 @@ export function InventoryManagement() {
             <div>
               <h2 className="text-sm font-black text-foreground flex items-center gap-2">
                 <span>Mutasi Stok</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
+                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-primary/15 text-primary">
                   {mutationPeriod === "today" ? "Hari Ini" : mutationPeriod === "7days" ? "7 Hari Terakhir" : "Semua Waktu"}
                 </span>
               </h2>
@@ -1318,7 +1320,7 @@ export function InventoryManagement() {
                   <div className="flex items-start justify-between gap-2 border-b border-border/60 pb-2">
                     <div>
                       <h4 className="font-black text-xs text-foreground">{item.itemName}</h4>
-                      <span className="text-[10px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         Satuan Utama: <span className="font-bold text-foreground">{item.unit}</span>
                         {hasYield && ` (1 ${item.unit} = ${item.yield_per_unit} ${item.yield_unit || "unit"})`}
                       </span>
@@ -1578,7 +1580,7 @@ export function InventoryManagement() {
           <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
             <div className="overflow-x-auto min-w-full">
               <table className="w-full min-w-[780px] text-left text-xs sm:text-sm">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                   <tr>
                     <th className="py-2.5 px-3 font-bold">Nama Bahan</th>
                     <th className="py-2.5 px-3 font-bold">Kategori</th>
@@ -1659,12 +1661,12 @@ export function InventoryManagement() {
                             <div>
                               <span>{item.name}</span>
                               <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
-                                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded-md">
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold text-primary/80 bg-primary/10 px-1.5 py-0.5 rounded-md">
                                   <Warehouse className="size-2.5" />
                                   {item.outlet_name || (outlets.find((o) => o.id === item.outlet_id)?.name) || (item.outlet_id ? "Outlet Cabang" : "Gudang Pusat")}
                                 </span>
                                 {item.ai_alert && (
-                                  <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400">
+                                  <span className="text-xs font-normal text-amber-600 dark:text-amber-400">
                                     ⚠️ {item.ai_alert}
                                   </span>
                                 )}
@@ -1717,7 +1719,7 @@ export function InventoryManagement() {
                                   <AlertTriangle className="size-3" />
                                   ⚠️ PERLU RESTOCK
                                 </span>
-                                <span className="text-[10px] text-muted-foreground font-medium text-center leading-tight">
+                                <span className="text-xs text-muted-foreground font-medium text-center leading-tight">
                                   Saldo Celengan Bahan Ini:{" "}
                                   <strong className="font-mono text-emerald-600 dark:text-emerald-400">
                                     {formatRupiah(pocketInfo.balance)}
@@ -1829,7 +1831,7 @@ export function InventoryManagement() {
           <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs sm:text-sm">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                   <tr>
                     <th className="py-3.5 px-4 font-bold">Waktu</th>
                     <th className="py-3.5 px-4 font-bold">Nama Bahan</th>
@@ -1898,7 +1900,7 @@ export function InventoryManagement() {
           <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs sm:text-sm">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                   <tr>
                     <th className="py-3.5 px-4 font-bold">Waktu</th>
                     <th className="py-3.5 px-4 font-bold">Nama Bahan</th>
@@ -1967,7 +1969,7 @@ export function InventoryManagement() {
           <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs sm:text-sm">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                   <tr>
                     <th className="py-3.5 px-4 font-bold">Waktu</th>
                     <th className="py-3.5 px-4 font-bold">Nama Bahan</th>
@@ -2043,7 +2045,7 @@ export function InventoryManagement() {
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <span
-                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase ${
+                          className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-black uppercase ${
                             isOutOfStock
                               ? "bg-rose-500/10 text-rose-600"
                               : "bg-amber-500/10 text-amber-600"

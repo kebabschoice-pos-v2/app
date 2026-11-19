@@ -268,7 +268,7 @@ export function WastePage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">Waktu</th>
                   <th className="py-2.5 px-3 font-bold">Nama Bahan</th>
@@ -381,7 +381,7 @@ export function WastePage() {
               {/* Satuan Terbuang Mode Toggle (Satuan Utama vs Satuan Eceran Resep) */}
               {selectedItemDetail?.yield_per_unit && selectedItemDetail.yield_per_unit > 1 && (
                 <div className="rounded-2xl border border-border/80 bg-muted/30 p-2.5 space-y-1.5">
-                  <span className="text-[10px] font-bold text-muted-foreground uppercase">
+                  <span className="text-xs font-bold text-muted-foreground uppercase">
                     Pilihan Satuan Barang Rusak/Waste:
                   </span>
                   <div className="grid grid-cols-2 gap-1.5">
@@ -408,7 +408,7 @@ export function WastePage() {
                       Eceran Resep ({selectedItemDetail.yield_unit || "unit"})
                     </button>
                   </div>
-                  <p className="text-[10px] text-muted-foreground">
+                  <p className="text-xs text-muted-foreground">
                     💡 1 {selectedItemDetail.unit} = {selectedItemDetail.yield_per_unit} {selectedItemDetail.yield_unit || "unit"}.
                     {wasteUnitMode === "recipe" && ` (${wasteQty} ${selectedItemDetail.yield_unit || "unit"} = -${effectivePrimaryQty.toFixed(4)} ${selectedItemDetail.unit} stok utama)`}
                   </p>

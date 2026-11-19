@@ -261,7 +261,7 @@ export function SupplierManagementPage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[740px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">Nama Vendor</th>
                   <th className="py-2.5 px-3 font-bold">Kategori Pasokan</th>
@@ -298,7 +298,7 @@ export function SupplierManagementPage() {
                         <div>
                           <span>{s.name}</span>
                           {s.notes && (
-                            <p className="text-[10px] font-normal text-muted-foreground mt-0.5">
+                            <p className="text-xs font-normal text-muted-foreground mt-0.5">
                               {s.notes}
                             </p>
                           )}
@@ -533,7 +533,7 @@ export function SupplierManagementPage() {
                 </div>
               ) : (
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-muted/40 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
+                  <thead className="bg-muted/40 border-b border-border text-muted-foreground font-bold uppercase text-xs">
                     <tr>
                       <th className="py-2.5 px-3">No. PO</th>
                       <th className="py-2.5 px-3">Tanggal</th>
@@ -552,7 +552,7 @@ export function SupplierManagementPage() {
                           {formatRupiah(po.total_amount)}
                         </td>
                         <td className="py-2.5 px-3 text-center">
-                          <span className="rounded-full bg-secondary px-2 py-0.5 text-[10px] font-bold">
+                          <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-bold">
                             {po.status}
                           </span>
                         </td>

@@ -1508,18 +1508,18 @@ export function StaffManagement() {
                                 isPending ? "bg-amber-500 animate-ping" : "bg-emerald-500"
                               }`}
                             />
-                            <p className="text-[10px] font-mono text-muted-foreground truncate">
+                            <p className="text-xs font-mono text-muted-foreground truncate">
                               {loginEmail}
                             </p>
                           </div>
                         ) : (
-                          <p className="text-[10px] text-muted-foreground/80 italic mt-0.5">
+                          <p className="text-xs text-muted-foreground/80 italic mt-0.5">
                             Belum dibuat akun login
                           </p>
                         )}
                       </div>
                       <span
-                        className={`text-[9px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                        className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
                           isPending
                             ? "bg-amber-500/10 text-amber-600 border border-amber-500/25"
                             : loginEmail
@@ -1647,14 +1647,14 @@ export function StaffManagement() {
                                 <p className="font-bold text-foreground">{staff.name}</p>
                                 {(hr.gender || (staff as any).gender) === "female" ? (
                                   <span
-                                    className="inline-flex items-center justify-center size-4 rounded-full bg-pink-500/15 text-pink-600 dark:text-pink-400 text-[9px] font-black"
+                                    className="inline-flex items-center justify-center size-4 rounded-full bg-pink-500/15 text-pink-600 dark:text-pink-400 text-xs font-black"
                                     title="Perempuan (P)"
                                   >
                                     P
                                   </span>
                                 ) : (
                                   <span
-                                    className="inline-flex items-center justify-center size-4 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 text-[9px] font-black"
+                                    className="inline-flex items-center justify-center size-4 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 text-xs font-black"
                                     title="Laki-laki (L)"
                                   >
                                     L
@@ -1698,7 +1698,7 @@ export function StaffManagement() {
                                 value={staff.outlet_id || ""}
                                 onChange={(e) => handleQuickTransferStaff(staff, e.target.value)}
                                 aria-label={`Mutasi cabang untuk ${staff.name}`}
-                                className="h-7 w-fit max-w-[170px] rounded-lg border border-input bg-muted/40 px-2 text-[10px] font-bold text-muted-foreground hover:text-foreground focus:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                                className="h-7 w-fit max-w-[170px] rounded-lg border border-input bg-muted/40 px-2 text-xs font-bold text-muted-foreground hover:text-foreground focus:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
                               >
                                 <option value="" disabled={!staff.outlet_id}>
                                   {staff.outlet_id ? "Pindah Cabang..." : "Pilih Cabang..."}
@@ -2019,7 +2019,7 @@ export function StaffManagement() {
                               />
                               <div>
                                 <div className="font-bold text-xs">{p.label}</div>
-                                <div className="text-[10px] text-muted-foreground">{p.desc}</div>
+                                <div className="text-xs text-muted-foreground">{p.desc}</div>
                               </div>
                             </label>
                           );
@@ -2628,7 +2628,7 @@ export function StaffManagement() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="h-6 text-[10px] px-2 rounded-lg font-bold"
+                                className="h-6 text-xs px-2 rounded-lg font-bold"
                                 onClick={() => handleAddSlotRow(actualWeekIdx, "pagi")}
                               >
                                 + Pagi
@@ -2637,7 +2637,7 @@ export function StaffManagement() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="h-6 text-[10px] px-2 rounded-lg font-bold"
+                                className="h-6 text-xs px-2 rounded-lg font-bold"
                                 onClick={() => handleAddSlotRow(actualWeekIdx, "malam")}
                               >
                                 + Malam
@@ -2646,7 +2646,7 @@ export function StaffManagement() {
                                 type="button"
                                 size="sm"
                                 variant="outline"
-                                className="h-6 text-[10px] px-2 rounded-lg font-bold"
+                                className="h-6 text-xs px-2 rounded-lg font-bold"
                                 onClick={() => handleAddSlotRow(actualWeekIdx, "off")}
                               >
                                 + OFF
@@ -2814,7 +2814,7 @@ export function StaffManagement() {
                                               )}
                                             </div>
                                             {cell.status !== "NORMAL" && (
-                                              <span className="text-[9px] uppercase tracking-wider block font-bold mt-0.5">
+                                              <span className="text-xs uppercase tracking-wider block font-bold mt-0.5">
                                                 [{cell.status}]
                                               </span>
                                             )}
@@ -3167,7 +3167,7 @@ export function StaffManagement() {
                   />
                   <div>
                     <p className="text-xs font-bold text-foreground">Single Branch (Hanya Cabang Tugas)</p>
-                    <p className="text-[10px] text-muted-foreground">Default aman: manager hanya akses 1 cabang tempatnya ditugaskan</p>
+                    <p className="text-xs text-muted-foreground">Default aman: manager hanya akses 1 cabang tempatnya ditugaskan</p>
                   </div>
                 </label>
 
@@ -3183,7 +3183,7 @@ export function StaffManagement() {
                   />
                   <div>
                     <p className="text-xs font-bold text-foreground">All Branches (Seluruh Cabang HQ)</p>
-                    <p className="text-[10px] text-muted-foreground">Manager dapat melihat data seluruh cabang outlet</p>
+                    <p className="text-xs text-muted-foreground">Manager dapat melihat data seluruh cabang outlet</p>
                   </div>
                 </label>
               </div>
@@ -3259,7 +3259,7 @@ export function StaffManagement() {
               <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-foreground">Edit Resep &amp; HPP Menu</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 font-bold">Sensitif</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 font-bold">Sensitif</span>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <span className={`text-[11px] font-bold ${systemManagerPerms.can_edit_menu_recipes ? "text-primary" : "text-muted-foreground"}`}>
@@ -3278,7 +3278,7 @@ export function StaffManagement() {
               <div className="flex items-center justify-between p-3.5 hover:bg-muted/30 transition-colors">
                 <div className="flex items-center gap-2">
                   <span className="text-xs font-bold text-foreground">Lihat Laba Bersih Owner</span>
-                  <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 font-bold">Owner</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-rose-500/10 text-rose-600 font-bold">Owner</span>
                 </div>
                 <label className="flex items-center gap-2 cursor-pointer select-none">
                   <span className={`text-[11px] font-bold ${systemManagerPerms.can_view_owner_net_profit ? "text-primary" : "text-muted-foreground"}`}>
@@ -3470,7 +3470,7 @@ export function StaffManagement() {
                   </div>
 
                   <div>
-                    <label className="font-bold text-muted-foreground block text-[10px] uppercase mb-1">
+                    <label className="font-bold text-muted-foreground block text-xs uppercase mb-1">
                       Email Gmail Store Manager
                     </label>
                     <Input
@@ -3483,7 +3483,7 @@ export function StaffManagement() {
                   </div>
 
                   <div>
-                    <label className="font-bold text-muted-foreground block text-[10px] uppercase mb-1">
+                    <label className="font-bold text-muted-foreground block text-xs uppercase mb-1">
                       Password Baru (Kosongkan jika tidak diubah)
                     </label>
                     <Input
@@ -3497,7 +3497,7 @@ export function StaffManagement() {
 
                   {editManagerPassword && (
                     <div className="rounded-xl border border-primary/20 bg-background/80 p-2.5 space-y-1.5">
-                      <div className="text-[10px] text-muted-foreground">
+                      <div className="text-xs text-muted-foreground">
                         🛡️ Otorisasi Owner: <span className="font-mono font-bold text-primary">{ownerEmail || "ujicobaajaoke@gmail.com"}</span>
                       </div>
                       <label className="flex items-start gap-2 cursor-pointer">
@@ -3507,7 +3507,7 @@ export function StaffManagement() {
                           onChange={(e) => setEditOwnerGmailConfirmed(e.target.checked)}
                           className="mt-0.5 rounded border-input size-3.5 text-primary"
                         />
-                        <span className="text-[10px] text-foreground leading-snug">
+                        <span className="text-xs text-foreground leading-snug">
                           Saya selaku Owner mengizinkan pembuatan / pembaruan kredensial Store Manager ini.
                         </span>
                       </label>
@@ -3515,7 +3515,7 @@ export function StaffManagement() {
                   )}
 
                   <div>
-                    <label className="font-bold text-muted-foreground block text-[10px] uppercase mb-1.5">
+                    <label className="font-bold text-muted-foreground block text-xs uppercase mb-1.5">
                       🛡️ Hak Akses Menu HQ (Store Manager)
                     </label>
                     <div className="grid grid-cols-1 gap-1.5">
@@ -3547,7 +3547,7 @@ export function StaffManagement() {
                             />
                             <div className="flex items-center justify-between flex-1">
                               <span className="font-bold text-xs">{p.label}</span>
-                              <span className="text-[10px] text-muted-foreground">{p.desc}</span>
+                              <span className="text-xs text-muted-foreground">{p.desc}</span>
                             </div>
                           </label>
                         );
@@ -4200,7 +4200,7 @@ export function StaffManagement() {
                         ) as HTMLInputElement;
                         if (input) input.value = s.name;
                       }}
-                      className="rounded-md bg-muted px-2 py-0.5 text-[10px] font-bold text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
+                      className="rounded-md bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground hover:bg-primary/10 hover:text-primary transition-colors"
                     >
                       {s.name}
                     </button>

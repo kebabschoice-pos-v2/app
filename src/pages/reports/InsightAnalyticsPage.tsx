@@ -181,7 +181,7 @@ export function InsightAnalyticsPage() {
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
               <Store className="size-4 text-primary shrink-0" />
               <div className="text-xs">
-                <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+                <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Cabang
                 </span>
                 <select
@@ -203,7 +203,7 @@ export function InsightAnalyticsPage() {
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
               <Calendar className="size-4 text-primary shrink-0" />
               <div className="text-xs">
-                <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+                <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Periode
                 </span>
                 <select
@@ -228,7 +228,7 @@ export function InsightAnalyticsPage() {
                   onChange={(e) => setStartDate(e.target.value)}
                   className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
                 />
-                <span className="text-muted-foreground text-[10px] font-bold">-</span>
+                <span className="text-muted-foreground text-xs font-bold">-</span>
                 <input
                   type="date"
                   value={endDate}
@@ -268,7 +268,7 @@ export function InsightAnalyticsPage() {
       {/* AI Recommendations Cards */}
       <div className="space-y-3">
         <div className="flex items-center gap-2 text-sm font-black text-foreground">
-          <Sparkles className="size-4 text-ai" />
+          <Sparkles className="size-4 text-primary" />
           <span>Rekomendasi Cerdas AI (Decision Engine)</span>
         </div>
 
@@ -276,12 +276,12 @@ export function InsightAnalyticsPage() {
           {recommendations.map((rec) => (
             <div
               key={rec.id}
-              className="rounded-2xl border border-border bg-card p-5 shadow-soft flex flex-col justify-between space-y-3"
+              className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col justify-between space-y-3"
             >
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span
-                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${
+                    className={`rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wider ${
                       rec.priority === "high"
                         ? "bg-destructive/10 text-destructive"
                         : rec.priority === "medium"
@@ -291,7 +291,7 @@ export function InsightAnalyticsPage() {
                   >
                     Prioritas {rec.priority}
                   </span>
-                  <span className="text-[10px] font-bold text-muted-foreground capitalize">
+                  <span className="text-xs font-bold text-muted-foreground capitalize">
                     {rec.type}
                   </span>
                 </div>
@@ -299,8 +299,8 @@ export function InsightAnalyticsPage() {
                 <p className="text-xs leading-5 text-muted-foreground">{rec.description}</p>
               </div>
 
-              <div className="pt-2 border-t border-border flex items-center justify-between">
-                <span className="text-[10px] font-bold text-emerald-600 truncate max-w-[180px]">
+              <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
+                <span className="text-xs font-bold text-emerald-600">
                   💡 {rec.impact}
                 </span>
                 {rec.actionLabel && rec.actionHref && (

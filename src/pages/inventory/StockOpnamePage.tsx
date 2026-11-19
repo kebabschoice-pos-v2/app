@@ -253,7 +253,7 @@ export function StockOpnamePage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">No. Opname</th>
                   <th className="py-2.5 px-3 font-bold">Tanggal</th>
@@ -414,7 +414,7 @@ export function StockOpnamePage() {
 
               <div className="rounded-2xl border border-border overflow-x-auto">
                 <table className="w-full min-w-[600px] text-left text-xs">
-                  <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
+                  <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-xs">
                     <tr>
                       <th className="py-2.5 px-3">Nama Bahan</th>
                       <th className="py-2.5 px-3 text-right">Stok Sistem</th>
@@ -449,7 +449,7 @@ export function StockOpnamePage() {
                                 placeholder="0"
                                 className="h-8 w-24 text-right rounded-xl font-black text-xs"
                               />
-                              <span className="text-[10px] text-muted-foreground">{item.unit}</span>
+                              <span className="text-xs text-muted-foreground">{item.unit}</span>
                             </div>
                           </td>
                           <td className="py-2.5 px-3 text-right font-black">
@@ -536,7 +536,7 @@ export function StockOpnamePage() {
 
             <div className="flex-1 overflow-y-auto space-y-3">
               <table className="w-full text-left text-xs">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
+                <thead className="bg-muted/40 border-b border-border text-muted-foreground font-bold uppercase text-xs">
                   <tr>
                     <th className="py-2 px-3">Bahan Baku</th>
                     <th className="py-2 px-3 text-right">Stok Sistem</th>

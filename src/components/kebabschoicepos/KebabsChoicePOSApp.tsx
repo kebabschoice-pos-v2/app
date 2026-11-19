@@ -1067,14 +1067,14 @@ function StatCard({
 }) {
   return (
     <motion.div
-      whileHover={{ y: -4 }}
+      whileHover={{ y: -2 }}
       transition={{ duration: 0.2 }}
-      className="rounded-[1.5rem] border border-border bg-card/82 p-4 xl:p-5 shadow-soft backdrop-blur-2xl overflow-hidden"
+      className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden"
     >
       <div className="flex items-start justify-between gap-2 min-w-0">
         <div className="min-w-0 flex-1">
           <p className="text-xs xl:text-sm font-medium text-muted-foreground leading-snug">{label}</p>
-          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap">
+          <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
             {value}
           </p>
         </div>
@@ -1082,17 +1082,17 @@ function StatCard({
           className={cn(
             "flex w-8 h-8 shrink-0 items-center justify-center rounded-xl",
             tone === "success"
-              ? "bg-success-soft text-success-foreground"
+              ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
               : tone === "ai"
-                ? "bg-ai-soft text-ai"
-                : "bg-primary-soft text-primary",
+                ? "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                : "bg-primary/10 text-primary",
           )}
         >
           <Icon className="size-4" />
         </div>
       </div>
-      <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-success-foreground">
-        <TrendingUp className="size-3.5 shrink-0" />
+      <div className="mt-4 flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+        <TrendingUp className="size-3.5 shrink-0 text-primary" />
         <span>{trend}</span>
       </div>
     </motion.div>
@@ -1582,18 +1582,16 @@ function Sidebar({
     }
   }, [active]);
 
-  // --- HQ ACCORDION STATES ---
+  // --- HQ ACCORDION STATES (Redesign B: 5 Grup Ringkas Bergaya TOMORO) ---
   const isReportActive = [
-    "dashboard",
     "analytics",
     "business-summary",
-    "orders",
     "performance-outlet",
     "performance-menu",
     "insight-analytics",
-    "money-allocation",
   ].includes(active);
-  const isStockActive = [
+  const isProductStockActive = [
+    "menu",
     "inventory",
     "stock-opname",
     "waste",
@@ -1601,22 +1599,15 @@ function Sidebar({
     "purchase-orders",
     "stock-transfer",
   ].includes(active);
-  const isBusinessActive = [
-    "menu",
-    "outlets",
-    "outlet",
-    "staff",
+  const isBranchTeamActive = ["outlets", "outlet", "staff", "customers"].includes(active);
+  const isSettingsActive = [
     "business",
     "business-profile",
-  ].includes(active);
-  const isSettingsActive = [
     "receipt-settings",
     "printer-settings",
     "tax",
     "payment",
     "integration",
-  ].includes(active);
-  const isAccountActive = [
     "profile",
     "security",
     "change-password",
@@ -1625,28 +1616,24 @@ function Sidebar({
     "language-settings",
   ].includes(active);
 
-  const [reportOpen, setReportOpen] = useState(isReportActive || active === "dashboard");
-  const [stockOpen, setStockOpen] = useState(isStockActive);
-  const [businessOpen, setBusinessOpen] = useState(isBusinessActive);
+  const [reportOpen, setReportOpen] = useState(isReportActive);
+  const [productStockOpen, setProductStockOpen] = useState(isProductStockActive);
+  const [branchTeamOpen, setBranchTeamOpen] = useState(isBranchTeamActive);
+  // Pengaturan tertutup default agar sidebar HQ pendek & lega
   const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);
-  const [accountOpen, setAccountOpen] = useState(isAccountActive);
 
-  // Auto-expand triggers for HQ
   useEffect(() => {
     if (isReportActive) setReportOpen(true);
   }, [isReportActive]);
   useEffect(() => {
-    if (isStockActive) setStockOpen(true);
-  }, [isStockActive]);
+    if (isProductStockActive) setProductStockOpen(true);
+  }, [isProductStockActive]);
   useEffect(() => {
-    if (isBusinessActive) setBusinessOpen(true);
-  }, [isBusinessActive]);
+    if (isBranchTeamActive) setBranchTeamOpen(true);
+  }, [isBranchTeamActive]);
   useEffect(() => {
     if (isSettingsActive) setSettingsOpen(true);
   }, [isSettingsActive]);
-  useEffect(() => {
-    if (isAccountActive) setAccountOpen(true);
-  }, [isAccountActive]);
 
   const [liveMgrPerms, setLiveMgrPerms] = useState<ManagerPermissions>(() =>
     getCachedManagerPermissions(),
@@ -1691,12 +1678,6 @@ function Sidebar({
     if (liveMgrPerms.can_manage_staff_shift) allowed.push("staff_schedule", "payroll");
     return allowed;
   }, [isManager, liveMgrPerms]);
-
-  const reportItems = navItems.filter((item) => item.group === "report");
-  const stockItems = navItems.filter((item) => item.group === "stock");
-  const businessItems = navItems.filter((item) => item.group === "business");
-  const settingsItems = navItems.filter((item) => item.group === "settings");
-  const accountItems = navItems.filter((item) => item.group === "account");
 
   // ==================================================
   // POS MODE: TOMORO-Style Slim 1-Click Icon Rail (w-20)
@@ -1819,20 +1800,48 @@ function Sidebar({
     );
   }
 
+  // Helper styling konsisten (1 warna aksen aktif gaya TOMORO, tanpa warna-warni pelangi)
+  const hqLinkClass = (selected: boolean) =>
+    cn(
+      "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
+      selected
+        ? "bg-primary text-primary-foreground font-bold shadow-brand"
+        : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+    );
+
+  const hqCompactPillClass = (selected: boolean) =>
+    cn(
+      "flex items-center justify-center gap-1.5 rounded-xl border px-2 py-1.5 text-xs font-semibold transition-all whitespace-nowrap",
+      selected
+        ? "bg-primary text-primary-foreground border-primary font-bold shadow-xs"
+        : "bg-background/80 border-border/70 text-muted-foreground hover:bg-secondary hover:text-foreground",
+    );
+
+  const canSeeReports = !isManager || managerPermissions.includes("reports");
+  const canSeeMoneyAllocation = !isManager || managerPermissions.includes("money-allocation");
+  const canSeeMenu = !isManager || managerPermissions.includes("menu");
+  const canSeeInventory = !isManager || managerPermissions.includes("inventory");
+  const canSeeOutlets = !isManager || managerPermissions.includes("outlets");
+  const canSeeStaff =
+    !isManager ||
+    managerPermissions.includes("staff_schedule") ||
+    managerPermissions.includes("payroll");
+
   return (
     <aside
+      aria-label="Navigasi Utama HQ"
       className={cn(
-        "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0 border-r border-border bg-background/72 backdrop-blur-xl transition-all duration-300 ease-in-out lg:block overflow-y-auto no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
+        "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0 border-r border-border bg-card/80 backdrop-blur-xl transition-all duration-300 ease-in-out lg:block overflow-y-auto no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
         isCollapsed
           ? "w-0 p-0 border-r-0 opacity-0 overflow-hidden pointer-events-none lg:w-0"
-          : "w-72 p-4 opacity-100",
+          : "w-64 p-3.5 opacity-100",
       )}
     >
       {/* Top Header inside Sidebar with Close/Collapse button */}
       {!isCollapsed && onToggleCollapse && (
         <div className="mb-3 flex items-center justify-between pb-2 border-b border-border/60">
-          <span className="text-[10px] font-black uppercase tracking-wider text-muted-foreground">
-            Menu Utama HQ
+          <span className="text-xs font-black uppercase tracking-wider text-muted-foreground">
+            HQ Workspace
           </span>
           <Button
             variant="ghost"
@@ -1846,232 +1855,295 @@ function Sidebar({
           </Button>
         </div>
       )}
-      <nav className="space-y-6 pb-6 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
-          {/* HQ SYSTEM (Owner / Admin / Manager) */}
-          <>
-            {/* GROUP 1: RINGKASAN & LAPORAN */}
-            {(() => {
-              const allowedReportItems = reportItems.filter((item) => {
-                if (!isManager) return true;
-                if (item.key === "money-allocation") {
-                  return managerPermissions.includes("money-allocation");
-                }
-                return managerPermissions.includes("reports");
-              });
-              if (isManager && allowedReportItems.length === 0) return null;
 
-              return (
-                <AccordionGroup
-                  title={t("nav.reports", "Ringkasan & Laporan")}
-                  icon={BarChart3}
-                  isOpen={reportOpen}
-                  isActive={isReportActive}
-                  onToggle={() => setReportOpen((prev) => !prev)}
-                >
-                  {allowedReportItems.map((item) => {
-                    const Icon = item.icon;
-                    const selected =
-                      item.key === active ||
-                      (item.href === "/dashboard" && active === "dashboard") ||
-                      (item.href === "/analytics" &&
-                        (active === "analytics" || active === "business-summary")) ||
-                      (item.href === "/orders" && active === "orders") ||
-                      (item.href === "/performance-outlet" && active === "performance-outlet") ||
-                      (item.href === "/performance-menu" && active === "performance-menu") ||
-                      (item.href === "/insight-analytics" && active === "insight-analytics") ||
-                      (item.href === "/money-allocation" && active === "money-allocation");
-
-                    return (
-                      <Link
-                        key={item.key}
-                        to={item.href}
-                        className={cn(
-                          "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
-                          selected
-                            ? "bg-primary text-primary-foreground font-bold shadow-brand"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                        )}
-                      >
-                        <Icon className="size-3.5 shrink-0" />
-                        <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
-                      </Link>
-                    );
-                  })}
-                </AccordionGroup>
-              );
-            })()}
-
-            {/* GROUP 2: STOK & PENGADAAN */}
-            {(!isManager || managerPermissions.includes("inventory")) && (
-              <AccordionGroup
-                title={t("nav.stock_procurement", "Stok & Pengadaan")}
-                icon={Boxes}
-                isOpen={stockOpen}
-                isActive={isStockActive}
-                onToggle={() => setStockOpen((prev) => !prev)}
-              >
-                {stockItems.map((item) => {
-                  const Icon = item.icon;
-                  const selected = item.key === active;
-                  return (
-                    <Link
-                      key={item.key}
-                      to={item.href}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
-                        selected
-                          ? "bg-primary text-primary-foreground font-bold shadow-brand"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                      )}
-                    >
-                      <Icon className="size-3.5 shrink-0" />
-                      <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
-                    </Link>
-                  );
-                })}
-              </AccordionGroup>
+      <nav className="space-y-4 pb-6 no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]">
+        {/* 1. UTAMA (1-Klik Langsung, Tanpa Lipat) */}
+        {(canSeeReports || canSeeMoneyAllocation) && (
+          <div className="space-y-1">
+            <p className="px-3 pb-1 text-xs font-bold uppercase tracking-wider text-muted-foreground/80">
+              Utama
+            </p>
+            {canSeeReports && (
+              <Link to="/dashboard" className={hqLinkClass(active === "dashboard")}>
+                <Home className="size-4 shrink-0" />
+                <span>Dashboard</span>
+              </Link>
             )}
-
-            {/* GROUP 3: MANAJEMEN BISNIS */}
-            {(() => {
-              const allowedBusinessItems = businessItems.filter((item) => {
-                if (!isManager) return true;
-                if (item.key === "business-profile" || item.key === "business") return false;
-                if (item.key === "menu") return managerPermissions.includes("menu");
-                if (item.key === "staff") {
-                  return (
-                    managerPermissions.includes("staff_schedule") ||
-                    managerPermissions.includes("payroll")
-                  );
-                }
-                if (item.key === "outlets" || item.key === "outlet") {
-                  return managerPermissions.includes("outlets");
-                }
-                return true;
-              });
-
-              if (isManager && allowedBusinessItems.length === 0) return null;
-
-              return (
-                <AccordionGroup
-                  title={t("nav.business_management", "Manajemen Bisnis")}
-                  icon={Building2}
-                  isOpen={businessOpen}
-                  isActive={isBusinessActive}
-                  onToggle={() => setBusinessOpen((prev) => !prev)}
-                >
-                  {allowedBusinessItems.map((item) => {
-                    const Icon = item.icon;
-                    const selected =
-                      item.key === active ||
-                      (item.key === "menu" && active === "menu") ||
-                      (item.key === "outlets" && (active === "outlets" || active === "outlet")) ||
-                      (item.key === "business-profile" &&
-                        (active === "business-profile" || active === "business"));
-                    return (
-                      <Link
-                        key={item.key}
-                        to={item.href}
-                        className={cn(
-                          "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
-                          selected
-                            ? "bg-primary text-primary-foreground font-bold shadow-brand"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                        )}
-                      >
-                        <Icon className="size-3.5 shrink-0" />
-                        <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
-                      </Link>
-                    );
-                  })}
-                </AccordionGroup>
-              );
-            })()}
-
-            {/* GROUP 4: PENGATURAN */}
-            {(!isManager || managerPermissions.includes("settings")) && (
-              <AccordionGroup
-                title={t("nav.settings", "Pengaturan")}
-                icon={SlidersHorizontal}
-                isOpen={settingsOpen}
-                isActive={isSettingsActive}
-                onToggle={() => setSettingsOpen((prev) => !prev)}
-              >
-                {settingsItems.map((item) => {
-                  const Icon = item.icon;
-                  const selected = item.key === active;
-                  return (
-                    <Link
-                      key={item.key}
-                      to={item.href}
-                      className={cn(
-                        "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
-                        selected
-                          ? "bg-primary text-primary-foreground font-bold shadow-brand"
-                          : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                      )}
-                    >
-                      <Icon className="size-3.5 shrink-0" />
-                      <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
-                    </Link>
-                  );
-                })}
-                <button
-                  type="button"
-                  onClick={onOpenThemeModal}
-                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold text-muted-foreground transition-all hover:bg-secondary hover:text-foreground whitespace-nowrap cursor-pointer text-left"
-                >
-                  <Palette className="size-3.5 shrink-0 text-primary" />
-                  <span className="truncate">{t("nav.theme", "Tema / Custom Theme")}</span>
-                </button>
-              </AccordionGroup>
+            {canSeeReports && (
+              <Link to="/orders" className={hqLinkClass(active === "orders")}>
+                <ReceiptText className="size-4 shrink-0" />
+                <span>Penjualan</span>
+              </Link>
             )}
+            {canSeeMoneyAllocation && (
+              <Link to="/money-allocation" className={hqLinkClass(active === "money-allocation")}>
+                <WalletCards className="size-4 shrink-0" />
+                <span>Alokasi &amp; Celengan</span>
+              </Link>
+            )}
+          </div>
+        )}
 
-            {/* GROUP 5: AKUN */}
-            <AccordionGroup
-              title={t("nav.account", "Akun")}
-              icon={UserRound}
-              isOpen={accountOpen}
-              isActive={isAccountActive}
-              onToggle={() => setAccountOpen((prev) => !prev)}
+        {/* 2. LAPORAN (1 Grup Lipat Bersih — tanpa duplikat /analytics) */}
+        {canSeeReports && (
+          <AccordionGroup
+            title="Laporan"
+            icon={BarChart3}
+            isOpen={reportOpen}
+            isActive={isReportActive}
+            onToggle={() => setReportOpen((prev) => !prev)}
+          >
+            <Link
+              to="/insight-analytics"
+              className={hqLinkClass(
+                active === "insight-analytics" ||
+                  active === "analytics" ||
+                  active === "business-summary",
+              )}
             >
-              {accountItems.map((item) => {
-                const Icon = item.icon;
-                const selected =
-                  item.key === active ||
-                  (item.key === "language" && active === "language-settings");
-                return (
-                  <Link
-                    key={item.key}
-                    to={item.href}
-                    className={cn(
-                      "flex items-center gap-2.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all whitespace-nowrap",
-                      selected
-                        ? "bg-primary text-primary-foreground font-bold shadow-brand"
-                        : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                    )}
-                  >
-                    <Icon className="size-3.5 shrink-0" />
-                    <span className="truncate">{getNavLabel(item.key, item.label, t)}</span>
-                  </Link>
-                );
-              })}
-            </AccordionGroup>
-          </>
-      </nav>
+              <TrendingUp className="size-3.5 shrink-0" />
+              <span>Ringkasan &amp; Insight</span>
+            </Link>
+            <Link
+              to="/performance-outlet"
+              className={hqLinkClass(active === "performance-outlet")}
+            >
+              <Store className="size-3.5 shrink-0" />
+              <span>Performa Outlet</span>
+            </Link>
+            <Link to="/performance-menu" className={hqLinkClass(active === "performance-menu")}>
+              <UtensilsCrossed className="size-3.5 shrink-0" />
+              <span>Performa Menu</span>
+            </Link>
+          </AccordionGroup>
+        )}
 
-      <div className="rounded-[1.5rem] border border-border bg-card/76 p-4 shadow-soft">
-        <div className="mb-2 flex items-center gap-2 text-sm font-bold">
-          <RadioTower className="size-4 text-primary" />
-          {t("header.status_online", "Live Engine")}
-        </div>
-        <p className="text-xs leading-5 text-muted-foreground">
-          {t(
-            "dashboard.integrated_desc",
-            "Sinkronisasi transaksi, stok resep, dan pengadaan berjalan real-time.",
+        {/* 3. PRODUK & STOK (1 Grup Lipat Bersih) */}
+        {(canSeeMenu || canSeeInventory) && (
+          <AccordionGroup
+            title="Produk & Stok"
+            icon={Boxes}
+            isOpen={productStockOpen}
+            isActive={isProductStockActive}
+            onToggle={() => setProductStockOpen((prev) => !prev)}
+          >
+            {canSeeMenu && (
+              <Link to="/menu" className={hqLinkClass(active === "menu")}>
+                <UtensilsCrossed className="size-3.5 shrink-0" />
+                <span>Kelola Menu</span>
+              </Link>
+            )}
+            {canSeeInventory && (
+              <>
+                <Link to="/inventory" className={hqLinkClass(active === "inventory")}>
+                  <Boxes className="size-3.5 shrink-0" />
+                  <span>Stok &amp; Bahan</span>
+                </Link>
+
+                {/* Transfer & PO (1 baris 2 tombol cepat) */}
+                <div className="pt-1 space-y-1">
+                  <span className="px-2 text-xs font-semibold text-muted-foreground/80">
+                    Transfer &amp; PO
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Link
+                      to="/purchase-orders"
+                      className={hqCompactPillClass(active === "purchase-orders")}
+                      title="Purchase Order"
+                    >
+                      <FileText className="size-3 shrink-0" />
+                      <span>PO</span>
+                    </Link>
+                    <Link
+                      to="/stock-transfer"
+                      className={hqCompactPillClass(active === "stock-transfer")}
+                      title="Transfer Stok Antar Cabang"
+                    >
+                      <ArrowLeftRight className="size-3 shrink-0" />
+                      <span>Transfer</span>
+                    </Link>
+                  </div>
+                </div>
+
+                {/* Opname & Waste (1 baris 2 tombol cepat) */}
+                <div className="pt-0.5 space-y-1">
+                  <span className="px-2 text-xs font-semibold text-muted-foreground/80">
+                    Opname &amp; Waste
+                  </span>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <Link
+                      to="/stock-opname"
+                      className={hqCompactPillClass(active === "stock-opname")}
+                      title="Stock Opname"
+                    >
+                      <ClipboardList className="size-3 shrink-0" />
+                      <span>Opname</span>
+                    </Link>
+                    <Link
+                      to="/waste"
+                      className={hqCompactPillClass(active === "waste")}
+                      title="Barang Terbuang (Waste)"
+                    >
+                      <Trash2 className="size-3 shrink-0" />
+                      <span>Waste</span>
+                    </Link>
+                  </div>
+                </div>
+
+                <Link to="/suppliers" className={hqLinkClass(active === "suppliers")}>
+                  <Truck className="size-3.5 shrink-0" />
+                  <span>Supplier</span>
+                </Link>
+              </>
+            )}
+          </AccordionGroup>
+        )}
+
+        {/* 4. CABANG & TIM (1 Grup Lipat Bersih) */}
+        {(canSeeOutlets || canSeeStaff || canSeeReports) && (
+          <AccordionGroup
+            title="Cabang & Tim"
+            icon={Building2}
+            isOpen={branchTeamOpen}
+            isActive={isBranchTeamActive}
+            onToggle={() => setBranchTeamOpen((prev) => !prev)}
+          >
+            {canSeeOutlets && (
+              <Link
+                to="/outlets"
+                className={hqLinkClass(active === "outlets" || active === "outlet")}
+              >
+                <Store className="size-3.5 shrink-0" />
+                <span>Outlet Cabang</span>
+              </Link>
+            )}
+            {canSeeStaff && (
+              <Link to="/staff" className={hqLinkClass(active === "staff")}>
+                <UserCog className="size-3.5 shrink-0" />
+                <span>Karyawan &amp; HR</span>
+              </Link>
+            )}
+            {canSeeReports && (
+              <Link to="/customers" className={hqLinkClass(active === "customers")}>
+                <UsersRound className="size-3.5 shrink-0" />
+                <span>Pelanggan CRM</span>
+              </Link>
+            )}
+          </AccordionGroup>
+        )}
+
+        {/* 5. PENGATURAN (Tertutup Default Agar Sidebar Pendek & Lega) */}
+        <AccordionGroup
+          title="Pengaturan"
+          icon={SlidersHorizontal}
+          isOpen={settingsOpen}
+          isActive={isSettingsActive}
+          onToggle={() => setSettingsOpen((prev) => !prev)}
+        >
+          {!isManager && (
+            <>
+              <Link
+                to="/business-profile"
+                className={hqLinkClass(active === "business-profile" || active === "business")}
+              >
+                <Building2 className="size-3.5 shrink-0" />
+                <span>Profil Bisnis</span>
+              </Link>
+
+              {/* Struk & Printer */}
+              <div className="pt-0.5 space-y-1">
+                <span className="px-2 text-xs font-semibold text-muted-foreground/80">
+                  Struk &amp; Printer
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Link
+                    to="/receipt-settings"
+                    className={hqCompactPillClass(active === "receipt-settings")}
+                  >
+                    <Receipt className="size-3 shrink-0" />
+                    <span>Struk</span>
+                  </Link>
+                  <Link
+                    to="/printer-settings"
+                    className={hqCompactPillClass(active === "printer-settings")}
+                  >
+                    <Printer className="size-3 shrink-0" />
+                    <span>Printer</span>
+                  </Link>
+                </div>
+              </div>
+
+              {/* Pajak & Pembayaran */}
+              <div className="pt-0.5 space-y-1">
+                <span className="px-2 text-xs font-semibold text-muted-foreground/80">
+                  Pajak &amp; Pembayaran
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <Link to="/tax" className={hqCompactPillClass(active === "tax")}>
+                    <Percent className="size-3 shrink-0" />
+                    <span>Pajak</span>
+                  </Link>
+                  <Link to="/payment" className={hqCompactPillClass(active === "payment")}>
+                    <CreditCard className="size-3 shrink-0" />
+                    <span>Bayar</span>
+                  </Link>
+                </div>
+              </div>
+
+              <Link to="/integration" className={hqLinkClass(active === "integration")}>
+                <Puzzle className="size-3.5 shrink-0" />
+                <span>Integrasi</span>
+              </Link>
+            </>
           )}
-        </p>
-      </div>
+
+          {/* Keamanan & Akun */}
+          <div className="pt-0.5 space-y-1">
+            <span className="px-2 text-xs font-semibold text-muted-foreground/80">
+              Keamanan &amp; Akun
+            </span>
+            <div className={cn("grid gap-1.5", !isManager ? "grid-cols-2" : "grid-cols-1")}>
+              {!isManager && (
+                <Link to="/security" className={hqCompactPillClass(active === "security")}>
+                  <ShieldCheck className="size-3 shrink-0" />
+                  <span>Keamanan</span>
+                </Link>
+              )}
+              <Link
+                to="/profile"
+                className={hqCompactPillClass(
+                  active === "profile" ||
+                    active === "change-password" ||
+                    active === "login-activity",
+                )}
+              >
+                <UserRound className="size-3 shrink-0" />
+                <span>Akun</span>
+              </Link>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1.5 pt-1">
+            <Link
+              to="/language-settings"
+              className={hqCompactPillClass(
+                active === "language-settings" || active === "language",
+              )}
+            >
+              <Globe2 className="size-3 shrink-0" />
+              <span>Bahasa</span>
+            </Link>
+            <button
+              type="button"
+              onClick={onOpenThemeModal}
+              className={cn(hqCompactPillClass(false), "cursor-pointer")}
+            >
+              <Palette className="size-3 shrink-0" />
+              <span>Tema</span>
+            </button>
+          </div>
+        </AccordionGroup>
+      </nav>
     </aside>
   );
 }
@@ -2110,9 +2182,14 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
       ]
     : [
         { key: "dashboard" as NavKey, label: "Dashboard", href: "/dashboard", icon: Home },
-        { key: "orders" as NavKey, label: "Order", href: "/orders", icon: ReceiptText },
+        { key: "orders" as NavKey, label: "Penjualan", href: "/orders", icon: ReceiptText },
         { key: "inventory" as NavKey, label: "Stok", href: "/inventory", icon: Boxes },
-        { key: "analytics" as NavKey, label: "Analitik", href: "/analytics", icon: BarChart3 },
+        {
+          key: "insight-analytics" as NavKey,
+          label: "Laporan",
+          href: "/insight-analytics",
+          icon: BarChart3,
+        },
         { key: "profile" as NavKey, label: "Profil", href: "/profile", icon: UserRound },
       ];
 
@@ -2120,7 +2197,8 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
     <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-[1.75rem] border border-border bg-card/90 p-2 shadow-float backdrop-blur-2xl lg:hidden">
       {items.map((item) => {
         const Icon = item.icon;
-        const selected = item.key === active;
+        const selected =
+          item.key === active || (item.key === "insight-analytics" && active === "analytics");
         return (
           <Link
             key={item.key}
@@ -2283,10 +2361,12 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                 )}
               </p>
             </div>
-            <Button variant="hero" className="h-12 rounded-2xl">
-              {t("dashboard.view_performance", "Lihat Performa")}
-              <ArrowRight className="size-4" />
-            </Button>
+            <Link to="/insight-analytics" className="shrink-0">
+              <Button variant="hero" className="h-12 rounded-2xl cursor-pointer">
+                {t("dashboard.view_performance", "Lihat Performa")}
+                <ArrowRight className="size-4" />
+              </Button>
+            </Link>
           </div>
         </motion.div>
         <div className="rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
@@ -2362,7 +2442,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                 </p>
               </div>
             </div>
-            <span className="rounded-full bg-muted px-2.5 py-1 text-[11px] font-bold text-muted-foreground">
+            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-bold text-muted-foreground whitespace-nowrap">
               {metrics.outletPerformances.length || (snapshot.outlets || []).length || 0} Cabang
             </span>
           </div>
@@ -2371,7 +2451,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
             <div className="rounded-2xl border border-dashed border-border/80 bg-background/50 p-6 text-center text-xs text-muted-foreground">
               <Store className="mx-auto size-7 opacity-40 mb-1.5" />
               <p className="font-bold">Belum ada transaksi outlet</p>
-              <p className="text-[11px] mt-0.5">Omzet: Rp 0 · Transaksi: 0</p>
+              <p className="text-xs mt-0.5">Omzet: Rp 0 · Transaksi: 0</p>
             </div>
           ) : (
             <div className="space-y-2.5">
@@ -2390,17 +2470,17 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                         {pIdx + 1}
                       </span>
                       <div className="min-w-0">
-                        <p className="text-xs font-bold truncate">{perf.name}</p>
-                        <p className="text-[11px] text-muted-foreground">
+                        <p className="text-xs font-bold text-foreground">{perf.name}</p>
+                        <p className="text-xs text-muted-foreground">
                           {perf.orders || 0} transaksi · {outletPct}% omzet
                         </p>
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs font-black text-primary">
+                      <p className="text-xs font-black text-primary whitespace-nowrap">
                         {formatRupiah(perf.revenue || 0)}
                       </p>
-                      <span className="text-[10px] font-semibold text-emerald-600 dark:text-emerald-400">
+                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
                         Aktif
                       </span>
                     </div>
@@ -2412,10 +2492,10 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         </div>
 
         {/* 2. Produk Terlaris */}
-        <div className="rounded-[1.75rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl">
+        <div className="rounded-[1.75rem] border border-border bg-card/90 p-5 shadow-soft backdrop-blur-2xl">
           <div className="mb-4 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
-              <div className="flex size-9 items-center justify-center rounded-xl bg-orange-500/10 text-orange-600 dark:text-orange-400">
+              <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
                 <UtensilsCrossed className="size-5" />
               </div>
               <div>
@@ -2427,7 +2507,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                 </p>
               </div>
             </div>
-            <span className="rounded-full bg-orange-500/10 px-2.5 py-1 text-[11px] font-bold text-orange-600 dark:text-orange-400">
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-bold text-primary">
               Top 5
             </span>
           </div>
@@ -2436,7 +2516,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
             <div className="rounded-2xl border border-dashed border-border/80 bg-background/50 p-6 text-center text-xs text-muted-foreground">
               <UtensilsCrossed className="mx-auto size-7 opacity-40 mb-1.5" />
               <p className="font-bold">Belum ada menu terjual</p>
-              <p className="text-[11px] mt-0.5">Penjualan: 0 porsi · Revenue: Rp 0</p>
+              <p className="text-xs mt-0.5">Penjualan: 0 porsi · Revenue: Rp 0</p>
             </div>
           ) : (
             <div className="space-y-2.5">
@@ -2446,21 +2526,21 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                   className="flex items-center justify-between gap-3 rounded-2xl bg-secondary/50 p-3 hover:bg-secondary/80 transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <span className="flex size-7 items-center justify-center rounded-lg bg-orange-500/10 text-xs font-black text-orange-600 dark:text-orange-400 shrink-0">
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-primary/10 text-xs font-black text-primary shrink-0">
                       #{prIdx + 1}
                     </span>
                     <div className="min-w-0">
-                      <p className="text-xs font-bold truncate">{prod.name}</p>
-                      <p className="text-[11px] text-muted-foreground">
+                      <p className="text-xs font-bold text-foreground">{prod.name}</p>
+                      <p className="text-xs text-muted-foreground">
                         {prod.category} · {formatRupiah(prod.price || 0)}
                       </p>
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xs font-black text-foreground">
+                    <p className="text-xs font-black text-foreground whitespace-nowrap">
                       {prod.soldCount || 0} porsi terjual
                     </p>
-                    <p className="text-[11px] font-semibold text-primary">
+                    <p className="text-xs font-semibold text-primary whitespace-nowrap">
                       {formatRupiah(prod.revenue || 0)}
                     </p>
                   </div>
@@ -2535,10 +2615,10 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
           return (
             <div
               key={insight.id}
-              className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft backdrop-blur-2xl"
+              className="rounded-2xl border border-border bg-card p-5 shadow-xs"
             >
               <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex size-10 items-center justify-center rounded-2xl bg-ai-soft text-ai">
+                <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Icon className="size-5" />
                 </div>
                 <span className="text-xs font-black text-primary">{insight.confidence}%</span>
@@ -8617,7 +8697,7 @@ function OrdersPage({
           <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
             <Store className="size-4 text-primary shrink-0" />
             <div className="text-xs">
-              <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+              <span className="block text-xs font-bold text-muted-foreground uppercase">
                 {t("orders.filter_outlet", "Filter Outlet")}
               </span>
               {isOwner ? (
@@ -8642,7 +8722,7 @@ function OrdersPage({
                     {snapshot.outlets?.find((o) => o.id === selectedOutletFilter)?.name ||
                       "Outlet Kasir"}
                   </span>
-                  <span className="text-[10px] text-muted-foreground flex items-center gap-0.5 font-normal">
+                  <span className="text-xs text-muted-foreground flex items-center gap-0.5 font-normal">
                     <Lock className="size-2.5" /> Terkunci
                   </span>
                 </div>
@@ -8934,7 +9014,7 @@ function OrdersPage({
             {/* Metadata Info Grid */}
             <div className="mt-4 grid grid-cols-2 gap-3 text-xs bg-secondary/50 rounded-2xl p-4 border border-border/60">
               <div>
-                <span className="text-muted-foreground block text-[10px] font-bold uppercase">
+                <span className="text-muted-foreground block text-xs font-bold uppercase">
                   Tanggal & Waktu
                 </span>
                 <span className="font-semibold text-foreground">
@@ -8944,7 +9024,7 @@ function OrdersPage({
                 </span>
               </div>
               <div>
-                <span className="text-muted-foreground block text-[10px] font-bold uppercase">
+                <span className="text-muted-foreground block text-xs font-bold uppercase">
                   Outlet Cabang
                 </span>
                 <span className="font-semibold text-foreground">
@@ -8952,7 +9032,7 @@ function OrdersPage({
                 </span>
               </div>
               <div>
-                <span className="text-muted-foreground block text-[10px] font-bold uppercase">
+                <span className="text-muted-foreground block text-xs font-bold uppercase">
                   Kasir / Operator
                 </span>
                 <span className="font-semibold text-foreground">
@@ -8960,7 +9040,7 @@ function OrdersPage({
                 </span>
               </div>
               <div>
-                <span className="text-muted-foreground block text-[10px] font-bold uppercase">
+                <span className="text-muted-foreground block text-xs font-bold uppercase">
                   Pelanggan
                 </span>
                 <span className="font-semibold text-foreground">

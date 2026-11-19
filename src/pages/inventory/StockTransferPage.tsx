@@ -374,7 +374,7 @@ export function StockTransferPage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-[10px] sm:text-xs tracking-wider">
+              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">No. Transfer</th>
                   <th className="py-2.5 px-3 font-bold">Outlet Asal</th>
@@ -422,7 +422,7 @@ export function StockTransferPage() {
                         {t.items && t.items.length > 0 ? (
                           <div>
                             <span className="font-black text-foreground">{t.items.length} item</span>
-                            <span className="block text-[10px] text-muted-foreground font-normal max-w-[150px] truncate mx-auto">
+                            <span className="block text-xs text-muted-foreground font-normal max-w-[150px] truncate mx-auto">
                               {t.items.map((it) => `${it.quantity} ${it.unit || ""} ${it.item_name}`).join(", ")}
                             </span>
                           </div>
@@ -618,7 +618,7 @@ export function StockTransferPage() {
 
                 <div className="rounded-2xl border border-border overflow-x-auto">
                   <table className="w-full min-w-[480px] text-left text-xs">
-                    <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
+                    <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-xs">
                       <tr>
                         <th className="py-2.5 px-3">Bahan Baku</th>
                         <th className="py-2.5 px-3 w-32 text-right">Kuantitas</th>
@@ -745,7 +745,7 @@ export function StockTransferPage() {
 
             <div className="flex-1 overflow-y-auto space-y-3">
               <table className="w-full text-left text-xs">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground font-bold uppercase text-[10px]">
+                <thead className="bg-muted/40 border-b border-border text-muted-foreground font-bold uppercase text-xs">
                   <tr>
                     <th className="py-2 px-3">Bahan Baku</th>
                     <th className="py-2 px-3 text-right">Kuantitas</th>

@@ -910,7 +910,7 @@ export function OutletManagement({
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleOpenOutletLogin(outlet)}
-                                className="h-6 text-[10px] font-bold text-primary hover:bg-primary/10 px-2 rounded-lg"
+                                className="h-6 text-xs font-bold text-primary hover:bg-primary/10 px-2 rounded-lg"
                               >
                                 Kelola Akun Outlet
                               </Button>
@@ -924,14 +924,14 @@ export function OutletManagement({
                                   <span className="size-1.5 rounded-full bg-amber-500 animate-ping shrink-0" />
                                   <span>🟡 Menunggu Konfirmasi Gmail Owner</span>
                                 </div>
-                                <p className="font-mono text-[10px] text-muted-foreground truncate">
+                                <p className="font-mono text-xs text-muted-foreground truncate">
                                   {(outlet.settings as any).outlet_login_email}
                                 </p>
                                 <a
                                   href="https://mail.google.com"
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-300 underline hover:text-amber-800"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 underline hover:text-amber-800"
                                 >
                                   <span>📬 Buka Gmail Owner Sekarang &rarr;</span>
                                 </a>
@@ -944,7 +944,7 @@ export function OutletManagement({
                                     {(outlet.settings as any).outlet_login_email}
                                   </span>
                                 </div>
-                                <span className="text-[9px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-extrabold px-1.5 py-0.5 rounded-md shrink-0">
+                                <span className="text-xs bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 font-extrabold px-1.5 py-0.5 rounded-md shrink-0">
                                   Aktif
                                 </span>
                               </div>
@@ -955,7 +955,7 @@ export function OutletManagement({
                               {!isCashier && (
                                 <button
                                   onClick={() => handleOpenOutletLogin(outlet)}
-                                  className="font-bold text-primary hover:underline text-[10px]"
+                                  className="font-bold text-primary hover:underline text-xs"
                                 >
                                   + Buat Akun
                                 </button>
@@ -971,7 +971,7 @@ export function OutletManagement({
                               <Users className="size-3.5 text-blue-500" />
                               <span>👥 Karyawan Cabang Ini ({branchEmployees.length})</span>
                             </div>
-                            <span className="text-[10px] text-muted-foreground">
+                            <span className="text-xs text-muted-foreground">
                               Otomatis dari Staff Management
                             </span>
                           </div>
@@ -990,7 +990,7 @@ export function OutletManagement({
                                 >
                                   <span className="size-1 rounded-full bg-primary" />
                                   {emp.name}
-                                  <span className="text-[9px] text-muted-foreground font-normal">
+                                  <span className="text-xs text-muted-foreground font-normal">
                                     ({emp.role === "cashier" ? "Kasir" : emp.role === "manager" ? "Manager" : emp.role})
                                   </span>
                                 </span>
@@ -1066,12 +1066,14 @@ export function OutletManagement({
             <table className="w-full text-left text-sm">
               <thead className="border-b border-border bg-muted/40 text-xs uppercase font-bold text-muted-foreground">
                 <tr>
-                  <th className="px-6 py-4">Cabang Outlet</th>
-                  <th className="px-6 py-4">🔑 Akun Login Outlet</th>
-                  <th className="px-6 py-4">👥 Karyawan Cabang</th>
-                  <th className="px-6 py-4">Alamat & Kontak</th>
-                  <th className="px-6 py-4">Status</th>
-                  <th className="px-6 py-4 text-right">Aksi</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Cabang Outlet</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">🔑 Akun Login Outlet</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">👥 Karyawan Cabang</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Alamat &amp; Kontak</th>
+                  <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                    Aksi
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
@@ -1088,14 +1090,14 @@ export function OutletManagement({
                       className="transition-colors hover:bg-muted/20"
                     >
                       {/* Name & Code */}
-                      <td className="px-6 py-4">
+                      <td className="py-2.5 px-3">
                         <div className="flex items-center gap-3">
                           <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 font-black text-primary">
                             <Store className="size-5" />
                           </div>
                           <div>
-                            <p className="font-bold text-foreground">{outlet.outlet_name}</p>
-                            <span className="inline-block rounded-md bg-muted px-1.5 py-0.5 text-[0.68rem] font-mono font-semibold text-muted-foreground mt-0.5">
+                            <p className="font-bold text-foreground whitespace-nowrap">{outlet.outlet_name}</p>
+                            <span className="inline-block rounded-md bg-muted px-1.5 py-0.5 text-xs font-mono font-semibold text-muted-foreground mt-0.5">
                               {outlet.code || "NO CODE"}
                             </span>
                           </div>
@@ -1103,7 +1105,7 @@ export function OutletManagement({
                       </td>
 
                       {/* 🔑 Akun Login Outlet */}
-                      <td className="px-6 py-4">
+                      <td className="py-2.5 px-3">
                         {loginEmail ? (
                           <div className="space-y-1">
                             <div className="flex items-center gap-1.5">
@@ -1122,12 +1124,12 @@ export function OutletManagement({
                                   href="https://mail.google.com"
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 dark:text-amber-400 hover:underline"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline"
                                 >
                                   🟡 Cek Gmail Owner &rarr;
                                 </a>
                               ) : (
-                                <span className="inline-block rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                                <span className="inline-block rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-xs font-bold text-emerald-600">
                                   Akses Kasir Aktif
                                 </span>
                               )}
@@ -1145,7 +1147,7 @@ export function OutletManagement({
                       </td>
 
                       {/* 👥 Karyawan Cabang */}
-                      <td className="px-6 py-4 max-w-xs">
+                      <td className="py-2.5 px-3 max-w-xs">
                         {branchEmployees.length === 0 ? (
                           <span className="text-xs text-muted-foreground italic">
                             Belum ada karyawan
@@ -1155,10 +1157,10 @@ export function OutletManagement({
                             {branchEmployees.map((emp, empIdx) => (
                               <span
                                 key={`table-emp-${emp.name}-${empIdx}`}
-                                className="inline-flex items-center gap-1 rounded-md bg-secondary/80 px-1.5 py-0.5 text-[10px] font-bold text-foreground border border-border/50"
+                                className="inline-flex items-center gap-1 rounded-md bg-secondary/80 px-1.5 py-0.5 text-xs font-bold text-foreground border border-border/50"
                               >
                                 {emp.name}
-                                <span className="text-[9px] text-muted-foreground">
+                                <span className="text-xs text-muted-foreground">
                                   ({emp.role === "cashier" ? "Kasir" : emp.role})
                                 </span>
                               </span>
@@ -1168,13 +1170,13 @@ export function OutletManagement({
                       </td>
 
                       {/* Address & Phone */}
-                      <td className="px-6 py-4 text-xs text-muted-foreground max-w-xs">
-                        <p className="truncate">{outlet.address || "Belum ada alamat"}</p>
+                      <td className="py-2.5 px-3 text-xs text-muted-foreground max-w-xs">
+                        <p>{outlet.address || "Belum ada alamat"}</p>
                         {outlet.phone && <p className="font-mono mt-0.5">{outlet.phone}</p>}
                       </td>
 
                       {/* Status Toggle */}
-                      <td className="px-6 py-4">
+                      <td className="py-2.5 px-3 whitespace-nowrap">
                         <button
                           disabled={isCashier}
                           onClick={() => !isCashier && handleToggleStatus(outlet)}
@@ -1201,7 +1203,7 @@ export function OutletManagement({
                       </td>
 
                       {/* Actions */}
-                      <td className="px-6 py-4 text-right">
+                      <td className="py-2.5 px-3 text-right sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
@@ -1565,7 +1567,7 @@ export function OutletManagement({
                       <Users className="size-3.5 text-primary" />
                       Daftar Staf &amp; Kasir Terdaftar ({selectedOutlet.staff_list.length})
                     </h4>
-                    <span className="text-[10px] text-muted-foreground font-medium">
+                    <span className="text-xs text-muted-foreground font-medium">
                       Otomatis dari Staff Management
                     </span>
                   </div>
@@ -1749,7 +1751,7 @@ export function OutletManagement({
                     className="pl-9 rounded-xl font-medium"
                   />
                 </div>
-                <p className="text-[10px] text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-1">
                   Akun email ini digunakan bersama oleh 7 karyawan cabang pada tablet POS outlet ini.
                 </p>
               </div>
@@ -1831,7 +1833,7 @@ export function OutletManagement({
                       toast.success("Bukti otorisasi berhasil disalin ke clipboard!");
                       setTimeout(() => setCopiedProof(false), 2000);
                     }}
-                    className="text-[10px] text-primary hover:underline font-bold flex items-center gap-1 shrink-0 cursor-pointer"
+                    className="text-xs text-primary hover:underline font-bold flex items-center gap-1 shrink-0 cursor-pointer"
                   >
                     {copiedProof ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
                     {copiedProof ? "Tersalin" : "Salin Bukti"}

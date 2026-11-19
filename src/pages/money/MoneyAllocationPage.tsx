@@ -1628,7 +1628,7 @@ export function MoneyAllocationPage({
         ) : (
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4 border-t border-border/60 pt-5">
           {/* Omzet Masuk */}
-          <div className="rounded-2xl border border-border/80 bg-muted/40 p-4 shadow-xs overflow-hidden">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
               <span className="text-xs font-bold text-muted-foreground leading-snug">1. Total Omzet</span>
               <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
@@ -1644,74 +1644,74 @@ export function MoneyAllocationPage({
           </div>
 
           {/* Tabungan BOM */}
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 shadow-xs overflow-hidden">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
-              <span className="text-xs font-bold text-amber-700 dark:text-amber-400 leading-snug">
+              <span className="text-xs font-bold text-muted-foreground leading-snug">
                 2. Celengan Bahan (BOM)
               </span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-amber-500/20 text-amber-600 dark:text-amber-300 flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 text-primary flex items-center justify-center font-bold">
                 <Boxes className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-amber-600 dark:text-amber-400">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
               {formatRupiah(totalBomSavings)}
             </p>
-            <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-400/80 font-medium">
+            <p className="mt-1 text-xs text-muted-foreground font-medium">
               Modal bahan terpakai
             </p>
           </div>
 
           {/* Tabungan Operasional Harian */}
-          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 shadow-xs overflow-hidden">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
-              <span className="text-xs font-bold text-blue-700 dark:text-blue-400 leading-snug">
+              <span className="text-xs font-bold text-muted-foreground leading-snug">
                 3. Celengan Operasional
               </span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-blue-500/20 text-blue-600 dark:text-blue-300 flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-secondary text-foreground flex items-center justify-center font-bold">
                 <Zap className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-blue-600 dark:text-blue-400">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
               {formatRupiah(totalOpSavings)}
             </p>
-            <p className="mt-1 text-xs text-blue-700/80 dark:text-blue-400/80 font-medium">
+            <p className="mt-1 text-xs text-muted-foreground font-medium">
               30% Laba Kotor (Target: {formatRupiah(totalMonthlyOpTarget)}/bln)
             </p>
           </div>
 
           {/* Kas Keluar & Realisasi Gaji Cair */}
-          <div className="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-4 shadow-xs overflow-hidden">
+          <div className="rounded-2xl border border-border bg-card p-4 shadow-xs overflow-hidden">
             <div className="flex items-start justify-between gap-2 min-w-0">
-              <span className="text-xs font-bold text-purple-700 dark:text-purple-400 leading-snug">
+              <span className="text-xs font-bold text-muted-foreground leading-snug">
                 4. Kas &amp; Gaji Keluar
               </span>
-              <div className="w-8 h-8 shrink-0 rounded-xl bg-purple-500/20 text-purple-600 dark:text-purple-300 flex items-center justify-center font-bold">
+              <div className="w-8 h-8 shrink-0 rounded-xl bg-secondary text-foreground flex items-center justify-center font-bold">
                 <Users className="size-4" />
               </div>
             </div>
-            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-purple-600 dark:text-purple-400">
+            <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-foreground">
               {formatRupiah(currentSalaryPaid + totalCashOut)}
             </p>
-            <p className="mt-1 text-xs text-purple-700/80 dark:text-purple-400/80 font-medium">
+            <p className="mt-1 text-xs text-muted-foreground font-medium">
               Pengeluaran &amp; gaji cair
             </p>
           </div>
 
           {/* Laba Bersih Murni Owner */}
           {userRole !== "manager" || managerPermissions?.can_view_owner_net_profit !== false ? (
-            <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/15 p-4 shadow-xs overflow-hidden">
+            <div className="rounded-2xl border border-emerald-500/35 bg-card p-4 shadow-xs overflow-hidden">
               <div className="flex items-start justify-between gap-2 min-w-0">
                 <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 leading-snug">
                   5. Laba Bersih Owner
                 </span>
-                <div className="w-8 h-8 shrink-0 rounded-xl bg-emerald-500/20 text-emerald-600 dark:text-emerald-300 flex items-center justify-center font-bold">
+                <div className="w-8 h-8 shrink-0 rounded-xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold">
                   <TrendingUp className="size-4" />
                 </div>
               </div>
               <p className="mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono text-emerald-600 dark:text-emerald-400">
                 {formatRupiah(labaBersihMurni)}
               </p>
-              <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-400/80 font-medium">
+              <p className="mt-1 text-xs text-muted-foreground font-medium">
                 70% Laba Kotor siap tarik
               </p>
             </div>

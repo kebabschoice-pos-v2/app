@@ -3449,6 +3449,83 @@ test("Enforces slim w-20 POS 1-click icon rail, unified top bar with search & gr
   );
 });
 
+// --- TEST 110: Redesign B — Streamlined 5-Group TOMORO HQ Sidebar, Unified Design System, Zero Micro-Fonts & Sticky HQ Tables ---
+console.log("\n▶ 110. REDESIGN B (HQ TOMORO UX): 5-GROUP SIDEBAR, UNIFIED KPI CARDS, ZERO MICRO-FONTS & STICKY HQ TABLES");
+test("Enforces streamlined 5-group TOMORO HQ sidebar (Pengaturan closed by default, no duplicate /analytics link), unified KPI surfaces without truncation, zero 9px/10px micro-fonts across HQ pages, and sticky right columns on HQ report/outlet tables", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const moneyPageCode = read("src/pages/money/MoneyAllocationPage.tsx");
+  const invPageCode = read("src/pages/inventory/InventoryManagement.tsx");
+  const menuPageCode = read("src/pages/MenuManagement.tsx");
+  const perfOutletCode = read("src/pages/reports/PerformanceOutletPage.tsx");
+  const perfMenuCode = read("src/pages/reports/PerformanceMenuPage.tsx");
+  const insightCode = read("src/pages/reports/InsightAnalyticsPage.tsx");
+  const outletMgmtCode = read("src/pages/OutletManagement.tsx");
+  const staffCode = read("src/components/kebabschoicepos/StaffManagement.tsx");
+
+  // 1. Streamlined w-64 TOMORO HQ Sidebar with 5 clean groups, Pengaturan closed by default, no duplicate /analytics link
+  const hqSidebarSlice = posAppCode.slice(
+    posAppCode.indexOf('aria-label="Navigasi Utama HQ"'),
+    posAppCode.indexOf("function MobileNav("),
+  );
+  assert.ok(
+    hqSidebarSlice.includes("w-64 p-3.5") &&
+      hqSidebarSlice.includes("Utama") &&
+      hqSidebarSlice.includes('title="Laporan"') &&
+      hqSidebarSlice.includes('title="Produk & Stok"') &&
+      hqSidebarSlice.includes('title="Cabang & Tim"') &&
+      hqSidebarSlice.includes('title="Pengaturan"') &&
+      hqSidebarSlice.includes('to="/insight-analytics"') &&
+      hqSidebarSlice.includes('active === "analytics"') &&
+      !hqSidebarSlice.includes('to="/analytics"') &&
+      posAppCode.includes("const [settingsOpen, setSettingsOpen] = useState(isSettingsActive);") &&
+      hqSidebarSlice.includes("onClick={onOpenThemeModal}"),
+    "HQ Sidebar must be w-64 with 5 clean groups, Pengaturan closed by default, no duplicate /analytics link (highlighting Ringkasan & Insight for legacy /analytics), and preserve onOpenThemeModal",
+  );
+
+  // 2. Unified non-rainbow TOMORO KPI card surfaces & responsive grids (no cramped xl:grid-cols-6 or truncated KPI titles)
+  assert.ok(
+    posAppCode.includes("rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden") &&
+      perfOutletCode.includes("grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4") &&
+      !/\bxl:grid-cols-6\b/.test(perfOutletCode) &&
+      !perfMenuCode.includes("text-base font-black text-foreground truncate") &&
+      !menuPageCode.includes("bg-violet-500/10"),
+    "HQ KPI cards across Dashboard, PerformanceOutlet, PerformanceMenu, and MenuManagement must use unified TOMORO surfaces and responsive non-cramped grids without truncation",
+  );
+
+  // 3. Sticky right columns on PerformanceOutlet, PerformanceMenu, and OutletManagement wide tables
+  const stickyClass = "sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]";
+  assert.ok(
+    perfOutletCode.includes(stickyClass) &&
+      perfMenuCode.includes(stickyClass) &&
+      outletMgmtCode.includes(stickyClass),
+    "PerformanceOutlet, PerformanceMenu, and OutletManagement wide tables must pin their rightmost column sticky right-0",
+  );
+
+  // 4. Zero text-[9px] / text-[10px] micro-fonts across all core HQ pages
+  const hqFiles = [
+    ["MoneyAllocationPage", moneyPageCode],
+    ["InventoryManagement", invPageCode],
+    ["MenuManagement", menuPageCode],
+    ["PerformanceOutletPage", perfOutletCode],
+    ["PerformanceMenuPage", perfMenuCode],
+    ["InsightAnalyticsPage", insightCode],
+    ["OutletManagement", outletMgmtCode],
+    ["StaffManagement", staffCode],
+    ["PurchaseOrderPage", read("src/pages/inventory/PurchaseOrderPage.tsx")],
+    ["StockOpnamePage", read("src/pages/inventory/StockOpnamePage.tsx")],
+    ["StockTransferPage", read("src/pages/inventory/StockTransferPage.tsx")],
+    ["SupplierManagementPage", read("src/pages/inventory/SupplierManagementPage.tsx")],
+    ["WastePage", read("src/pages/inventory/WastePage.tsx")],
+  ];
+  for (const [label, src] of hqFiles) {
+    assert.ok(
+      !src.includes("text-[9px]") && !src.includes("text-[10px]"),
+      `${label} must have zero text-[9px] or text-[10px] micro-fonts (minimum text-xs / 12px)`,
+    );
+  }
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

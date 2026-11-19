@@ -1445,33 +1445,29 @@ export function MenuManagement() {
           </div>
         </div>
 
-        {/* Quick Stats Grid */}
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-border/60 pt-4">
-          <div className="rounded-xl bg-muted/40 p-3.5">
+        {/* Quick Stats Grid (1 Design System TOMORO — Tanpa Pelangi) */}
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 border-t border-border/60 pt-4">
+          <div className="rounded-2xl border border-border/80 bg-muted/30 p-4">
             <span className="text-xs text-muted-foreground font-semibold">Total Menu</span>
-            <p className="text-2xl font-black">{totalMenuCount}</p>
+            <p className="mt-1 text-xl font-black text-foreground whitespace-nowrap">
+              {totalMenuCount}
+            </p>
           </div>
-          <div className="rounded-xl bg-emerald-500/10 p-3.5">
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-              Menu Aktif
-            </span>
-            <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+          <div className="rounded-2xl border border-border/80 bg-muted/30 p-4">
+            <span className="text-xs text-muted-foreground font-semibold">Menu Aktif</span>
+            <p className="mt-1 text-xl font-black text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
               {activeMenuCount}
             </p>
           </div>
-          <div className="rounded-xl bg-violet-500/10 p-3.5">
-            <span className="text-xs text-violet-600 dark:text-violet-400 font-semibold">
-              Kategori Terdaftar
-            </span>
-            <p className="text-2xl font-black text-violet-600 dark:text-violet-400">
+          <div className="rounded-2xl border border-border/80 bg-muted/30 p-4">
+            <span className="text-xs text-muted-foreground font-semibold">Kategori Terdaftar</span>
+            <p className="mt-1 text-xl font-black text-foreground whitespace-nowrap">
               {categoryCount}
             </p>
           </div>
-          <div className="rounded-xl bg-blue-500/10 p-3.5">
-            <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold">
-              Outlet Terkoneksi
-            </span>
-            <p className="text-2xl font-black text-blue-600 dark:text-blue-400">
+          <div className="rounded-2xl border border-border/80 bg-muted/30 p-4">
+            <span className="text-xs text-muted-foreground font-semibold">Outlet Terkoneksi</span>
+            <p className="mt-1 text-xl font-black text-primary whitespace-nowrap">
               {totalOutlets} Cabang
             </p>
           </div>
@@ -1489,7 +1485,7 @@ export function MenuManagement() {
           }`}
         >
           <span>Semua Kategori</span>
-          <span className="ml-1 rounded-full bg-black/10 dark:bg-white/20 px-1.5 py-0.5 text-[10px]">
+          <span className="ml-1 rounded-full bg-black/10 dark:bg-white/20 px-1.5 py-0.5 text-xs">
             {totalMenuCount}
           </span>
         </button>
@@ -1514,7 +1510,7 @@ export function MenuManagement() {
               }`}
             >
               <span>{cat.name}</span>
-              <span className="ml-1 rounded-full bg-black/10 dark:bg-white/20 px-1.5 py-0.5 text-[10px]">
+              <span className="ml-1 rounded-full bg-black/10 dark:bg-white/20 px-1.5 py-0.5 text-xs">
                 {catCount}
               </span>
             </button>
@@ -1670,7 +1666,7 @@ export function MenuManagement() {
                     ) : (
                       <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground/40">
                         <UtensilsCrossed className="size-10 mb-1" />
-                        <span className="text-[10px] font-semibold">Tidak ada foto</span>
+                        <span className="text-xs font-semibold">Tidak ada foto</span>
                       </div>
                     )}
 
@@ -1689,7 +1685,7 @@ export function MenuManagement() {
 
                     {/* Category badge */}
                     <div className="absolute top-2.5 right-2.5">
-                      <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+                      <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-bold text-white backdrop-blur-md">
                         <Tag className="size-2.5" />
                         {item.category_name || "Umum"}
                       </span>
@@ -2035,11 +2031,11 @@ export function MenuManagement() {
               >
                 <SlidersHorizontal className="size-4" />
                 <span>3. VARIAN & RESEP</span>
-                <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-[10px] font-black">
+                <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-black">
                   {variantGroups.length} Grup
                 </span>
                 {recipeItems.length > 0 && (
-                  <span className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 text-[10px] font-black">
+                  <span className="rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 px-2 py-0.5 text-xs font-black">
                     {recipeItems.length} BOM
                   </span>
                 )}
@@ -2074,12 +2070,12 @@ export function MenuManagement() {
                           ) : (
                             <div className="flex flex-col items-center justify-center text-muted-foreground/40 text-center p-2">
                               <ImageIcon className="size-8 mb-1" />
-                              <span className="text-[10px] font-semibold">Belum Ada Foto</span>
+                              <span className="text-xs font-semibold">Belum Ada Foto</span>
                             </div>
                           )}
 
                           {imageUrl && (
-                            <span className="absolute bottom-1 right-1 rounded-md bg-black/75 px-1.5 py-0.5 text-[9px] font-bold text-white backdrop-blur-xs">
+                            <span className="absolute bottom-1 right-1 rounded-md bg-black/75 px-1.5 py-0.5 text-xs font-bold text-white backdrop-blur-xs">
                               1:1 POS
                             </span>
                           )}
@@ -2283,7 +2279,7 @@ export function MenuManagement() {
                               );
                               toast.success("Semua cabang diaktifkan");
                             }}
-                            className="h-7 rounded-xl text-[10px]"
+                            className="h-7 rounded-xl text-xs"
                           >
                             Pilih Semua
                           </Button>
@@ -2297,7 +2293,7 @@ export function MenuManagement() {
                               );
                               toast.info("Semua cabang dinonaktifkan");
                             }}
-                            className="h-7 rounded-xl text-[10px]"
+                            className="h-7 rounded-xl text-xs"
                           >
                             Batal Semua
                           </Button>
@@ -2339,7 +2335,7 @@ export function MenuManagement() {
                                 <div>
                                   <p className="font-bold text-xs">{oa.outlet_name}</p>
                                   <span
-                                    className={`text-[10px] font-semibold ${
+                                    className={`text-xs font-semibold ${
                                       oa.available
                                         ? "text-emerald-600 dark:text-emerald-400"
                                         : "text-muted-foreground"
@@ -2417,7 +2413,7 @@ export function MenuManagement() {
                             variant="ghost"
                             size="sm"
                             onClick={calculateBOMCost}
-                            className="h-6 rounded-lg text-[10px] font-bold text-purple-600 dark:text-purple-400 gap-1 hover:bg-purple-500/10"
+                            className="h-6 rounded-lg text-xs font-bold text-purple-600 dark:text-purple-400 gap-1 hover:bg-purple-500/10"
                             title="Hitung otomatis dari resep bahan baku Tab 3"
                           >
                             <Sparkles className="size-3" />
@@ -2463,7 +2459,7 @@ export function MenuManagement() {
                             <button
                               type="button"
                               onClick={() => setPromoPrice(null)}
-                              className="text-[10px] font-bold text-destructive hover:underline"
+                              className="text-xs font-bold text-destructive hover:underline"
                             >
                               Hapus Promo
                             </button>
@@ -2496,7 +2492,7 @@ export function MenuManagement() {
                                 key={pct}
                                 type="button"
                                 onClick={() => setTaxRate(pct)}
-                                className={`rounded-md px-1.5 py-0.5 text-[10px] font-bold transition-colors ${
+                                className={`rounded-md px-1.5 py-0.5 text-xs font-bold transition-colors ${
                                   taxRate === pct
                                     ? "bg-primary text-primary-foreground"
                                     : "bg-muted text-muted-foreground hover:text-foreground"
@@ -2669,7 +2665,7 @@ export function MenuManagement() {
                           {/* Preset Templates Dropdown */}
                           <div className="flex items-center gap-1 bg-muted/60 rounded-xl p-1 border border-border/60">
                             <Sparkles className="size-3.5 text-primary ml-1.5" />
-                            <span className="text-[10px] font-bold text-muted-foreground mr-1">
+                            <span className="text-xs font-bold text-muted-foreground mr-1">
                               Preset:
                             </span>
                             {VARIANT_TEMPLATES.map((tpl) => (
@@ -2677,7 +2673,7 @@ export function MenuManagement() {
                                 key={tpl.id}
                                 type="button"
                                 onClick={() => applyVariantTemplate(tpl.id)}
-                                className="rounded-lg bg-background px-2 py-1 text-[10px] font-bold hover:bg-primary hover:text-primary-foreground transition-all shadow-xs"
+                                className="rounded-lg bg-background px-2 py-1 text-xs font-bold hover:bg-primary hover:text-primary-foreground transition-all shadow-xs"
                                 title={`Tambahkan preset grup ${tpl.name}`}
                               >
                                 + {tpl.badge}
@@ -2970,7 +2966,7 @@ export function MenuManagement() {
                                       </div>
 
                                       {/* Default radio/checkbox toggle */}
-                                      <label className="flex items-center gap-1 px-1 text-[10px] text-muted-foreground cursor-pointer shrink-0 select-none">
+                                      <label className="flex items-center gap-1 px-1 text-xs text-muted-foreground cursor-pointer shrink-0 select-none">
                                         <input
                                           type="checkbox"
                                           checked={Boolean(opt.is_default)}
@@ -3094,7 +3090,7 @@ export function MenuManagement() {
                             setPreviewSelectedOptions({});
                             toast.info("Pilihan simulasi preview direset");
                           }}
-                          className="h-7 rounded-xl text-[10px] text-muted-foreground hover:text-foreground"
+                          className="h-7 rounded-xl text-xs text-muted-foreground hover:text-foreground"
                         >
                           Reset Pilihan
                         </Button>
@@ -3124,7 +3120,7 @@ export function MenuManagement() {
 
                             {promoPrice && promoPrice < price && (
                               <div className="absolute top-2 right-2">
-                                <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-md">
+                                <span className="rounded-full bg-rose-600 px-2 py-0.5 text-xs font-black uppercase tracking-wider text-white shadow-md">
                                   PROMO
                                 </span>
                               </div>
@@ -3132,7 +3128,7 @@ export function MenuManagement() {
                           </div>
 
                           <div>
-                            <p className="text-[10px] font-bold text-primary uppercase tracking-wider">
+                            <p className="text-xs font-bold text-primary uppercase tracking-wider">
                               {categoryName || "Tanpa Kategori"}
                             </p>
                             <h5 className="font-black text-sm text-foreground line-clamp-1">
@@ -3175,14 +3171,14 @@ export function MenuManagement() {
                                   >
                                     <div className="flex items-center justify-between">
                                       <div className="flex items-center gap-1.5">
-                                        <span className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-[10px] font-black text-primary">
+                                        <span className="flex size-5 items-center justify-center rounded-md bg-primary/10 text-xs font-black text-primary">
                                           {gIdx + 1}
                                         </span>
                                         <span className="text-xs font-black text-foreground">
                                           {group.name || `Grup #${gIdx + 1}`}
                                         </span>
                                       </div>
-                                      <span className="rounded-full bg-muted px-2 py-0.5 text-[9px] font-bold text-muted-foreground">
+                                      <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-bold text-muted-foreground">
                                         {isSingle ? "Pilih satu" : "Bisa pilih lebih dari satu"}
                                       </span>
                                     </div>
@@ -3224,7 +3220,7 @@ export function MenuManagement() {
                                               <p className="text-[11px] font-bold truncate">
                                                 {opt.name || `Pilihan #${oIdx + 1}`}
                                               </p>
-                                              <p className="text-[10px] opacity-80">
+                                              <p className="text-xs opacity-80">
                                                 {optPrice > 0 ? `+${formatIDR(optPrice)}` : "+Rp 0"}
                                               </p>
                                             </div>
@@ -3422,7 +3418,7 @@ export function MenuManagement() {
                                   <div className="flex items-center gap-1.5 shrink-0 flex-wrap">
                                     {/* Quantity */}
                                     <div className="flex items-center gap-1">
-                                      <span className="text-[10px] text-muted-foreground font-semibold">
+                                      <span className="text-xs text-muted-foreground font-semibold">
                                         Qty:
                                       </span>
                                       <Input
@@ -3499,7 +3495,7 @@ export function MenuManagement() {
 
                                     {/* Estimasi Biaya BOM Bahan */}
                                     <div className="flex items-center gap-1">
-                                      <span className="text-[10px] text-muted-foreground font-semibold">
+                                      <span className="text-xs text-muted-foreground font-semibold">
                                         Biaya:
                                       </span>
                                       <IndonesianPriceInput
@@ -3626,7 +3622,7 @@ export function MenuManagement() {
 
                                 {/* Compact Stock & Conversion Tag */}
                                 {matchedInv && (
-                                  <div className="flex items-center gap-2 pt-0.5 text-[10px]">
+                                  <div className="flex items-center gap-2 pt-0.5 text-xs">
                                     <span className="inline-flex items-center gap-1 font-medium text-muted-foreground bg-muted/60 px-2 py-0.5 rounded-md">
                                       Stok: {matchedInv.stock} {matchedInv.unit}
                                       {matchedInv.yield_per_unit && matchedInv.yield_per_unit > 1
@@ -3761,7 +3757,7 @@ export function MenuManagement() {
                     <div className="flex h-full w-full flex-col items-center justify-center text-zinc-500 text-center p-4">
                       <ImageIcon className="size-10 mb-2 opacity-50" />
                       <p className="text-xs font-bold">Belum ada gambar yang dipilih</p>
-                      <p className="text-[10px] mt-1 text-zinc-400">
+                      <p className="text-xs mt-1 text-zinc-400">
                         Pilih file atau masukkan URL gambar di bawah
                       </p>
                     </div>
@@ -3776,7 +3772,7 @@ export function MenuManagement() {
                   </div>
 
                   {/* Corner indicator */}
-                  <div className="absolute bottom-2 left-2 rounded-md bg-black/80 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-md border border-white/10">
+                  <div className="absolute bottom-2 left-2 rounded-md bg-black/80 px-2 py-0.5 text-xs font-bold text-white backdrop-blur-md border border-white/10">
                     1:1 POS Card | X: {editorCropPosition.x}% Y: {editorCropPosition.y}% | Zoom:{" "}
                     {Math.round(editorZoom * 100)}% | Rotasi: {editorRotation}°
                   </div>
@@ -3843,7 +3839,7 @@ export function MenuManagement() {
                     variant="ghost"
                     size="sm"
                     onClick={() => setEditorCropPosition({ x: 50, y: 50 })}
-                    className="h-6 rounded-lg text-[10px] font-bold text-primary hover:bg-primary/10"
+                    className="h-6 rounded-lg text-xs font-bold text-primary hover:bg-primary/10"
                   >
                     Tengahkan (50%, 50%)
                   </Button>
@@ -4092,17 +4088,17 @@ export function MenuManagement() {
                                 <div className="flex items-center gap-1.5">
                                   <p className="font-bold text-xs">{cat.name}</p>
                                   {isSystemCategory(cat) ? (
-                                    <span className="rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 text-[10px] font-bold">
+                                    <span className="rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold">
                                       System
                                     </span>
                                   ) : (
-                                    <span className="rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-1.5 py-0.5 text-[10px] font-bold">
+                                    <span className="rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-1.5 py-0.5 text-xs font-bold">
                                       User
                                     </span>
                                   )}
                                 </div>
                                 {cat.description && (
-                                  <p className="text-[10px] text-muted-foreground">
+                                  <p className="text-xs text-muted-foreground">
                                     {cat.description}
                                   </p>
                                 )}

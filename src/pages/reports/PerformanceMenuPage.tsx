@@ -254,7 +254,7 @@ export function PerformanceMenuPage() {
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
               <Store className="size-4 text-primary shrink-0" />
               <div className="text-xs">
-                <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+                <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Cabang
                 </span>
                 <select
@@ -276,7 +276,7 @@ export function PerformanceMenuPage() {
             <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
               <Calendar className="size-4 text-primary shrink-0" />
               <div className="text-xs">
-                <span className="block text-[10px] font-bold text-muted-foreground uppercase">
+                <span className="block text-xs font-bold text-muted-foreground uppercase">
                   Periode
                 </span>
                 <select
@@ -301,7 +301,7 @@ export function PerformanceMenuPage() {
                   onChange={(e) => setStartDate(e.target.value)}
                   className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer"
                 />
-                <span className="text-muted-foreground text-[10px] font-bold">-</span>
+                <span className="text-muted-foreground text-xs font-bold">-</span>
                 <input
                   type="date"
                   value={endDate}
@@ -339,33 +339,35 @@ export function PerformanceMenuPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Menu Revenue */}
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-muted-foreground uppercase">Total Omzet Menu</p>
-            <div className="size-8 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2 min-w-0">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">Total Omzet Menu</p>
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
               <DollarSign className="size-4" />
             </div>
           </div>
-          <h3 className="mt-3 text-2xl font-black text-foreground">{formatRupiah(totalRevenue)}</h3>
+          <h3 className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-foreground">
+            {formatRupiah(totalRevenue)}
+          </h3>
           <p className="mt-1 text-xs text-muted-foreground">{totalSold} porsi menu terjual</p>
         </div>
 
         {/* Best Seller */}
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-muted-foreground uppercase">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2 min-w-0">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">
               Menu Terlaris (Rank 1)
             </p>
-            <div className="size-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-600">
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
               <Award className="size-4" />
             </div>
           </div>
-          <h3 className="mt-3 text-base font-black text-foreground truncate">
+          <h3 className="mt-2.5 text-base font-bold text-foreground leading-snug">
             {bestSeller ? bestSeller.name : "-"}
           </h3>
-          <p className="mt-1 text-xs text-emerald-600 font-bold">
+          <p className="mt-1 text-xs text-emerald-600 font-bold whitespace-nowrap">
             {bestSeller
               ? `${bestSeller.soldCount} porsi (${formatRupiah(bestSeller.revenue)})`
               : "-"}
@@ -373,32 +375,34 @@ export function PerformanceMenuPage() {
         </div>
 
         {/* Slow Moving */}
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-muted-foreground uppercase">Menu Terendah</p>
-            <div className="size-8 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2 min-w-0">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">Menu Terendah</p>
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-destructive/10 flex items-center justify-center text-destructive">
               <AlertTriangle className="size-4" />
             </div>
           </div>
-          <h3 className="mt-3 text-base font-black text-foreground truncate">
+          <h3 className="mt-2.5 text-base font-bold text-foreground leading-snug">
             {lowestSeller ? lowestSeller.name : "-"}
           </h3>
-          <p className="mt-1 text-xs text-destructive font-bold">
+          <p className="mt-1 text-xs text-destructive font-bold whitespace-nowrap">
             {lowestSeller ? `${lowestSeller.soldCount} porsi (${lowestSeller.growth})` : "-"}
           </p>
         </div>
 
         {/* Avg Margin */}
-        <div className="rounded-[1.5rem] border border-border bg-card/82 p-5 shadow-soft">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-muted-foreground uppercase">
+        <div className="rounded-2xl border border-border bg-card p-4 xl:p-5 shadow-xs overflow-hidden">
+          <div className="flex items-start justify-between gap-2 min-w-0">
+            <p className="text-xs font-semibold text-muted-foreground leading-snug">
               Rata-rata Margin BOM
             </p>
-            <div className="size-8 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+            <div className="w-8 h-8 shrink-0 rounded-xl bg-emerald-500/10 flex items-center justify-center text-emerald-600">
               <TrendingUp className="size-4" />
             </div>
           </div>
-          <h3 className="mt-3 text-2xl font-black text-emerald-600">{avgMargin}%</h3>
+          <h3 className="mt-2.5 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap text-emerald-600">
+            {avgMargin}%
+          </h3>
           <p className="mt-1 text-xs text-muted-foreground">Berdasarkan kalkulasi HPP resep</p>
         </div>
       </div>
@@ -476,70 +480,74 @@ export function PerformanceMenuPage() {
           <table className="w-full text-left text-xs">
             <thead>
               <tr className="border-b border-border text-muted-foreground font-black uppercase">
-                <th className="py-3 px-3">Nama Menu</th>
-                <th className="py-3 px-3">Kategori</th>
-                <th className="py-3 px-3 text-right">Harga Jual</th>
-                <th className="py-3 px-3 text-right">HPP (Cost)</th>
-                <th className="py-3 px-3 text-right">Margin (%)</th>
-                <th className="py-3 px-3 text-right">Terjual</th>
-                <th className="py-3 px-3 text-right">Total Revenue</th>
-                <th className="py-3 px-3 text-center">Status</th>
-                <th className="py-3 px-3 text-center">Recipe BOM</th>
+                <th className="py-2.5 px-3">Nama Menu</th>
+                <th className="py-2.5 px-3">Kategori</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Harga Jual</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">HPP (Cost)</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Margin (%)</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Terjual</th>
+                <th className="py-2.5 px-3 text-right whitespace-nowrap">Total Revenue</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap">Status</th>
+                <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                  Recipe BOM
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {filteredItems.map((item, index) => (
                 <tr key={item.id} className="hover:bg-secondary/40 transition-colors">
-                  <td className="py-3 px-3 font-bold text-foreground">
+                  <td className="py-2.5 px-3 font-bold text-foreground">
                     <div className="flex items-center gap-2">
-                      <span className="flex size-5 items-center justify-center rounded-full bg-secondary font-black text-[10px]">
+                      <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-secondary font-black text-xs">
                         #{index + 1}
                       </span>
                       <span>{item.name}</span>
                     </div>
                   </td>
-                  <td className="py-3 px-3">
-                    <span className="rounded-md bg-secondary px-2 py-0.5 text-[10px] font-semibold">
+                  <td className="py-2.5 px-3 whitespace-nowrap">
+                    <span className="rounded-md bg-secondary px-2 py-0.5 text-xs font-semibold">
                       {item.category}
                     </span>
                   </td>
-                  <td className="py-3 px-3 text-right font-semibold">{formatRupiah(item.price)}</td>
-                  <td className="py-3 px-3 text-right text-muted-foreground">
+                  <td className="py-2.5 px-3 text-right font-semibold whitespace-nowrap">
+                    {formatRupiah(item.price)}
+                  </td>
+                  <td className="py-2.5 px-3 text-right text-muted-foreground whitespace-nowrap">
                     {formatRupiah(item.cost)}
                   </td>
-                  <td className="py-3 px-3 text-right font-black text-emerald-600">
+                  <td className="py-2.5 px-3 text-right font-black text-emerald-600 whitespace-nowrap">
                     {item.margin}%
                   </td>
-                  <td className="py-3 px-3 text-right font-black">{item.soldCount}</td>
-                  <td className="py-3 px-3 text-right font-black text-primary">
+                  <td className="py-2.5 px-3 text-right font-black whitespace-nowrap">{item.soldCount}</td>
+                  <td className="py-2.5 px-3 text-right font-black text-primary whitespace-nowrap">
                     {formatRupiah(item.revenue)}
                   </td>
-                  <td className="py-3 px-3 text-center">
+                  <td className="py-2.5 px-3 text-center whitespace-nowrap">
                     {item.status === "best_seller" ? (
-                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[10px] font-bold text-emerald-600">
+                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-600">
                         Best Seller
                       </span>
                     ) : item.status === "growth" ? (
-                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-[10px] font-bold text-primary">
+                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary">
                         Growth
                       </span>
                     ) : item.status === "slow_moving" ? (
-                      <span className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-[10px] font-bold text-destructive">
+                      <span className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-bold text-destructive">
                         Slow Moving
                       </span>
                     ) : (
-                      <span className="rounded-full bg-secondary px-2.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      <span className="rounded-full bg-secondary px-2.5 py-0.5 text-xs font-medium text-muted-foreground">
                         Normal
                       </span>
                     )}
                   </td>
-                  <td className="py-3 px-3 text-center">
+                  <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
                     {item.recipeItemsCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-bold text-primary">
-                        <Package className="size-3" /> {item.recipeItemsCount} Bahan
+                      <span className="inline-flex items-center gap-1 text-xs font-bold text-primary">
+                        <Package className="size-3.5" /> {item.recipeItemsCount} Bahan
                       </span>
                     ) : (
-                      <span className="text-[10px] text-muted-foreground">Standar 40%</span>
+                      <span className="text-xs text-muted-foreground">Standar 40%</span>
                     )}
                   </td>
                 </tr>

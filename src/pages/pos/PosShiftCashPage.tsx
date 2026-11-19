@@ -25,7 +25,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { cacheOutletCatalog } from "@/services/offline-sync.service";
+import { cacheOutletCatalog, isOnline } from "@/services/offline-sync.service";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
 import { getTodayOutletRoster, getStaffShifts, type StaffShift } from "@/services/hr.service";
 import { getStaffList, type StaffItem } from "@/services/staff.service";
@@ -63,9 +63,15 @@ interface PosShift {
 const STORAGE_ACTIVE_SHIFT = "kebabschoicepos_active_shift";
 const STORAGE_MOVEMENTS = "kebabschoicepos_cash_movements";
 const STORAGE_HISTORY = "kebabschoicepos_shift_history";
+const ORDER_REVERSAL_MARKER = "[REVERSAL]";
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
 
 function getShiftStorageKey(outletId?: string | null) {
-  return outletId && outletId !== "all"
+  return outletId && outletId !== "all" && outletId !== "default"
     ? `kebabschoicepos_active_shift_${outletId}`
     : STORAGE_ACTIVE_SHIFT;
 }
@@ -245,123 +251,128 @@ export function PosShiftCashPage() {
           } catch {}
         }
 
-        // 3. Sync active shift from Supabase pos_shifts table strictly filtered by outlet_id
-        try {
-          let openShiftQuery = supabase
-            .from("pos_shifts" as any)
-            .select("*")
-            .eq("status", "open");
-
-          if (resolvedOid && resolvedOid !== "default" && resolvedOid !== "all") {
-            openShiftQuery = openShiftQuery.eq("outlet_id", resolvedOid);
-          }
-
-          let openShiftRows: any[] | null = null;
+        // 3. Sync active shift from Supabase pos_shifts table strictly filtered by business_id & outlet_id
+        if (resolvedBid) {
           try {
-            const { data: ordRows, error: ordErr } = await openShiftQuery
-              .order("start_time", { ascending: false })
-              .limit(1);
-            if (ordErr) throw ordErr;
-            openShiftRows = ordRows;
-          } catch {
-            const { data: fallbackRows } = await openShiftQuery
-              .order("created_at", { ascending: false })
-              .limit(1);
-            openShiftRows = fallbackRows;
-          }
-
-          if (openShiftRows && openShiftRows.length > 0) {
-            const row: any = openShiftRows[0];
-            const liveShift: PosShift = {
-              id: row.id,
-              cashierName: row.cashier_name || resolvedCashier,
-              cashierId: row.cashier_id,
-              teamMembers: row.team_members || (row.notes?.startsWith("Kru:") ? row.notes : undefined),
-              outletName: row.outlet_name || resolvedOname,
-              outletId: row.outlet_id || resolvedOid,
-              startingCash: Number(row.opening_cash ?? row.starting_cash) || 0,
-              startTime: row.start_time || row.opened_at,
-              status: "open",
-              cashSales: Number(row.cash_sales) || 0,
-              totalCashIn: Number(row.total_cash_in) || 0,
-              totalCashOut: Number(row.total_cash_out) || 0,
-              expectedEndingCash: Number(row.expected_ending_cash) || Number(row.opening_cash ?? row.starting_cash) || 0,
-              notes: row.notes,
-            };
-            setActiveShift(liveShift);
-            localStorage.setItem(getShiftStorageKey(resolvedOid), JSON.stringify(liveShift));
-            localStorage.setItem(STORAGE_ACTIVE_SHIFT, JSON.stringify(liveShift));
-
-            // Load cash movements for this shift
-            const { data: movRows } = await supabase
-              .from("cash_movements" as any)
+            let openShiftQuery = supabase
+              .from("pos_shifts" as any)
               .select("*")
-              .eq("shift_id", row.id)
-              .order("created_at", { ascending: false });
+              .eq("business_id", resolvedBid)
+              .eq("status", "open");
 
-            if (movRows && movRows.length > 0) {
-              const mappedMovs: CashMovement[] = movRows.map((m: any) => ({
-                id: m.id,
-                shiftId: m.shift_id,
-                type: m.type as "in" | "out",
-                amount: Number(m.amount) || 0,
-                notes: m.description || m.reason || "",
-                timestamp: m.created_at,
-              }));
-              setMovements(mappedMovs);
-              localStorage.setItem(STORAGE_MOVEMENTS, JSON.stringify(mappedMovs));
+            if (resolvedOid && resolvedOid !== "default" && resolvedOid !== "all") {
+              openShiftQuery = openShiftQuery.eq("outlet_id", resolvedOid);
             }
-          }
 
-          // Load recent closed shifts history from DB strictly filtered by outlet_id
-          let historyQuery = supabase
-            .from("pos_shifts" as any)
-            .select("*")
-            .eq("status", "closed");
+            let openShiftRows: any[] | null = null;
+            try {
+              const { data: ordRows, error: ordErr } = await openShiftQuery
+                .order("start_time", { ascending: false })
+                .limit(1);
+              if (ordErr) throw ordErr;
+              openShiftRows = ordRows;
+            } catch {
+              const { data: fallbackRows } = await openShiftQuery
+                .order("created_at", { ascending: false })
+                .limit(1);
+              openShiftRows = fallbackRows;
+            }
 
-          if (resolvedOid && resolvedOid !== "default" && resolvedOid !== "all") {
-            historyQuery = historyQuery.eq("outlet_id", resolvedOid);
-          }
+            if (openShiftRows && openShiftRows.length > 0) {
+              const row: any = openShiftRows[0];
+              const liveShift: PosShift = {
+                id: row.id,
+                cashierName: row.cashier_name || resolvedCashier,
+                cashierId: row.cashier_id,
+                teamMembers: row.team_members || (row.notes?.startsWith("Kru:") ? row.notes : undefined),
+                outletName: row.outlet_name || resolvedOname,
+                outletId: row.outlet_id || resolvedOid,
+                startingCash: Number(row.opening_cash ?? row.starting_cash) || 0,
+                startTime: row.start_time || row.opened_at,
+                status: "open",
+                cashSales: Number(row.cash_sales) || 0,
+                totalCashIn: Number(row.total_cash_in) || 0,
+                totalCashOut: Number(row.total_cash_out) || 0,
+                expectedEndingCash: Number(row.expected_ending_cash) || Number(row.opening_cash ?? row.starting_cash) || 0,
+                notes: row.notes,
+              };
+              setActiveShift(liveShift);
+              localStorage.setItem(getShiftStorageKey(resolvedOid), JSON.stringify(liveShift));
+              localStorage.setItem(STORAGE_ACTIVE_SHIFT, JSON.stringify(liveShift));
 
-          let historyRows: any[] | null = null;
-          try {
-            const { data: histData, error: histErr } = await historyQuery
-              .order("end_time", { ascending: false })
-              .limit(20);
-            if (histErr) throw histErr;
-            historyRows = histData;
-          } catch {
-            const { data: fallbackHist } = await historyQuery
-              .order("created_at", { ascending: false })
-              .limit(20);
-            historyRows = fallbackHist;
-          }
+              // Load cash movements for this shift (strictly business-scoped)
+              const { data: movRows } = await supabase
+                .from("cash_movements" as any)
+                .select("*")
+                .eq("business_id", resolvedBid)
+                .eq("shift_id", row.id)
+                .order("created_at", { ascending: false });
 
-          if (historyRows && historyRows.length > 0) {
-            const mappedHistory: PosShift[] = historyRows.map((h: any) => ({
-              id: h.id,
-              cashierName: h.cashier_name,
-              cashierId: h.cashier_id,
-              teamMembers: h.team_members,
-              outletName: h.outlet_name,
-              outletId: h.outlet_id,
-              startingCash: Number(h.opening_cash ?? h.starting_cash) || 0,
-              startTime: h.start_time || h.opened_at,
-              endTime: h.end_time || h.closed_at,
-              status: "closed",
-              cashSales: Number(h.cash_sales) || 0,
-              totalCashIn: Number(h.total_cash_in) || 0,
-              totalCashOut: Number(h.total_cash_out) || 0,
-              expectedEndingCash: Number(h.expected_ending_cash) || 0,
-              actualEndingCash: Number(h.actual_ending_cash) || 0,
-              cashDifference: Number(h.cash_difference) || 0,
-              notes: h.notes,
-            }));
-            setShiftHistory(mappedHistory);
-            localStorage.setItem(STORAGE_HISTORY, JSON.stringify(mappedHistory));
+              if (movRows && movRows.length > 0) {
+                const mappedMovs: CashMovement[] = movRows.map((m: any) => ({
+                  id: m.id,
+                  shiftId: m.shift_id,
+                  type: m.type as "in" | "out",
+                  amount: Number(m.amount) || 0,
+                  notes: m.description || m.reason || "",
+                  timestamp: m.created_at,
+                }));
+                setMovements(mappedMovs);
+                localStorage.setItem(STORAGE_MOVEMENTS, JSON.stringify(mappedMovs));
+              }
+            }
+
+            // Load recent closed shifts history from DB strictly filtered by business_id & outlet_id
+            let historyQuery = supabase
+              .from("pos_shifts" as any)
+              .select("*")
+              .eq("business_id", resolvedBid)
+              .eq("status", "closed");
+
+            if (resolvedOid && resolvedOid !== "default" && resolvedOid !== "all") {
+              historyQuery = historyQuery.eq("outlet_id", resolvedOid);
+            }
+
+            let historyRows: any[] | null = null;
+            try {
+              const { data: histData, error: histErr } = await historyQuery
+                .order("end_time", { ascending: false })
+                .limit(20);
+              if (histErr) throw histErr;
+              historyRows = histData;
+            } catch {
+              const { data: fallbackHist } = await historyQuery
+                .order("created_at", { ascending: false })
+                .limit(20);
+              historyRows = fallbackHist;
+            }
+
+            if (historyRows && historyRows.length > 0) {
+              const mappedHistory: PosShift[] = historyRows.map((h: any) => ({
+                id: h.id,
+                cashierName: h.cashier_name,
+                cashierId: h.cashier_id,
+                teamMembers: h.team_members,
+                outletName: h.outlet_name,
+                outletId: h.outlet_id,
+                startingCash: Number(h.opening_cash ?? h.starting_cash) || 0,
+                startTime: h.start_time || h.opened_at,
+                endTime: h.end_time || h.closed_at,
+                status: "closed",
+                cashSales: Number(h.cash_sales) || 0,
+                totalCashIn: Number(h.total_cash_in) || 0,
+                totalCashOut: Number(h.total_cash_out) || 0,
+                expectedEndingCash: Number(h.expected_ending_cash) || 0,
+                actualEndingCash: Number(h.actual_ending_cash) || 0,
+                cashDifference: Number(h.cash_difference) || 0,
+                notes: h.notes,
+              }));
+              setShiftHistory(mappedHistory);
+              localStorage.setItem(STORAGE_HISTORY, JSON.stringify(mappedHistory));
+            }
+          } catch (dbShiftErr) {
+            console.warn("[PosShift] Could not load from DB, using local state:", dbShiftErr);
           }
-        } catch (dbShiftErr) {
-          console.warn("[PosShift] Could not load from DB, using local state:", dbShiftErr);
         }
       }
     });
@@ -371,30 +382,54 @@ export function PosShiftCashPage() {
   const [liveCashSales, setLiveCashSales] = useState(0);
   const [liveNonCashSales, setLiveNonCashSales] = useState(0);
   const [liveOrderCount, setLiveOrderCount] = useState(0);
+  const [hasLoadedLiveSales, setHasLoadedLiveSales] = useState(false);
 
-  // Poll / sync sales_orders for active shift
+  // Poll / sync sales_orders for active shift (strictly business_id + outlet_id + enum-safe status="paid")
   useEffect(() => {
-    if (!activeShift?.startTime) {
+    if (!activeShift?.startTime || !businessId) {
       setLiveCashSales(0);
       setLiveNonCashSales(0);
       setLiveOrderCount(0);
+      setHasLoadedLiveSales(false);
       return;
     }
 
     const fetchShiftSales = async () => {
       try {
+        // Use .eq("status", "paid") so Postgres enum public.order_status ('draft','paid','refunded','cancelled')
+        // never rejects the query with "invalid input value for enum order_status: 'completed'"
         let q = supabase
           .from("sales_orders")
           .select("*")
-          .in("status" as any, ["paid", "completed"])
+          .eq("business_id", businessId)
+          .eq("status", "paid")
           .gte("created_at", activeShift.startTime);
 
-        if (outletId && outletId !== "all" && outletId !== "default") {
-          q = q.eq("outlet_id", outletId);
+        const targetOid = activeShift.outletId || outletId;
+        if (targetOid && targetOid !== "all" && targetOid !== "default") {
+          q = q.eq("outlet_id", targetOid);
         }
 
-        const { data: orders, error } = await q;
-        if (error) throw error;
+        let { data: orders, error } = await q;
+
+        // Safe fallback if a legacy schema uses a text status column with other paid labels
+        if (error) {
+          const fallbackQuery = supabase
+            .from("sales_orders")
+            .select("*")
+            .eq("business_id", businessId)
+            .gte("created_at", activeShift.startTime);
+          const fallbackScoped =
+            targetOid && targetOid !== "all" && targetOid !== "default"
+              ? fallbackQuery.eq("outlet_id", targetOid)
+              : fallbackQuery;
+          const fallbackRes = await fallbackScoped;
+          if (fallbackRes.error) throw fallbackRes.error;
+          orders = (fallbackRes.data || []).filter((row: any) => {
+            const st = String(row.status || "").toLowerCase();
+            return st === "paid" || st === "completed";
+          });
+        }
 
         let cashSum = 0;
         let nonCashSum = 0;
@@ -414,6 +449,7 @@ export function PosShiftCashPage() {
         setLiveCashSales(cashSum);
         setLiveNonCashSales(nonCashSum);
         setLiveOrderCount(count);
+        setHasLoadedLiveSales(true);
       } catch (err) {
         console.warn("[PosShift] fetchShiftSales warning:", err);
       }
@@ -422,7 +458,7 @@ export function PosShiftCashPage() {
     fetchShiftSales();
     const timer = setInterval(fetchShiftSales, 10000);
     return () => clearInterval(timer);
-  }, [activeShift?.startTime, outletId]);
+  }, [activeShift?.startTime, activeShift?.outletId, outletId, businessId]);
 
   // Compute live cash metrics for active shift
   const currentShiftMovements = useMemo(() => {
@@ -437,15 +473,28 @@ export function PosShiftCashPage() {
   }, [currentShiftMovements]);
 
   const totalCashOut = useMemo(() => {
+    // Exclude refund/void reversal movements tagged with ORDER_REVERSAL_MARKER because
+    // a refunded/voided order is no longer status="paid" and is already excluded from liveCashSales.
     return currentShiftMovements
-      .filter((m) => m.type === "out")
+      .filter(
+        (m) =>
+          m.type === "out" &&
+          !String(m.notes || "").startsWith(ORDER_REVERSAL_MARKER),
+      )
       .reduce((sum, m) => sum + m.amount, 0);
   }, [currentShiftMovements]);
 
-  // Combined Cash Sales (either live orders or stored shift cash sales)
+  // Real Cash Sales: ALWAYS use liveCashSales from the database when online (never Math.max with cached shift.cashSales,
+  // which would mask voids/refunds and hide real cash discrepancies!). Only fall back to cached cashSales when offline.
   const effectiveCashSales = useMemo(() => {
-    return Math.max(liveCashSales, Number(activeShift?.cashSales) || 0);
-  }, [liveCashSales, activeShift?.cashSales]);
+    if (isOnline() && hasLoadedLiveSales) {
+      return liveCashSales;
+    }
+    if (!isOnline()) {
+      return Number(activeShift?.cashSales) || 0;
+    }
+    return liveCashSales;
+  }, [liveCashSales, hasLoadedLiveSales, activeShift?.cashSales]);
 
   // Expected Cash calculation:
   // Saldo Awal + Penjualan Cash + Cash In - Cash Out = Saldo Akhir
@@ -463,37 +512,87 @@ export function PosShiftCashPage() {
       return;
     }
 
+    if (!businessId) {
+      toast.error("Bisnis belum terdeteksi. Muat ulang halaman lalu coba lagi.");
+      return;
+    }
+
     const localShiftId = `shift-${Date.now()}`;
     let createdShiftId = localShiftId;
+    let persistedToDatabase = false;
     const teamMembers = teamMembersInput.trim() || undefined;
+    const startTimeIso = new Date().toISOString();
+    const safeOutletUuid = isValidUuid(outletId) ? outletId : null;
+    const safeUserUuid = isValidUuid(userId) ? userId : null;
 
-    try {
-      const { data: inserted, error: insertErr } = await supabase
-        .from("pos_shifts" as any)
-        .insert({
-          business_id: businessId,
-          outlet_id: outletId,
-          cashier_id: userId,
-          cashier_name: cashierName,
-          team_members: teamMembers,
-          outlet_name: outletName,
-          opening_cash: startCash,
-          start_time: new Date().toISOString(),
-          status: "open",
-          cash_sales: 0,
-          total_cash_in: 0,
-          total_cash_out: 0,
-          expected_ending_cash: startCash,
-          notes: teamMembers ? `Kru: ${teamMembers}` : null,
-        })
-        .select("id")
-        .maybeSingle();
+    if (isOnline()) {
+      try {
+        let { data: inserted, error: insertErr } = await supabase
+          .from("pos_shifts" as any)
+          .insert({
+            business_id: businessId,
+            outlet_id: safeOutletUuid,
+            cashier_id: safeUserUuid,
+            cashier_name: cashierName,
+            team_members: teamMembers,
+            outlet_name: outletName,
+            opening_cash: startCash,
+            start_time: startTimeIso,
+            status: "open",
+            cash_sales: 0,
+            total_cash_in: 0,
+            total_cash_out: 0,
+            expected_ending_cash: startCash,
+            notes: teamMembers ? `Kru: ${teamMembers}` : null,
+          })
+          .select("id")
+          .maybeSingle();
 
-      if (!insertErr && (inserted as any)?.id) {
+        // Fallback to core columns in 20260930000000_pos_shifts_and_cash_movements.sql if team_members column is absent
+        if (insertErr) {
+          console.warn("[pos_shifts] Retrying open shift insert without optional columns:", insertErr.message);
+          const retryRes = await supabase
+            .from("pos_shifts" as any)
+            .insert({
+              business_id: businessId,
+              outlet_id: safeOutletUuid,
+              cashier_id: safeUserUuid,
+              cashier_name: cashierName,
+              outlet_name: outletName,
+              opening_cash: startCash,
+              start_time: startTimeIso,
+              status: "open",
+              cash_sales: 0,
+              total_cash_in: 0,
+              total_cash_out: 0,
+              expected_ending_cash: startCash,
+              notes: teamMembers ? `Kru: ${teamMembers}` : null,
+            })
+            .select("id")
+            .maybeSingle();
+          inserted = retryRes.data;
+          insertErr = retryRes.error;
+        }
+
+        if (insertErr || !(inserted as any)?.id) {
+          console.error("[pos_shifts] Gagal menyimpan buka shift ke database:", insertErr);
+          toast.error("Gagal membuka shift di database", {
+            description: insertErr?.message || "Shift tidak dapat disimpan ke server. Periksa koneksi/izin lalu coba lagi.",
+          });
+          return;
+        }
+
         createdShiftId = (inserted as any).id;
+        persistedToDatabase = true;
+      } catch (err: any) {
+        if (isOnline()) {
+          toast.error("Gagal membuka shift di database", {
+            description: err?.message || "Terjadi kesalahan saat menyimpan shift ke server.",
+          });
+          return;
+        }
+        console.warn("[pos_shifts] Offline fallback for open shift:", err);
       }
-    } catch (err) {
-      console.warn("[pos_shifts] DB insert warning, falling back to local:", err);
     }
 
     const newShift: PosShift = {
@@ -504,7 +603,7 @@ export function PosShiftCashPage() {
       outletName,
       outletId: outletId || undefined,
       startingCash: startCash,
-      startTime: new Date().toISOString(),
+      startTime: startTimeIso,
       status: "open",
       cashSales: 0,
       totalCashIn: 0,
@@ -519,23 +618,27 @@ export function PosShiftCashPage() {
     localStorage.setItem("kebabschoicepos_active_cashier_name", cashierName);
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("pos:cashier-changed", { detail: { cashierName } }));
+      window.dispatchEvent(new CustomEvent("pos:shift-updated"));
     }
 
-    // Cache catalog outlet (menu, kategori, varian) ke IndexedDB saat buka shift
+    // Cache catalog outlet (menu, kategori, varian) ke IndexedDB saat buka shift (scoped by business_id)
     try {
-      supabase
-        .from("products")
-        .select("*")
-        .then(({ data: prods }) => {
-          cacheOutletCatalog(outletId || "all", {
-            businessId,
-            products: prods || [],
-          }).catch(() => {});
-        });
+      let catalogQuery = supabase.from("products").select("*");
+      if (businessId) {
+        catalogQuery = catalogQuery.eq("business_id", businessId);
+      }
+      catalogQuery.then(({ data: prods }) => {
+        cacheOutletCatalog(outletId || "all", {
+          businessId,
+          products: prods || [],
+        }).catch(() => {});
+      });
     } catch {}
 
     toast.success(`Shift kasir dibuka untuk ${cashierName}`, {
-      description: `Modal Kas Awal: ${formatRupiah(startCash)} (Tersimpan ke Database & Lokal)`,
+      description: persistedToDatabase
+        ? `Modal Kas Awal: ${formatRupiah(startCash)} (Tersimpan ke Database & Lokal)`
+        : `Modal Kas Awal: ${formatRupiah(startCash)} (Mode Offline — Tersimpan Lokal)`,
     });
   };
 
@@ -562,22 +665,25 @@ export function PosShiftCashPage() {
     let movementDbId = newMovementId;
 
     try {
-      const isDbShift = !activeShift.id.startsWith("shift-");
+      const isDbShift = isValidUuid(activeShift.id);
+      const localShiftNote = !isDbShift ? ` [Ref Shift Lokal: ${activeShift.id}]` : "";
       const { data: inserted, error } = await supabase
         .from("cash_movements" as any)
         .insert({
           business_id: businessId,
-          outlet_id: outletId,
+          outlet_id: isValidUuid(outletId) ? outletId : null,
           shift_id: isDbShift ? activeShift.id : null,
           type: movementType,
           amount,
-          description: movementNotes.trim(),
+          description: `${movementNotes.trim()}${localShiftNote}`,
         })
         .select("id")
         .maybeSingle();
 
       if (!error && (inserted as any)?.id) {
         movementDbId = (inserted as any).id;
+      } else if (error) {
+        console.warn("[cash_movements] DB insert error:", error.message);
       }
     } catch (err) {
       console.warn("[cash_movements] DB insert warning, local saved:", err);
@@ -615,9 +721,13 @@ export function PosShiftCashPage() {
     const diff = actual - expectedEndingCash;
     const endTime = new Date().toISOString();
 
-    try {
-      if (!activeShift.id.startsWith("shift-")) {
-        await supabase
+    if (isValidUuid(activeShift.id)) {
+      if (!businessId) {
+        toast.error("Bisnis tidak terdeteksi. Muat ulang halaman lalu coba tutup shift lagi.");
+        return;
+      }
+      try {
+        const { data: closedRows, error: closeErr } = await supabase
           .from("pos_shifts" as any)
           .update({
             end_time: endTime,
@@ -631,10 +741,27 @@ export function PosShiftCashPage() {
             notes: closingNotes,
             updated_at: endTime,
           })
-          .eq("id", activeShift.id);
+          .eq("id", activeShift.id)
+          .eq("business_id", businessId)
+          .eq("status", "open")
+          .select("id");
+
+        if (closeErr || !closedRows || closedRows.length === 0) {
+          console.error("[pos_shifts] Gagal menutup shift di database:", closeErr);
+          toast.error("Gagal menutup shift di database", {
+            description:
+              closeErr?.message ||
+              "Shift sudah ditutup di terminal lain atau tidak ditemukan. Muat ulang halaman untuk sinkronisasi.",
+          });
+          return;
+        }
+      } catch (err: any) {
+        console.error("[pos_shifts] DB close update exception:", err);
+        toast.error("Gagal menutup shift di database", {
+          description: err?.message || "Periksa koneksi internet lalu coba tutup shift kembali.",
+        });
+        return;
       }
-    } catch (err) {
-      console.warn("[pos_shifts] DB close update warning, local saved:", err);
     }
 
     const closedShift: PosShift = {
@@ -663,6 +790,12 @@ export function PosShiftCashPage() {
     }
     if (activeShift.outletId) {
       localStorage.removeItem(getShiftStorageKey(activeShift.outletId));
+    }
+    if (outletId) {
+      localStorage.removeItem(getShiftStorageKey(outletId));
+    }
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("pos:shift-updated"));
     }
     setIsClosingModalOpen(false);
     setIsCountRevealed(false);

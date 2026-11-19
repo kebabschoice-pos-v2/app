@@ -2876,6 +2876,97 @@ test("Balances 5-card money allocation equation, binds transferred stock branch 
   );
 });
 
+// --- TEST 104: Tahap 4 POS Checkout, Free Cash Input, Strict Void/Refund Guards & Shift Reconciliation ---
+console.log("\n▶ 104. TAHAP 4: POS CHECKOUT, FREE CASH INPUT, STRICT VOID/REFUND GUARDS & SHIFT RECONCILIATION");
+test("Enforces unique order numbers, DB insert guards, free cash input, strict void/refund CAS, UUID shift_id, and business-scoped live shift reconciliation", () => {
+  const posAppCode = fs.readFileSync(
+    path.join(process.cwd(), "src/components/kebabschoicepos/KebabsChoicePOSApp.tsx"),
+    "utf8",
+  );
+  const shiftPageCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/pos/PosShiftCashPage.tsx"),
+    "utf8",
+  );
+  const formattersCode = fs.readFileSync(
+    path.join(process.cwd(), "src/lib/input-formatters.ts"),
+    "utf8",
+  );
+
+  // 1. Unique order number with 4 random base36 chars (e.g. KP-12345678-X7QD)
+  assert.ok(
+    posAppCode.includes("generateUniqueOrderNumber") &&
+      posAppCode.includes("Math.random().toString(36).slice(2, 6).toUpperCase()"),
+    "POS must generate unique order numbers with 4 random base36 characters",
+  );
+  assert.ok(
+    !posAppCode.includes("const orderNumber = `KP-${Date.now().toString().slice(-8)}`;"),
+    "Legacy collision-prone KP-timestamp-only order number generator must be removed",
+  );
+
+  // 2. Order & item insert error guards + QRIS real channel & add-on depletion
+  assert.ok(
+    posAppCode.includes("failQrisPersist") &&
+      posAppCode.includes("Transaksi GAGAL disimpan ke database") &&
+      posAppCode.includes("Item pesanan GAGAL disimpan ke database"),
+    "POS checkout (Cash & QRIS) must halt receipt printing and cart clearing when sales_orders or sales_order_items insert fails",
+  );
+  assert.ok(
+    !posAppCode.includes('channel: "store"') &&
+      !posAppCode.includes('channel: isOjolChannel ? orderType : "store"'),
+    "Checkout must persist the real order channel (dine_in/take_away/delivery/gofood/grabfood/shopeefood), never hardcoded 'store'",
+  );
+  assert.ok(
+    posAppCode.includes('prefixNote: "POS QRIS Addon"') &&
+      posAppCode.includes('prefixNote: "POS Addon"'),
+    "Both QRIS and Cash checkouts must deplete add-on / topping inventory stock",
+  );
+
+  // 3. Free cash tendered input using formatRupiahInput (anti leading-zero, Indonesian thousand dots)
+  assert.ok(
+    formattersCode.includes("export function formatRupiahInput"),
+    "src/lib/input-formatters.ts must export formatRupiahInput",
+  );
+  assert.ok(
+    posAppCode.includes("formatRupiahInput") &&
+      posAppCode.includes('aria-label="Nominal Uang Tunai Diterima"'),
+    "Smart Cart cash payment section must render free-form Rupiah cash tendered input formatted with formatRupiahInput",
+  );
+
+  // 4. Void / Refund guards: status check, business_id filter, halt on update failure, valid UUID shift_id
+  assert.ok(
+    posAppCode.includes('["void", "cancelled", "refunded"].includes(existingStatus)') &&
+      posAppCode.includes('["void", "cancelled", "refunded"].includes(dbCurrentStatus)'),
+    "Void/Refund must reject orders already in void, cancelled, or refunded status",
+  );
+  assert.ok(
+    posAppCode.includes('.eq("business_id", businessId)') &&
+      posAppCode.includes("if (updateErr || !updatedRows || updatedRows.length === 0)"),
+    "Void/Refund order status update must filter by business_id and halt before cash/stock reversal on failure",
+  );
+  assert.ok(
+    posAppCode.includes("const validShiftUuid: string | null = isValidUuid(rawShiftId) ? rawShiftId : null") &&
+      posAppCode.includes("shift_id: validShiftUuid"),
+    "Refund cash_movements must only pass a valid UUID to shift_id (null otherwise, with local ref in notes)",
+  );
+
+  // 5. Shift reconciliation: business_id filters, no Math.max masking, enum-safe status='paid', open/close error checks, per-outlet key
+  assert.ok(
+    !shiftPageCode.includes("Math.max(liveCashSales"),
+    "PosShiftCashPage must NOT use Math.max(liveCashSales, activeShift.cashSales) which hides cash discrepancies",
+  );
+  assert.ok(
+    shiftPageCode.includes('.eq("business_id", resolvedBid)') &&
+      shiftPageCode.includes('.eq("business_id", businessId)') &&
+      shiftPageCode.includes('.eq("status", "paid")') &&
+      shiftPageCode.includes('.eq("status", "open")'),
+    "PosShiftCashPage queries/updates must filter by business_id, use enum-safe .eq('status', 'paid'), and guard close shift with .eq('status', 'open')",
+  );
+  assert.ok(
+    !posAppCode.includes('localStorage.setItem("kebabschoicepos_active_shift"'),
+    "KebabsChoicePOSApp must only write to per-outlet shift key kebabschoicepos_active_shift_${outletId}, never the generic shared key",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

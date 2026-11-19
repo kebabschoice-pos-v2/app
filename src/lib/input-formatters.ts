@@ -43,6 +43,19 @@ export function stripLeadingZeros(val: string | number | undefined | null): stri
 }
 
 /**
+ * Formats raw text typed into a Rupiah input field into Indonesian thousand format,
+ * stripping every non-digit character and any accidental leading zeros.
+ * Example: "080000" -> "80.000", "73000" -> "73.000", "Rp 1.500" -> "1.500", "" -> "", "0" -> "0"
+ */
+export function formatRupiahInput(raw: string | number | undefined | null): string {
+  if (raw === undefined || raw === null) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  if (!digits) return "";
+  const noLeadingZero = digits.replace(/^0+(?=\d)/, "");
+  return new Intl.NumberFormat("id-ID").format(parseInt(noLeadingZero, 10) || 0);
+}
+
+/**
  * Sanitizes quantity inputs (removes leading zero, returns valid number)
  */
 export function sanitizeQuantityInput(val: string | number | undefined | null): number {

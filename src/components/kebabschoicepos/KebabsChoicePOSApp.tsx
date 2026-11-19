@@ -224,6 +224,7 @@ import { MoneyAllocationPage } from "@/pages/money/MoneyAllocationPage";
 import { ThemeModal } from "@/components/theme/ThemeModal";
 import { GlobalSearchModal } from "@/components/search/GlobalSearchModal";
 import { applyTheme, getStoredTheme } from "@/lib/theme";
+import { formatRupiahInput, parseNumberFromDots } from "@/lib/input-formatters";
 
 type AppPage =
   | "dashboard"
@@ -1544,11 +1545,15 @@ function Sidebar({
   ].includes(active);
   const isPosMode = isCashier || isPosPage;
 
-  // Active shift state for POS banner
+  // Active shift state for POS banner (resolved strictly per active outlet)
   const [hasActiveShift, setHasActiveShift] = useState(false);
   useEffect(() => {
     try {
-      const saved = localStorage.getItem("kebabschoicepos_active_shift");
+      const currentOid =
+        localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+        localStorage.getItem("kebabschoicepos_active_outlet_id");
+      const outletKey = getOutletShiftKey(currentOid);
+      const saved = (outletKey && localStorage.getItem(outletKey)) || localStorage.getItem("kebabschoicepos_active_shift");
       if (saved) {
         const parsed = JSON.parse(saved);
         setHasActiveShift(parsed.status === "open");
@@ -3587,6 +3592,135 @@ async function depleteIngredientStock({
   };
 }
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** True only for a real UUID (e.g. a DB-backed pos_shifts.id), never for local ids like "shift-123". */
+function isValidUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
+/**
+ * Generates an order number that is unique across cashier terminals:
+ * last 8 digits of the timestamp + 4 random base36 characters (e.g. KP-12345678-X7QD).
+ */
+function generateUniqueOrderNumber(): string {
+  const timePart = Date.now().toString().slice(-8);
+  let randomPart = Math.random().toString(36).slice(2, 6).toUpperCase();
+  while (randomPart.length < 4) randomPart += "0";
+  return `KP-${timePart}-${randomPart}`;
+}
+
+/** Distinguishes connectivity failures (safe to queue offline) from real DB rejections. */
+function isLikelyNetworkError(err: { message?: string; code?: string } | null | undefined): boolean {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  const msg = String(err?.message || "").toLowerCase();
+  return (
+    msg.includes("failed to fetch") ||
+    msg.includes("networkerror") ||
+    msg.includes("network request failed") ||
+    msg.includes("load failed") ||
+    msg.includes("fetch failed") ||
+    msg.includes("timeout")
+  );
+}
+
+/** Resolves the per-outlet localStorage key for the active shift (never the generic shared key). */
+function getOutletShiftKey(outletId: string | null | undefined): string | null {
+  return outletId && outletId !== "all" ? `kebabschoicepos_active_shift_${outletId}` : null;
+}
+
+/** Marker prefix for cash movements created by refund/void reversals (already netted out of cash sales). */
+const ORDER_REVERSAL_MARKER = "[REVERSAL]";
+
+/**
+ * Depletes add-on / topping ingredients for a single cart item (used by both Cash and QRIS checkout).
+ * Returns a map of inventoryId -> deducted quantity.
+ */
+async function depleteCartItemAddons(
+  cartItem: CartItem,
+  ctx: {
+    chosenOutletId: string | null;
+    businessId: string;
+    orderId: string | null;
+    orderNumber: string;
+    prefixNote: string;
+  },
+): Promise<Record<string, number>> {
+  const deducted: Record<string, number> = {};
+  const addOnList: Array<{ name: string; price?: number }> = [];
+  if (Array.isArray(cartItem.selected_addons) && cartItem.selected_addons.length > 0) {
+    for (const addon of cartItem.selected_addons) {
+      if (addon && addon.name) addOnList.push(addon);
+    }
+  }
+  if (Array.isArray(cartItem.selected_variant_groups)) {
+    for (const vg of cartItem.selected_variant_groups) {
+      const gName = (vg.group_name || "").toLowerCase();
+      if (
+        gName.includes("topping") ||
+        gName.includes("addon") ||
+        gName.includes("extra") ||
+        gName.includes("tambahan")
+      ) {
+        if (Array.isArray(vg.options)) {
+          for (const opt of vg.options) {
+            if (opt && opt.name) addOnList.push(opt);
+          }
+        }
+      }
+    }
+  }
+
+  for (const addon of addOnList) {
+    const rawName = addon.name.trim();
+    const lower = rawName.toLowerCase();
+    let estimatedQty = 1;
+    let estimatedUnit = "pcs";
+    if (
+      lower.includes("daging") ||
+      lower.includes("beef") ||
+      lower.includes("ayam") ||
+      lower.includes("chicken")
+    ) {
+      estimatedQty = 20;
+      estimatedUnit = "gram";
+    } else if (lower.includes("keju") || lower.includes("cheese")) {
+      estimatedQty = 15;
+      estimatedUnit = "gram";
+    } else if (lower.includes("telur") || lower.includes("egg")) {
+      estimatedQty = 1;
+      estimatedUnit = "pcs";
+    } else if (lower.includes("tortilla") || lower.includes("kulit")) {
+      estimatedQty = 1;
+      estimatedUnit = "pcs";
+    } else if (lower.includes("saus") || lower.includes("sauce") || lower.includes("mayo")) {
+      estimatedQty = 15;
+      estimatedUnit = "ml";
+    }
+
+    const cleanName = rawName.replace(/^(extra|tambah|tambahan|\+)\s+/i, "").trim();
+
+    const addonDepletion = await depleteIngredientStock({
+      ingredient: {
+        ingredient_name: cleanName || rawName,
+        quantity: estimatedQty,
+        unit: estimatedUnit,
+      },
+      cartItemQuantity: cartItem.quantity,
+      cartItemName: `${cartItem.name} (+${rawName})`,
+      chosenOutletId: ctx.chosenOutletId,
+      businessId: ctx.businessId,
+      orderId: ctx.orderId,
+      orderNumber: ctx.orderNumber,
+      prefixNote: ctx.prefixNote,
+    });
+    if (addonDepletion) {
+      deducted[addonDepletion.inventoryId] =
+        (deducted[addonDepletion.inventoryId] || 0) + addonDepletion.deductedQuantity;
+    }
+  }
+  return deducted;
+}
 
 function PosPage({
   snapshot,
@@ -3676,27 +3810,22 @@ function PosPage({
 
     async function syncShift() {
       try {
-        const outletShift =
-          selectedOutletId && selectedOutletId !== "all"
-            ? localStorage.getItem(`kebabschoicepos_active_shift_${selectedOutletId}`)
-            : null;
-        const saved = outletShift || localStorage.getItem("kebabschoicepos_active_shift");
+        const outletKey = getOutletShiftKey(selectedOutletId);
+        const saved = outletKey ? localStorage.getItem(outletKey) : null;
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (
-            parsed?.status === "open" &&
-            (!selectedOutletId || selectedOutletId === "all" || parsed.outletId === selectedOutletId)
-          ) {
+          if (parsed?.status === "open" && parsed.outletId === selectedOutletId) {
             if (!isCancelled) setActiveShift(parsed);
           }
         }
       } catch {}
 
-      if (selectedOutletId && selectedOutletId !== "all") {
+      if (selectedOutletId && selectedOutletId !== "all" && snapshot.businessId) {
         try {
           const { data: dbShifts } = await supabase
             .from("pos_shifts" as any)
             .select("*")
+            .eq("business_id", snapshot.businessId)
             .eq("status", "open")
             .eq("outlet_id", selectedOutletId)
             .order("start_time", { ascending: false })
@@ -3898,6 +4027,11 @@ function PosPage({
   const [isCheckingQris, setIsCheckingQris] = useState(false);
   const [qrisPendingOrder, setQrisPendingOrder] = useState<any>(null);
   const [isSettlingQris, setIsSettlingQris] = useState(false);
+  // Error persisting a PAID QRIS order (order/items insert failed) — cart is kept & retry is offered
+  const [qrisPersistError, setQrisPersistError] = useState<string | null>(null);
+  const [isRetryingQrisPersist, setIsRetryingQrisPersist] = useState(false);
+  // Raw text of the free-form "Uang Diterima" input (formatted with Indonesian thousand dots)
+  const [cashTenderedInput, setCashTenderedInput] = useState<string>("");
 
   // QR source for the modal: the store's official static QRIS image when available,
   // otherwise a QR encoded from the (real) transaction payload.
@@ -4544,37 +4678,79 @@ function PosPage({
       };
     });
 
+    const businessId = snapshot.businessId || "";
+
+    // Stop-the-line handler: payment is PAID but the order could not be persisted.
+    // Do NOT print the receipt and do NOT clear the cart — offer a retry instead.
+    const failQrisPersist = (reason: string) => {
+      console.error(`[QRIS] Order #${orderNumber} gagal disimpan:`, reason);
+      setQrisPersistError(reason);
+      toast.error("Order QRIS GAGAL disimpan ke database", {
+        description: `Pembayaran #${orderNumber} sudah diterima, tetapi order belum tercatat (${reason}). Keranjang tidak dikosongkan & struk tidak dicetak. Tekan "Simpan Ulang Order" untuk mencoba lagi.`,
+        duration: 15000,
+      });
+    };
+
+    if (!businessId) {
+      failQrisPersist("Bisnis tidak terdeteksi");
+      return;
+    }
+
     let order: { id: string } | null = null;
     try {
-      let res = await supabase
+      // Idempotent retry: reuse the order row if a previous attempt already created it
+      const { data: existingOrder } = await supabase
         .from("sales_orders")
-        .insert({
-          ...orderPayload,
-          payment_method: "qris",
-          status: "paid",
-          paid_at: new Date().toISOString(),
-        })
         .select("id")
-        .single();
+        .eq("business_id", businessId)
+        .eq("order_number", orderNumber)
+        .maybeSingle();
 
-      if (res.error && (res.error.message?.includes("outlet_id") || res.error.code === "PGRST204")) {
-        const fallbackPayload = { ...orderPayload };
-        delete fallbackPayload.outlet_id;
-        res = await supabase
+      if (existingOrder?.id) {
+        order = { id: existingOrder.id };
+      } else {
+        let res = await supabase
           .from("sales_orders")
           .insert({
-            ...fallbackPayload,
+            ...orderPayload,
             payment_method: "qris",
             status: "paid",
             paid_at: new Date().toISOString(),
           })
           .select("id")
           .single();
+
+        if (res.error && (res.error.message?.includes("outlet_id") || res.error.code === "PGRST204")) {
+          const fallbackPayload = { ...orderPayload };
+          delete fallbackPayload.outlet_id;
+          res = await supabase
+            .from("sales_orders")
+            .insert({
+              ...fallbackPayload,
+              payment_method: "qris",
+              status: "paid",
+              paid_at: new Date().toISOString(),
+            })
+            .select("id")
+            .single();
+        }
+
+        if (res.error || !res.data?.id) {
+          failQrisPersist(res.error?.message || "insert sales_orders tidak mengembalikan id");
+          return;
+        }
+        order = res.data;
       }
 
-      if (!res.error && res.data) {
-        order = res.data;
-        const orderId = order.id;
+      const orderId = order.id;
+
+      // Insert items only if this order does not have them yet (safe for retries)
+      const { count: existingItemCount } = await supabase
+        .from("sales_order_items")
+        .select("id", { count: "exact", head: true })
+        .eq("order_id", orderId);
+
+      if (!existingItemCount) {
         const itemsToInsert = orderItemsPayload.map((it: any) => ({
           ...it,
           order_id: orderId,
@@ -4590,21 +4766,37 @@ function PosPage({
             unit_price: it.unit_price,
             subtotal: it.subtotal,
           }));
-          await supabase.from("sales_order_items").insert(coreItems as any);
-        }
-
-        if (chosenOutletId) {
-          try {
-            await recordOrderOutletMetadata(snapshot.businessId || "", chosenOutletId, orderId, {
-              userId: profile?.email || "staff",
-              displayName: profile?.displayName || "Kasir",
-            });
-          } catch {}
+          const { error: coreItemsErr } = await supabase.from("sales_order_items").insert(coreItems as any);
+          if (coreItemsErr) {
+            // Roll back the item-less order so reports never show an empty paid order
+            const { error: rollbackErr } = await supabase
+              .from("sales_orders")
+              .delete()
+              .eq("id", orderId)
+              .eq("business_id", businessId);
+            if (rollbackErr) {
+              console.error("[QRIS] Rollback order tanpa item gagal:", rollbackErr.message);
+            }
+            failQrisPersist(`insert item pesanan gagal: ${coreItemsErr.message}`);
+            return;
+          }
         }
       }
-    } catch (e) {
-      console.warn("[QRIS] Error persisting paid sales_order:", e);
+
+      if (chosenOutletId) {
+        try {
+          await recordOrderOutletMetadata(businessId, chosenOutletId, orderId, {
+            userId: profile?.email || "staff",
+            displayName: profile?.displayName || "Kasir",
+          });
+        } catch {}
+      }
+    } catch (e: any) {
+      failQrisPersist(e?.message || "koneksi ke database terputus");
+      return;
     }
+
+    setQrisPersistError(null);
 
     // Automated Recipe / BOM Inventory Depletion
     const deductedInventory: Record<string, number> = {};
@@ -4648,6 +4840,17 @@ function PosPage({
                 }
               }
             }
+          }
+          // Also deplete add-ons / toppings for QRIS orders (same rules as Cash checkout)
+          const addonDeducted = await depleteCartItemAddons(cartItem, {
+            chosenOutletId: chosenOutletId || null,
+            businessId,
+            orderId: order?.id || null,
+            orderNumber,
+            prefixNote: "POS QRIS Addon",
+          });
+          for (const [invId, qty] of Object.entries(addonDeducted)) {
+            deductedInventory[invId] = (deductedInventory[invId] || 0) + qty;
           }
         }
       } catch (bomErr) {
@@ -4728,7 +4931,7 @@ function PosPage({
       total: orderTotal,
       payment_method: "qris",
       status: "paid",
-      channel: "store",
+      channel: orderPayload?.channel || pendingOrder?.orderType || "dine_in",
       created_at: receiptData.createdAt,
       customer_id: effectiveCustomerId,
       outlet_id: chosenOutletId,
@@ -4809,6 +5012,17 @@ function PosPage({
       finalizePaidQrisOrder(qrisPendingOrder, qrisSettlementRef);
     }
   }, [qrisStatus, isQrisModalOpen, isSettlingQris, qrisPendingOrder, qrisSettlementRef]);
+
+  // Manual retry when a PAID QRIS order failed to persist (cart is still intact)
+  const handleRetryQrisPersist = async () => {
+    if (!qrisPendingOrder || isRetryingQrisPersist) return;
+    setIsRetryingQrisPersist(true);
+    try {
+      await finalizePaidQrisOrder(qrisPendingOrder, qrisSettlementRef);
+    } finally {
+      setIsRetryingQrisPersist(false);
+    }
+  };
 
   // Handle Manual Status Verification
   const handleCheckQrisStatus = async () => {
@@ -4893,7 +5107,7 @@ function PosPage({
       return;
     }
 
-    const orderNumber = `KP-${Date.now().toString().slice(-8)}`;
+    const orderNumber = generateUniqueOrderNumber();
     const chosenOutletId =
       selectedOutletId && selectedOutletId !== "all"
         ? selectedOutletId
@@ -4903,7 +5117,17 @@ function PosPage({
       toast.error("Pilih Cabang Outlet terlebih dahulu sebelum melakukan transaksi kasir.");
       return;
     }
-    const isOjolChannel = ["gofood", "grabfood", "shopeefood"].includes(orderType);
+
+    // Validate free-form cash tendered (0 / empty = Uang Pas)
+    if (paymentMethod === "cash" && cashTendered > 0 && cashTendered < total) {
+      toast.error("Uang diterima kurang dari total tagihan", {
+        description: `Total ${formatRupiah(total)} • Diterima ${formatRupiah(cashTendered)} • Kurang ${formatRupiah(total - cashTendered)}`,
+      });
+      return;
+    }
+
+    // Persist the real sales channel (dine_in / take_away / delivery / gofood / grabfood / shopeefood)
+    const orderChannel: string = orderType || "dine_in";
     let effectiveCustomerId: string | null = null;
     let effectiveCustomerName = "Pelanggan Umum";
 
@@ -4947,7 +5171,7 @@ function PosPage({
       order_type: orderType,
       table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
       status: "paid",
-      channel: isOjolChannel ? orderType : "store",
+      channel: orderChannel,
       paid_at: new Date().toISOString(),
       customer_name: effectiveCustomerName || null,
     };
@@ -5005,6 +5229,7 @@ function PosPage({
         setQrisStatus("PENDING");
         setQrisSettlementRef("");
         setIsSettlingQris(false);
+        setQrisPersistError(null);
         setIsQrisModalOpen(true);
         return;
       } catch (err: any) {
@@ -5084,7 +5309,7 @@ function PosPage({
             table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
             status: "paid",
             customer_name: effectiveCustomerName || null,
-            channel: isOjolChannel ? orderType : "store",
+            channel: orderChannel,
           };
           if (chosenOutletId) corePayload.outlet_id = chosenOutletId;
           if (effectiveCustomerId) corePayload.customer_id = effectiveCustomerId;
@@ -5097,8 +5322,18 @@ function PosPage({
           }
 
           if (retryRes.error) {
-            console.warn("[POS] Core retry insert also failed, routing to offline queue:", retryRes.error);
-            isQueuedOffline = true;
+            if (isLikelyNetworkError(retryRes.error)) {
+              console.warn("[POS] Network failure during order insert, routing to offline queue:", retryRes.error);
+              isQueuedOffline = true;
+            } else {
+              // Real DB rejection (constraint / RLS / schema): stop — never print a receipt or clear the cart
+              console.error("[POS] sales_orders insert rejected by database:", retryRes.error);
+              toast.error("Transaksi GAGAL disimpan ke database", {
+                description: `Order #${orderNumber} tidak tersimpan (${retryRes.error.message}). Keranjang tidak dikosongkan — periksa koneksi/izin lalu coba lagi.`,
+                duration: 10000,
+              });
+              return;
+            }
           } else {
             order = retryRes.data;
           }
@@ -5108,6 +5343,53 @@ function PosPage({
       } catch (networkErr) {
         console.warn("[POS] Network exception during checkout, routing to offline queue:", networkErr);
         isQueuedOffline = true;
+      }
+    }
+
+    if (!isQueuedOffline && !order?.id) {
+      toast.error("Transaksi GAGAL disimpan ke database", {
+        description: `Order #${orderNumber} tidak mengembalikan ID. Keranjang tidak dikosongkan — silakan coba lagi.`,
+      });
+      return;
+    }
+
+    if (!isQueuedOffline && order && order.id) {
+      // Insert sales order items FIRST — if this fails, roll back the order and stop the checkout
+      const orderId = order.id;
+      const itemsToInsert = orderItemsPayload.map((it) => ({
+        ...it,
+        order_id: orderId,
+      }));
+      const { error: itemsErr } = await supabase.from("sales_order_items").insert(itemsToInsert as any);
+      if (itemsErr) {
+        console.warn("[POS] sales_order_items insert warning, retrying with core fields:", itemsErr.message);
+        const coreItems = itemsToInsert.map((it: any) => ({
+          order_id: it.order_id,
+          product_id: it.product_id,
+          name: it.name,
+          variant_name: it.variant_name || null,
+          notes: it.notes || null,
+          quantity: it.quantity,
+          unit_price: it.unit_price,
+          subtotal: it.subtotal,
+        }));
+        const { error: coreItemsErr } = await supabase.from("sales_order_items").insert(coreItems as any);
+        if (coreItemsErr) {
+          console.error("[POS] sales_order_items insert failed:", coreItemsErr);
+          const { error: rollbackErr } = await supabase
+            .from("sales_orders")
+            .delete()
+            .eq("id", orderId)
+            .eq("business_id", snapshot.businessId);
+          if (rollbackErr) {
+            console.error("[POS] Rollback order tanpa item gagal:", rollbackErr.message);
+          }
+          toast.error("Item pesanan GAGAL disimpan ke database", {
+            description: `Order #${orderNumber} dibatalkan otomatis (${coreItemsErr.message}). Struk tidak dicetak & keranjang tidak dikosongkan — silakan coba lagi.`,
+            duration: 10000,
+          });
+          return;
+        }
       }
     }
 
@@ -5179,28 +5461,6 @@ function PosPage({
           console.warn("[CRM] Customer update warning:", custErr);
         }
       }
-
-      // Insert sales order items online
-      const orderId = order.id;
-      const itemsToInsert = orderItemsPayload.map((it) => ({
-        ...it,
-        order_id: orderId,
-      }));
-      const { error: itemsErr } = await supabase.from("sales_order_items").insert(itemsToInsert as any);
-      if (itemsErr) {
-        console.warn("[POS] sales_order_items insert warning, retrying with core fields:", itemsErr.message);
-        const coreItems = itemsToInsert.map((it: any) => ({
-          order_id: it.order_id,
-          product_id: it.product_id,
-          name: it.name,
-          variant_name: it.variant_name || null,
-          notes: it.notes || null,
-          quantity: it.quantity,
-          unit_price: it.unit_price,
-          subtotal: it.subtotal,
-        }));
-        await supabase.from("sales_order_items").insert(coreItems as any);
-      }
     }
 
     // Automated Recipe / BOM Inventory Depletion WITH UNIT CONVERSION
@@ -5248,77 +5508,15 @@ function PosPage({
             }
           }
           // Also deplete add-ons / toppings (toppings, additional meat/cheese, etc.)
-          const addOnList: Array<{ name: string; price?: number }> = [];
-          if (Array.isArray(cartItem.selected_addons) && cartItem.selected_addons.length > 0) {
-            for (const addon of cartItem.selected_addons) {
-              if (addon && addon.name) addOnList.push(addon);
-            }
-          }
-          if (Array.isArray(cartItem.selected_variant_groups)) {
-            for (const vg of cartItem.selected_variant_groups) {
-              const gName = (vg.group_name || "").toLowerCase();
-              if (
-                gName.includes("topping") ||
-                gName.includes("addon") ||
-                gName.includes("extra") ||
-                gName.includes("tambahan")
-              ) {
-                if (Array.isArray(vg.options)) {
-                  for (const opt of vg.options) {
-                    if (opt && opt.name) addOnList.push(opt);
-                  }
-                }
-              }
-            }
-          }
-
-          for (const addon of addOnList) {
-            const rawName = addon.name.trim();
-            const lower = rawName.toLowerCase();
-            let estimatedQty = 1;
-            let estimatedUnit = "pcs";
-            if (
-              lower.includes("daging") ||
-              lower.includes("beef") ||
-              lower.includes("ayam") ||
-              lower.includes("chicken")
-            ) {
-              estimatedQty = 20;
-              estimatedUnit = "gram";
-            } else if (lower.includes("keju") || lower.includes("cheese")) {
-              estimatedQty = 15;
-              estimatedUnit = "gram";
-            } else if (lower.includes("telur") || lower.includes("egg")) {
-              estimatedQty = 1;
-              estimatedUnit = "pcs";
-            } else if (lower.includes("tortilla") || lower.includes("kulit")) {
-              estimatedQty = 1;
-              estimatedUnit = "pcs";
-            } else if (lower.includes("saus") || lower.includes("sauce") || lower.includes("mayo")) {
-              estimatedQty = 15;
-              estimatedUnit = "ml";
-            }
-
-            const cleanName = rawName.replace(/^(extra|tambah|tambahan|\+)\s+/i, "").trim();
-
-            const addonDepletion = await depleteIngredientStock({
-              ingredient: {
-                ingredient_name: cleanName || rawName,
-                quantity: estimatedQty,
-                unit: estimatedUnit,
-              },
-              cartItemQuantity: cartItem.quantity,
-              cartItemName: `${cartItem.name} (+${rawName})`,
-              chosenOutletId,
-              businessId: snapshot.businessId || "",
-              orderId: order?.id || null,
-              orderNumber,
-              prefixNote: "POS Addon",
-            });
-            if (addonDepletion) {
-              deductedInventory[addonDepletion.inventoryId] =
-                (deductedInventory[addonDepletion.inventoryId] || 0) + addonDepletion.deductedQuantity;
-            }
+          const addonDeducted = await depleteCartItemAddons(cartItem, {
+            chosenOutletId: chosenOutletId || null,
+            businessId: snapshot.businessId || "",
+            orderId: order?.id || null,
+            orderNumber,
+            prefixNote: "POS Addon",
+          });
+          for (const [invId, qty] of Object.entries(addonDeducted)) {
+            deductedInventory[invId] = (deductedInventory[invId] || 0) + qty;
           }
         }
       } catch (bomErr) {
@@ -5365,12 +5563,12 @@ function PosPage({
       }
     }
 
-    // Sync active shift cash sales if payment was made in cash
+    // Sync active shift cash sales if payment was made in cash (strictly per-outlet shift key)
     if (paymentMethod === "cash") {
       try {
-        const outletShiftKey = chosenOutletId ? `kebabschoicepos_active_shift_${chosenOutletId}` : null;
-        const savedShift = (outletShiftKey && localStorage.getItem(outletShiftKey)) || localStorage.getItem("kebabschoicepos_active_shift");
-        if (savedShift) {
+        const outletShiftKey = getOutletShiftKey(chosenOutletId);
+        const savedShift = outletShiftKey ? localStorage.getItem(outletShiftKey) : null;
+        if (outletShiftKey && savedShift) {
           const shiftObj = JSON.parse(savedShift);
           const newCashSales = (Number(shiftObj.cashSales) || 0) + total;
           const newExpected =
@@ -5380,20 +5578,22 @@ function PosPage({
             (Number(shiftObj.totalCashOut) || 0);
           shiftObj.cashSales = newCashSales;
           shiftObj.expectedEndingCash = newExpected;
-          localStorage.setItem("kebabschoicepos_active_shift", JSON.stringify(shiftObj));
-          if (chosenOutletId) {
-            localStorage.setItem(`kebabschoicepos_active_shift_${chosenOutletId}`, JSON.stringify(shiftObj));
-          }
+          localStorage.setItem(outletShiftKey, JSON.stringify(shiftObj));
 
-          if (!isQueuedOffline && shiftObj.id && !shiftObj.id.startsWith("shift-")) {
-            await supabase
+          if (!isQueuedOffline && isValidUuid(shiftObj.id)) {
+            const { error: shiftUpdErr } = await supabase
               .from("pos_shifts" as any)
               .update({
                 cash_sales: newCashSales,
                 expected_ending_cash: newExpected,
                 updated_at: new Date().toISOString(),
               })
-              .eq("id", shiftObj.id);
+              .eq("id", shiftObj.id)
+              .eq("business_id", snapshot.businessId)
+              .eq("status", "open");
+            if (shiftUpdErr) {
+              console.warn("[POS] pos_shifts cash_sales update failed:", shiftUpdErr.message);
+            }
           }
         }
       } catch (shiftErr) {
@@ -5444,7 +5644,7 @@ function PosPage({
       total,
       payment_method: paymentMethod as any,
       status: "paid",
-      channel: isOjolChannel ? orderType : "store",
+      channel: orderChannel,
       created_at: receiptData.createdAt,
       customer_id: effectiveCustomerId,
       outlet_id: chosenOutletId,
@@ -5518,6 +5718,7 @@ function PosPage({
     setNewCustomerPhone("");
     setCustomerMode("public");
     setCashTendered(0);
+    setCashTenderedInput("");
     setDiscountValue(0);
 
     if (paymentMethod === "cash") {
@@ -6312,15 +6513,57 @@ function PosPage({
               ))}
           </div>
 
-          {/* Quick Tender & Kembalian for Cash */}
+          {/* Quick Tender, Input Tunai Bebas & Kembalian for Cash */}
           {paymentMethod === "cash" && (
             <div className="rounded-2xl bg-primary/5 border border-primary/15 p-3 space-y-2 animate-in fade-in duration-200">
               <div className="flex items-center justify-between text-xs font-bold">
                 <span className="text-muted-foreground">Uang Diterima:</span>
-                <span className="text-primary font-black">
+                <span
+                  className={cn(
+                    "font-black",
+                    cashTendered > 0 && cashTendered < total ? "text-rose-600 dark:text-rose-400" : "text-primary",
+                  )}
+                >
                   {formatRupiah(cashTendered || total)}
                 </span>
               </div>
+
+              {/* Input Nominal Uang Tunai Bebas (format ribuan Indonesia, anti leading-zero) */}
+              <div className="relative">
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-muted-foreground">
+                  Rp
+                </span>
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  aria-label="Nominal Uang Tunai Diterima"
+                  placeholder={total > 0 ? formatRupiahInput(total) : "Ketik nominal uang diterima..."}
+                  value={cashTenderedInput}
+                  onChange={(e) => {
+                    const formatted = formatRupiahInput(e.target.value);
+                    setCashTenderedInput(formatted);
+                    setCashTendered(parseNumberFromDots(formatted));
+                  }}
+                  className={cn(
+                    "h-9 rounded-xl bg-background pl-9 pr-14 text-right font-mono text-sm font-black",
+                    cashTendered > 0 && cashTendered < total && "border-rose-500 focus-visible:ring-rose-500",
+                  )}
+                />
+                {cashTenderedInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCashTenderedInput("");
+                      setCashTendered(0);
+                    }}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md px-1.5 py-0.5 text-[10px] font-bold text-muted-foreground hover:bg-muted hover:text-rose-500"
+                    title="Kosongkan ke Uang Pas"
+                  >
+                    Pas
+                  </button>
+                )}
+              </div>
+
               <div className="grid grid-cols-4 gap-1.5">
                 {[
                   { label: "Uang Pas", val: total },
@@ -6333,7 +6576,10 @@ function PosPage({
                     size="sm"
                     variant={cashTendered === btn.val ? "default" : "outline"}
                     className="h-8 rounded-xl text-[10px] font-bold p-1"
-                    onClick={() => setCashTendered(btn.val)}
+                    onClick={() => {
+                      setCashTendered(btn.val);
+                      setCashTenderedInput(formatRupiahInput(btn.val));
+                    }}
                   >
                     {btn.label}
                   </Button>
@@ -6351,7 +6597,13 @@ function PosPage({
                     size="sm"
                     variant="outline"
                     className="h-7 rounded-lg text-[9px] font-bold p-0.5 bg-background/50 hover:bg-primary/10 border-primary/20"
-                    onClick={() => setCashTendered((prev) => Math.max(total, (prev || total) + inc.add))}
+                    onClick={() =>
+                      setCashTendered((prev) => {
+                        const nextVal = Math.max(total, (prev || total) + inc.add);
+                        setCashTenderedInput(formatRupiahInput(nextVal));
+                        return nextVal;
+                      })
+                    }
                   >
                     {inc.label}
                   </Button>
@@ -6360,16 +6612,30 @@ function PosPage({
                   size="sm"
                   variant="ghost"
                   className="h-7 rounded-lg text-[9px] font-bold p-0.5 text-muted-foreground hover:text-rose-500"
-                  onClick={() => setCashTendered(total)}
+                  onClick={() => {
+                    setCashTendered(0);
+                    setCashTenderedInput("");
+                  }}
                 >
                   Reset
                 </Button>
               </div>
               <div className="flex items-center justify-between pt-1 border-t border-primary/10 text-xs">
-                <span className="font-semibold text-muted-foreground">Kembalian:</span>
-                <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
-                  {formatRupiah(Math.max(0, (cashTendered || total) - total))}
-                </span>
+                {cashTendered > 0 && cashTendered < total ? (
+                  <>
+                    <span className="font-semibold text-rose-600 dark:text-rose-400">Kurang Bayar:</span>
+                    <span className="font-black text-rose-600 dark:text-rose-400 text-sm">
+                      -{formatRupiah(total - cashTendered)}
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold text-muted-foreground">Kembalian:</span>
+                    <span className="font-black text-emerald-600 dark:text-emerald-400 text-sm">
+                      {formatRupiah(Math.max(0, (cashTendered || total) - total))}
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -6420,7 +6686,7 @@ function PosPage({
           <Button
             variant="hero"
             className="h-14 flex-1 rounded-2xl text-base shadow-brand font-bold"
-            disabled={cart.length === 0}
+            disabled={cart.length === 0 || (paymentMethod === "cash" && cashTendered > 0 && cashTendered < total)}
             onClick={checkout}
           >
             Bayar {formatRupiah(total)}
@@ -6861,18 +7127,48 @@ function PosPage({
                     <span className="font-bold text-foreground">{new Date().toLocaleTimeString("id-ID")}</span>
                   </div>
                 </div>
-                <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 font-semibold flex items-center justify-center gap-1.5">
-                  <Printer className="size-3.5" />
-                  Struk otomatis dicetak ke printer kasir & laci kas terbuka.
-                </div>
+                {qrisPersistError ? (
+                  <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-3 text-xs text-rose-700 dark:text-rose-300 font-semibold space-y-2 text-left">
+                    <p className="font-black">⚠️ Order belum tersimpan ke database</p>
+                    <p className="font-medium">
+                      {qrisPersistError}. Keranjang tidak dikosongkan dan struk belum dicetak.
+                    </p>
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      className="w-full h-10 rounded-xl text-xs font-bold gap-1.5"
+                      disabled={isRetryingQrisPersist}
+                      onClick={handleRetryQrisPersist}
+                    >
+                      <RefreshCw className={cn("size-3.5", isRetryingQrisPersist && "animate-spin")} />
+                      Simpan Ulang Order
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-2.5 text-xs text-emerald-700 dark:text-emerald-300 font-semibold flex items-center justify-center gap-1.5">
+                    <Printer className="size-3.5" />
+                    Struk otomatis dicetak ke printer kasir & laci kas terbuka.
+                  </div>
+                )}
                 <Button
                   variant="hero"
                   className="w-full h-12 rounded-2xl font-bold shadow-brand"
+                  disabled={isRetryingQrisPersist}
                   onClick={() => {
+                    if (
+                      qrisPersistError &&
+                      typeof window !== "undefined" &&
+                      !window.confirm(
+                        "Order QRIS ini BELUM tersimpan ke database. Tutup tanpa menyimpan? (Keranjang tetap utuh)",
+                      )
+                    ) {
+                      return;
+                    }
                     setIsQrisModalOpen(false);
                     setQrisStatus("PENDING");
                     setQrisModalData(null);
                     setQrisPendingOrder(null);
+                    setQrisPersistError(null);
                   }}
                 >
                   Selesai / Transaksi Baru
@@ -7644,7 +7940,7 @@ function OrdersPage({
 
   const filteredTotalRevenue = useMemo(() => {
     return filteredOrders
-      .filter((ord) => ord.status !== "refunded" && ord.status !== "void")
+      .filter((ord) => ord.status !== "refunded" && ord.status !== "void" && ord.status !== "cancelled")
       .reduce((sum, ord) => sum + (Number(ord.total) || 0), 0);
   }, [filteredOrders]);
 
@@ -7731,8 +8027,15 @@ function OrdersPage({
     }
   };
 
-  // Open Supervisor Action Modal
+  // Open Supervisor Action Modal (reject already void/cancelled/refunded orders immediately)
   const handleOpenActionModal = (mode: "refund" | "void", order: SalesOrder) => {
+    const existingStatus = String(order.status || "").toLowerCase();
+    if (["void", "cancelled", "refunded"].includes(existingStatus)) {
+      toast.error(`Order #${order.order_number} sudah berstatus ${existingStatus.toUpperCase()}`, {
+        description: "Transaksi yang sudah di-Void, Cancelled, atau Refunded tidak dapat diproses ulang.",
+      });
+      return;
+    }
     setActionModal({ isOpen: true, mode, order });
     setSupervisorPin("");
     setActionReason("");
@@ -7741,6 +8044,22 @@ function OrdersPage({
   // Confirm Refund / Void with Supervisor PIN
   const handleConfirmAction = async () => {
     if (!actionModal.order) return;
+
+    const businessId = snapshot.businessId || "";
+    if (!businessId) {
+      toast.error("Bisnis tidak terdeteksi. Muat ulang halaman lalu coba lagi.");
+      return;
+    }
+
+    // 0. Guard in-memory order status against double void/refund
+    const localStatus = String(actionModal.order.status || "").toLowerCase();
+    if (["void", "cancelled", "refunded"].includes(localStatus)) {
+      toast.error(`Order #${actionModal.order.order_number} sudah berstatus ${localStatus.toUpperCase()}`, {
+        description: "Aksi ditolak untuk mencegah double void/refund.",
+      });
+      setActionModal({ isOpen: false, mode: "refund", order: null });
+      return;
+    }
 
     if (!actionReason.trim()) {
       toast.error("Alasan wajib diisi!");
@@ -7755,7 +8074,7 @@ function OrdersPage({
 
     const authResult = await verifySupervisorPin(supervisorPin, {
       outletId: targetOutletId,
-      businessId: snapshot.businessId,
+      businessId,
     });
 
     if (!authResult.isValid) {
@@ -7765,55 +8084,114 @@ function OrdersPage({
     }
 
     const authorizedBy = authResult.authorizedBy || "Supervisor";
-    const newStatus = actionModal.mode === "refund" ? "refunded" : "void";
+    const uiStatus = actionModal.mode === "refund" ? "refunded" : "void";
     const ordId = actionModal.order.id;
     const ordNumber = actionModal.order.order_number;
     const ordTotal = Number(actionModal.order.total) || 0;
 
     try {
-      // 1. Update order status in Supabase
-      const { error: updateErr } = await supabase
+      // 0.5. Verify latest order status directly in the database (business-scoped) to prevent double void/refund
+      const { data: currentOrderRow, error: checkOrderErr } = await supabase
         .from("sales_orders")
-        .update({ status: newStatus as any })
-        .eq("id", ordId);
+        .select("id, status, outlet_id")
+        .eq("id", ordId)
+        .eq("business_id", businessId)
+        .maybeSingle();
 
-      if (updateErr) {
-        console.warn("[Orders] DB status update note:", updateErr.message);
-        if (actionModal.mode === "void") {
-          await supabase
-            .from("sales_orders")
-            .update({ status: "cancelled" as any })
-            .eq("id", ordId);
-        }
+      if (checkOrderErr || !currentOrderRow) {
+        toast.error(`Order #${ordNumber} tidak ditemukan di database bisnis ini`, {
+          description: checkOrderErr?.message || "Reversal kas & stok dihentikan demi keamanan data.",
+        });
+        return;
       }
 
-      // 2. Adjust active shift cash if order was paid in cash
+      const dbCurrentStatus = String(currentOrderRow.status || "").toLowerCase();
+      if (["void", "cancelled", "refunded"].includes(dbCurrentStatus)) {
+        toast.error(`Order #${ordNumber} sudah berstatus ${dbCurrentStatus.toUpperCase()}`, {
+          description: "Transaksi tidak dapat di-void atau di-refund dua kali.",
+        });
+        setActionModal({ isOpen: false, mode: "refund", order: null });
+        return;
+      }
+
+      // 1. Update order status in Supabase strictly scoped by business_id AND previous status (atomic CAS).
+      // If the update fails or affects 0 rows, STOP immediately — NEVER run cash or stock reversal!
+      let persistedDbStatus: string = uiStatus;
+      let { data: updatedRows, error: updateErr } = await supabase
+        .from("sales_orders")
+        .update({ status: uiStatus as any })
+        .eq("id", ordId)
+        .eq("business_id", businessId)
+        .eq("status", currentOrderRow.status)
+        .select("id, status");
+
+      if (updateErr && actionModal.mode === "void") {
+        // public.order_status enum is ('draft','paid','refunded','cancelled'), so 'void' falls back to 'cancelled'
+        console.warn("[Orders] 'void' enum fallback to 'cancelled':", updateErr.message);
+        persistedDbStatus = "cancelled";
+        const fallbackRes = await supabase
+          .from("sales_orders")
+          .update({ status: "cancelled" as any })
+          .eq("id", ordId)
+          .eq("business_id", businessId)
+          .eq("status", currentOrderRow.status)
+          .select("id, status");
+        updatedRows = fallbackRes.data;
+        updateErr = fallbackRes.error;
+      }
+
+      if (updateErr || !updatedRows || updatedRows.length === 0) {
+        console.error("[Orders] Gagal update status order — reversal dibatalkan:", updateErr);
+        toast.error(
+          `Gagal mengubah status Order #${ordNumber} ke ${actionModal.mode.toUpperCase()}`,
+          {
+            description:
+              (updateErr?.message || "Status order sudah berubah di terminal lain.") +
+              " Reversal stok & kas TIDAK dijalankan.",
+            duration: 10000,
+          },
+        );
+        return;
+      }
+
+      const newStatus = (persistedDbStatus === "cancelled" ? "void" : uiStatus) as SalesOrder["status"];
+      const resolvedOutletId = currentOrderRow.outlet_id || targetOutletId;
+
+      // 2. Adjust active shift cash if order was paid in cash (strictly per-outlet key)
       if (actionModal.order.payment_method?.toLowerCase() === "cash") {
         try {
-          const outletShiftKey = targetOutletId ? `kebabschoicepos_active_shift_${targetOutletId}` : null;
-          const savedShift = (outletShiftKey && localStorage.getItem(outletShiftKey)) || localStorage.getItem("kebabschoicepos_active_shift");
-          if (savedShift) {
-            const shiftObj = JSON.parse(savedShift);
-            const newTotalOut = (Number(shiftObj.totalCashOut) || 0) + ordTotal;
-            const newExpected = (Number(shiftObj.expectedEndingCash) || 0) - ordTotal;
-            shiftObj.totalCashOut = newTotalOut;
-            shiftObj.expectedEndingCash = newExpected;
-            localStorage.setItem("kebabschoicepos_active_shift", JSON.stringify(shiftObj));
-            if (targetOutletId) {
-              localStorage.setItem(`kebabschoicepos_active_shift_${targetOutletId}`, JSON.stringify(shiftObj));
-            }
+          const outletShiftKey = getOutletShiftKey(resolvedOutletId);
+          const savedShift = outletShiftKey ? localStorage.getItem(outletShiftKey) : null;
+          const shiftObj = savedShift ? JSON.parse(savedShift) : null;
+          const rawShiftId: string | null = shiftObj?.id || null;
+          const validShiftUuid: string | null = isValidUuid(rawShiftId) ? rawShiftId : null;
+          const localShiftRefNote =
+            rawShiftId && !validShiftUuid ? ` [Ref Shift Lokal: ${rawShiftId}]` : "";
+          const movementDescription = `${ORDER_REVERSAL_MARKER} ${actionModal.mode.toUpperCase()} #${ordNumber}: ${actionReason.trim()} (Otorisasi: ${authorizedBy})${localShiftRefNote}`;
 
-            // Sync with local cash movements history
+          if (outletShiftKey && shiftObj) {
+            // Decrement stored cashSales on the active shift (matches the DB where the order is no longer 'paid')
+            const newCashSales = Math.max(0, (Number(shiftObj.cashSales) || 0) - ordTotal);
+            const newExpected =
+              (Number(shiftObj.startingCash) || 0) +
+              newCashSales +
+              (Number(shiftObj.totalCashIn) || 0) -
+              (Number(shiftObj.totalCashOut) || 0);
+            shiftObj.cashSales = newCashSales;
+            shiftObj.expectedEndingCash = newExpected;
+            localStorage.setItem(outletShiftKey, JSON.stringify(shiftObj));
+
+            // Sync with local cash movements history (tagged with ORDER_REVERSAL_MARKER for audit trail)
             try {
               const savedMovs = JSON.parse(
                 localStorage.getItem("kebabschoicepos_cash_movements") || "[]",
               );
               const newMov = {
                 id: `mov-${Date.now()}`,
-                shiftId: shiftObj.id,
+                shiftId: rawShiftId,
                 type: "out",
                 amount: ordTotal,
-                notes: `${actionModal.mode.toUpperCase()} #${ordNumber}: ${actionReason.trim()}`,
+                notes: movementDescription,
                 authorized_by: authorizedBy,
                 timestamp: new Date().toISOString(),
               };
@@ -7825,28 +8203,50 @@ function OrdersPage({
               // ignore
             }
 
-            // Log cash movement with authorized_by
-            await supabase.from("cash_movements" as any).insert({
-              shift_id: shiftObj.id,
-              business_id: snapshot.businessId,
-              outlet_id: targetOutletId,
-              type: "out",
-              amount: ordTotal,
-              description: `${actionModal.mode.toUpperCase()} #${ordNumber}: ${actionReason.trim()} (Otorisasi: ${authorizedBy})`,
-              notes: `${actionModal.mode.toUpperCase()} #${ordNumber}: ${actionReason.trim()}`,
-              authorized_by: authorizedBy,
-              created_by: authorizedBy,
-              created_at: new Date().toISOString(),
-            });
-
-            if (shiftObj.id && !shiftObj.id.startsWith("shift-")) {
-              await supabase
+            if (validShiftUuid) {
+              const { error: shiftUpdErr } = await supabase
                 .from("pos_shifts" as any)
                 .update({
-                  total_cash_out: newTotalOut,
+                  cash_sales: newCashSales,
                   expected_ending_cash: newExpected,
+                  updated_at: new Date().toISOString(),
                 })
-                .eq("id", shiftObj.id);
+                .eq("id", validShiftUuid)
+                .eq("business_id", businessId)
+                .eq("status", "open");
+              if (shiftUpdErr) {
+                console.warn("[Shift] pos_shifts reversal update warning:", shiftUpdErr.message);
+              }
+            }
+          }
+
+          // Log cash movement in DB: NEVER pass a non-UUID "shift-..." to the uuid column shift_id
+          let { error: cashMovErr } = await supabase.from("cash_movements" as any).insert({
+            shift_id: validShiftUuid,
+            business_id: businessId,
+            outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
+            type: "out",
+            amount: ordTotal,
+            description: movementDescription,
+            notes: movementDescription,
+            authorized_by: authorizedBy,
+            created_by: authorizedBy,
+            created_at: new Date().toISOString(),
+          });
+
+          if (cashMovErr) {
+            // Fallback to core columns defined in 20260930000000_pos_shifts_and_cash_movements.sql
+            const { error: coreMovErr } = await supabase.from("cash_movements" as any).insert({
+              shift_id: validShiftUuid,
+              business_id: businessId,
+              outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
+              type: "out",
+              amount: ordTotal,
+              description: movementDescription,
+              created_at: new Date().toISOString(),
+            });
+            if (coreMovErr) {
+              console.warn("[Shift] cash_movements insert warning:", coreMovErr.message);
             }
           }
         } catch (shiftErr) {
@@ -7857,10 +8257,11 @@ function OrdersPage({
       // 2.5. Stock Reversal: Return raw materials (BOM) & product stock to inventory
       const reversalType = actionModal.mode === "refund" ? "refund_reversal" : "void_reversal";
       try {
-        // A. Look up previous stock_movements for this order
+        // A. Look up previous stock_movements for this order (scoped by business_id)
         const { data: prevMovements } = await (supabase as any)
           .from("stock_movements")
           .select("*")
+          .eq("business_id", businessId)
           .or(`reference_id.eq.${ordId},notes.ilike.%${ordNumber}%`);
 
         const saleMovements: any[] = ((prevMovements as any[]) || []).filter(
@@ -7875,6 +8276,7 @@ function OrdersPage({
                 .from("inventory_items")
                 .select("id, stock, unit, name")
                 .eq("id", mov.inventory_item_id)
+                .eq("business_id", businessId)
                 .maybeSingle();
 
               if (invRow) {
@@ -7882,14 +8284,15 @@ function OrdersPage({
                 await supabase
                   .from("inventory_items")
                   .update({ stock: restoredStock, updated_at: new Date().toISOString() })
-                  .eq("id", mov.inventory_item_id);
+                  .eq("id", mov.inventory_item_id)
+                  .eq("business_id", businessId);
 
                 // Log reversal stock movement
                 await supabase.from("stock_movements" as any).insert({
-                  business_id: snapshot.businessId,
+                  business_id: businessId,
                   inventory_item_id: mov.inventory_item_id,
-                  outlet_id: targetOutletId,
-                  reference_id: ordId,
+                  outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
+                  reference_id: isValidUuid(ordId) ? ordId : null,
                   reference_type: "pos_order",
                   type: reversalType,
                   movement_type: reversalType,
@@ -7918,6 +8321,7 @@ function OrdersPage({
                   const { data: invRow } = await (supabase.from("inventory_items" as any))
                     .select("id, stock, unit, name, yield_per_unit, yield_unit")
                     .eq("id", ing.inventory_item_id)
+                    .eq("business_id", businessId)
                     .maybeSingle();
 
                   if (invRow) {
@@ -7932,13 +8336,14 @@ function OrdersPage({
                     const restoredStock = (Number(row.stock) || 0) + convertedQty;
                     await (supabase.from("inventory_items" as any))
                       .update({ stock: restoredStock, updated_at: new Date().toISOString() })
-                      .eq("id", ing.inventory_item_id);
+                      .eq("id", ing.inventory_item_id)
+                      .eq("business_id", businessId);
 
                     await supabase.from("stock_movements" as any).insert({
-                      business_id: snapshot.businessId,
+                      business_id: businessId,
                       inventory_item_id: ing.inventory_item_id,
-                      outlet_id: targetOutletId,
-                      reference_id: ordId,
+                      outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
+                      reference_id: isValidUuid(ordId) ? ordId : null,
                       reference_type: "pos_order",
                       type: reversalType,
                       movement_type: reversalType,
@@ -7967,13 +8372,15 @@ function OrdersPage({
               .from("products")
               .select("id, stock")
               .eq("id", itm.product_id)
+              .eq("business_id", businessId)
               .maybeSingle();
             if (prodRow) {
               const newProdStock = (Number(prodRow.stock) || 0) + (Number(itm.quantity) || 1);
               await supabase
                 .from("products")
                 .update({ stock: newProdStock, updated_at: new Date().toISOString() })
-                .eq("id", itm.product_id);
+                .eq("id", itm.product_id)
+                .eq("business_id", businessId);
             }
           }
         }
@@ -8195,7 +8602,7 @@ function OrdersPage({
               const custName = order.customer_id ? customerMap[order.customer_id] : null;
 
               const isRefunded = order.status === "refunded";
-              const isVoid = order.status === "void";
+              const isVoid = order.status === "void" || order.status === "cancelled";
 
               return (
                 <div
@@ -8328,7 +8735,7 @@ function OrdersPage({
                       "px-2.5 py-0.5 rounded-full text-xs font-bold capitalize",
                       selectedDetailOrder.status === "refunded"
                         ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-                        : selectedDetailOrder.status === "void"
+                        : selectedDetailOrder.status === "void" || selectedDetailOrder.status === "cancelled"
                           ? "bg-destructive/15 text-destructive"
                           : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
                     )}
@@ -8393,7 +8800,8 @@ function OrdersPage({
 
             {/* Otorisasi Supervisor Info (jika di-refund atau di-void) */}
             {(selectedDetailOrder.status === "refunded" ||
-              selectedDetailOrder.status === "void") && (
+              selectedDetailOrder.status === "void" ||
+              selectedDetailOrder.status === "cancelled") && (
               <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
                 <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
                   <ShieldAlert className="size-4 shrink-0" />
@@ -9224,7 +9632,12 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
         }
       }
       try {
-        const rawShift = localStorage.getItem("kebabschoicepos_active_shift");
+        const currentOid =
+          localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+          localStorage.getItem("kebabschoicepos_active_outlet_id") ||
+          snapshot.assignedOutletId;
+        const outletKey = getOutletShiftKey(currentOid);
+        const rawShift = (outletKey && localStorage.getItem(outletKey)) || localStorage.getItem("kebabschoicepos_active_shift");
         if (rawShift) {
           const parsed = JSON.parse(rawShift);
           if (parsed.cashierName && parsed.cashierName.trim()) {
@@ -9269,11 +9682,15 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     }
 
     try {
-      const { data: openShifts } = await supabase
+      let openShiftsQuery = supabase
         .from("pos_shifts" as any)
         .select("*")
         .eq("status", "open")
-        .eq("outlet_id", out.id)
+        .eq("outlet_id", out.id);
+      if (snapshot.businessId) {
+        openShiftsQuery = openShiftsQuery.eq("business_id", snapshot.businessId);
+      }
+      const { data: openShifts } = await openShiftsQuery
         .order("start_time", { ascending: false })
         .limit(1);
 
@@ -9297,7 +9714,6 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
           notes: row.notes,
         };
         localStorage.setItem(`kebabschoicepos_active_shift_${out.id}`, JSON.stringify(liveShift));
-        localStorage.setItem("kebabschoicepos_active_shift", JSON.stringify(liveShift));
         if (row.cashier_name) {
           setActiveCashierName(row.cashier_name);
           localStorage.setItem("kebabschoicepos_active_cashier_name", row.cashier_name);
@@ -9336,11 +9752,18 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     if (typeof window !== "undefined") {
       localStorage.setItem("kebabschoicepos_active_cashier_name", trimmed);
       try {
-        const rawShift = localStorage.getItem("kebabschoicepos_active_shift");
-        if (rawShift) {
-          const shift = JSON.parse(rawShift);
-          shift.cashierName = trimmed;
-          localStorage.setItem("kebabschoicepos_active_shift", JSON.stringify(shift));
+        const currentOid =
+          localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+          localStorage.getItem("kebabschoicepos_active_outlet_id") ||
+          snapshot.assignedOutletId;
+        const outletKey = getOutletShiftKey(currentOid);
+        if (outletKey) {
+          const rawShift = localStorage.getItem(outletKey);
+          if (rawShift) {
+            const shift = JSON.parse(rawShift);
+            shift.cashierName = trimmed;
+            localStorage.setItem(outletKey, JSON.stringify(shift));
+          }
         }
       } catch {}
       window.dispatchEvent(

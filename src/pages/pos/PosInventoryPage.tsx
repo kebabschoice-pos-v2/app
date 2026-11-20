@@ -55,7 +55,7 @@ const STORAGE_STOCK_REQUESTS = "kebabschoicepos_outlet_stock_requests";
 
 export function PosInventoryPage() {
   const [items, setItems] = useState<OutletInventoryItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [outletName, setOutletName] = useState(() => {
     if (typeof window !== "undefined") {
       try {
@@ -379,7 +379,20 @@ export function PosInventoryPage() {
           </span>
         </div>
 
-        {filteredItems.length === 0 ? (
+        {loading && items.length === 0 ? (
+          <div className="py-10 space-y-3">
+            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-muted-foreground pb-2">
+              <RefreshCw className="size-4 animate-spin text-primary" />
+              <span>Memuat persediaan bahan baku outlet...</span>
+            </div>
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <div
+                key={`pos-inv-skel-${idx}`}
+                className="h-12 w-full rounded-xl bg-muted/50 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : filteredItems.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground">
             <Boxes className="size-12 mx-auto mb-3 opacity-30 text-primary" />
             <p className="font-bold text-sm text-foreground">Tidak Ada Data Bahan Baku</p>

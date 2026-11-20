@@ -1165,11 +1165,34 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     matchedOutletAccount?.settings?.outlet_login_account?.status === "pending_confirmation";
   const pendingConfirmationOutletName = matchedOutletAccount?.name;
 
+  // Resolve business logo (businesses.logo -> fallback to any outlet receipt_settings.logo_url)
+  const receiptLogoFallback =
+    (outletsResult.data || [])
+      .map((o: any) => (o?.settings as any)?.receipt_settings?.logo_url)
+      .find((url: any) => typeof url === "string" && url.trim().length > 0) || null;
+  const resolvedBusinessLogo = (business as any).logo || receiptLogoFallback || null;
+  const resolvedBusinessName = business.name || "";
+  const resolvedBusinessCity = business.city || "";
+
+  if (typeof window !== "undefined" && business.id) {
+    try {
+      localStorage.setItem(
+        "kebabschoicepos_business_identity",
+        JSON.stringify({
+          businessId: business.id,
+          businessName: resolvedBusinessName,
+          logo: resolvedBusinessLogo,
+          city: resolvedBusinessCity,
+        }),
+      );
+    } catch {}
+  }
+
   return {
     businessId: business.id,
-    businessName: business.name,
-    logo: (business as any).logo ?? null,
-    city: business.city ?? "Jakarta",
+    businessName: resolvedBusinessName,
+    logo: resolvedBusinessLogo,
+    city: resolvedBusinessCity,
     role: resolvedEffectiveRole,
     assignedOutletId: resolvedAssignedOutletId,
     outlets: mappedOutlets,
@@ -1343,20 +1366,33 @@ function Header({
             {snapshot.logo ? (
               <img
                 src={snapshot.logo}
-                alt={snapshot.businessName}
+                alt={snapshot.businessName || "Logo Bisnis"}
                 className="size-full object-cover"
               />
-            ) : (
+            ) : snapshot.businessName ? (
               <span className="text-lg font-black">
-                {snapshot.businessName ? snapshot.businessName.charAt(0).toUpperCase() : "K"}
+                {snapshot.businessName.charAt(0).toUpperCase()}
               </span>
+            ) : (
+              <Store className="size-5" />
             )}
           </div>
           <div className="min-w-0">
-            <p className="truncate text-base font-black tracking-normal">{snapshot.businessName}</p>
-            <p className="truncate text-sm text-muted-foreground">
-              {snapshot.city} · {snapshot.role}
-            </p>
+            {snapshot.businessName ? (
+              <>
+                <p className="truncate text-base font-black tracking-normal">
+                  {snapshot.businessName}
+                </p>
+                <p className="truncate text-sm text-muted-foreground">
+                  {snapshot.city ? `${snapshot.city} · ${snapshot.role}` : snapshot.role}
+                </p>
+              </>
+            ) : (
+              <div className="space-y-1.5 py-0.5" aria-label="Memuat identitas bisnis">
+                <div className="h-4 w-32 rounded-md bg-muted animate-pulse" />
+                <div className="h-3 w-20 rounded-md bg-muted/70 animate-pulse" />
+              </div>
+            )}
           </div>
         </div>
         <div className="hidden min-w-0 flex-1 items-center justify-center px-8 md:flex">
@@ -2782,7 +2818,9 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                     <div className="min-w-0">
                       <p className="text-xs font-bold text-foreground">{prod.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {prod.category} · {formatRupiah(prod.price || 0)}
+                        {prod.category && prod.category.trim()
+                          ? `${prod.category.trim()} · ${formatRupiah(prod.price || 0)}`
+                          : formatRupiah(prod.price || 0)}
                       </p>
                     </div>
                   </div>
@@ -6251,7 +6289,7 @@ function PosPage({
               type="text"
               value={menuSearch}
               onChange={(e) => setMenuSearch(e.target.value)}
-              placeholder="Cari menu, kategori, atau scan barcode..."
+              placeholder="Cari menu atau kategori..."
               aria-label="Cari menu kasir"
               className="h-9 w-full rounded-xl border border-border bg-muted/40 pl-9 pr-8 text-xs font-medium text-foreground placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
             />
@@ -6753,7 +6791,7 @@ function PosPage({
             </div>
 
             {/* Input Nama Antrean / Pelanggan + No. Telepon / WhatsApp (Opsional) Langsung di Bawahnya */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+            <div className="grid grid-cols-1 gap-1.5">
               <input
                 type="text"
                 aria-label="Nama Antrean / Pelanggan"
@@ -8194,7 +8232,13 @@ function InventoryPage({ snapshot }: { snapshot: Snapshot }) {
   );
 }
 
-function CustomersPage({ snapshot }: { snapshot: Snapshot }) {
+function CustomersPage({
+  snapshot,
+  isLoading = false,
+}: {
+  snapshot: Snapshot;
+  isLoading?: boolean;
+}) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -8312,7 +8356,34 @@ function CustomersPage({ snapshot }: { snapshot: Snapshot }) {
         )}
       </div>
 
-      {snapshot.customers.length === 0 ? (
+      {isLoading && snapshot.customers.length === 0 ? (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+            <Loader2 className="size-4 animate-spin text-primary" />
+            <span>Memuat database pelanggan CRM...</span>
+          </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <div
+                key={`crm-skel-${idx}`}
+                className="rounded-[1.5rem] border border-border bg-card p-5 space-y-4 animate-pulse"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="size-12 rounded-2xl bg-muted" />
+                  <div className="space-y-2 flex-1">
+                    <div className="h-4 w-36 rounded bg-muted" />
+                    <div className="h-3 w-48 rounded bg-muted/70" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="h-16 rounded-2xl bg-muted/60" />
+                  <div className="h-16 rounded-2xl bg-muted/60" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : snapshot.customers.length === 0 ? (
         <div className="rounded-[1.75rem] border border-dashed border-border bg-card/60 p-12 text-center">
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-3">
             <UsersRound className="size-7" />
@@ -8765,10 +8836,12 @@ function OrdersPage({
   snapshot,
   onRefresh,
   isPosOrders = false,
+  isLoading = false,
 }: {
   snapshot: Snapshot;
   onRefresh?: () => Promise<void>;
   isPosOrders?: boolean;
+  isLoading?: boolean;
 }) {
   const { t } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
@@ -9852,17 +9925,25 @@ function OrdersPage({
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.total_orders_filtered", "Total Order Terfilter")}
           </p>
-          <p className="text-xl font-bold text-foreground tabular-nums mt-1">
-            {filteredOrders.length} Transaksi
-          </p>
+          {isLoading && localOrders.length === 0 ? (
+            <div className="h-7 w-28 rounded-lg bg-muted animate-pulse mt-1" />
+          ) : (
+            <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+              {filteredOrders.length} Transaksi
+            </p>
+          )}
         </div>
         <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.revenue_filtered", "Omzet Bersih Terfilter")}
           </p>
-          <p className="text-xl font-bold text-foreground tabular-nums mt-1">
-            {formatRupiah(filteredTotalRevenue)}
-          </p>
+          {isLoading && localOrders.length === 0 ? (
+            <div className="h-7 w-32 rounded-lg bg-muted animate-pulse mt-1" />
+          ) : (
+            <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+              {formatRupiah(filteredTotalRevenue)}
+            </p>
+          )}
         </div>
         <div className="col-span-2 md:col-span-1 bg-card rounded-2xl border border-border/60 shadow-sm p-4">
           <p className="text-xs text-muted-foreground font-semibold">
@@ -9877,8 +9958,21 @@ function OrdersPage({
       </div>
 
       {/* Order List */}
-      <div className="rounded-[1.75rem] border border-border bg-card/84 p-4 shadow-soft backdrop-blur-2xl">
-        {filteredOrders.length === 0 ? (
+      <div className="rounded-[1.75rem] border border-border bg-card p-4 shadow-soft">
+        {isLoading && localOrders.length === 0 ? (
+          <div className="p-6 space-y-3">
+            <div className="flex items-center justify-center gap-2 text-xs font-semibold text-muted-foreground pb-1">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <span>Memuat riwayat transaksi...</span>
+            </div>
+            {Array.from({ length: 4 }).map((_, idx) => (
+              <div
+                key={`order-skel-${idx}`}
+                className="h-20 w-full rounded-2xl bg-muted/50 animate-pulse"
+              />
+            ))}
+          </div>
+        ) : filteredOrders.length === 0 ? (
           <div className="p-10 text-center text-muted-foreground">
             <ReceiptText className="mx-auto size-10 opacity-30 mb-2" />
             <p className="font-bold text-sm">
@@ -10522,53 +10616,55 @@ function ProfilePage({
           </div>
         </div>
 
-        {/* Simulasi Role untuk Pengujian RBAC */}
-        <div className="mt-6 border-t border-border pt-4">
-          <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-            Simulasi Role Pengguna (Audit & Validasi RBAC):
-          </p>
-          <div className="mt-2.5 flex flex-wrap gap-2.5">
-            {[
-              {
-                id: "owner",
-                label: "Owner HQ",
-                desc: "Akses penuh seluruh cabang, menu & pengaturan",
-              },
-              {
-                id: "manager",
-                label: "Manager Outlet",
-                desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
-              },
-              {
-                id: "cashier",
-                label: "Kasir POS",
-                desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
-              },
-            ].map((r) => {
-              const isActive = (snapshot.role || "owner").toLowerCase() === r.id;
-              return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={async () => {
-                    localStorage.setItem("kebabschoicepos_simulated_role", r.id);
-                    toast.success(`Role diubah menjadi ${r.label}`);
-                    if (onRefresh) await onRefresh();
-                  }}
-                  className={cn(
-                    "flex flex-col items-start rounded-2xl border p-3 text-left transition-all",
-                    isActive
-                      ? "border-primary bg-primary text-primary-foreground font-bold shadow-brand ring-1 ring-primary"
-                      : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
-                  )}
-                >
-                  <span className="text-xs font-black">{r.label}</span>
-                  <span className="text-[10px] opacity-80 mt-0.5">{r.desc}</span>
-                </button>
-              );
-            })}
+        {/* Simulasi Role untuk Pengujian RBAC (Hanya tampil pada mode development) */}
+        {import.meta.env.DEV && (
+          <div className="mt-6 border-t border-border pt-4">
+            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+              Simulasi Role Pengguna (Audit & Validasi RBAC):
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2.5">
+              {[
+                {
+                  id: "owner",
+                  label: "Owner HQ",
+                  desc: "Akses penuh seluruh cabang, menu & pengaturan",
+                },
+                {
+                  id: "manager",
+                  label: "Manager Outlet",
+                  desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
+                },
+                {
+                  id: "cashier",
+                  label: "Kasir POS",
+                  desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
+                },
+              ].map((r) => {
+                const isActive = (snapshot.role || "owner").toLowerCase() === r.id;
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={async () => {
+                      localStorage.setItem("kebabschoicepos_simulated_role", r.id);
+                      toast.success(`Role diubah menjadi ${r.label}`);
+                      if (onRefresh) await onRefresh();
+                    }}
+                    className={cn(
+                      "flex flex-col items-start rounded-2xl border p-3 text-left transition-all",
+                      isActive
+                        ? "border-primary bg-primary text-primary-foreground font-bold shadow-brand ring-1 ring-primary"
+                        : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
+                    )}
+                  >
+                    <span className="text-xs font-black">{r.label}</span>
+                    <span className="text-xs opacity-80 mt-0.5">{r.desc}</span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        )}
       </section>
       <BusinessSettingsCard onRefresh={onRefresh} />
     </div>
@@ -10920,12 +11016,30 @@ function BranchPosSwitchModal({
 export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   const navigate = useNavigate();
   const { i18n } = useTranslation();
-  const [snapshot, setSnapshot] = useState<Snapshot>(emptySnapshot);
+  const [snapshot, setSnapshot] = useState<Snapshot>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("kebabschoicepos_business_identity");
+        if (raw) {
+          const cached = JSON.parse(raw);
+          return {
+            ...emptySnapshot,
+            businessId: cached.businessId || null,
+            businessName: cached.businessName || "",
+            logo: cached.logo || null,
+            city: cached.city || "",
+          };
+        }
+      } catch {}
+    }
+    return emptySnapshot;
+  });
   const [profile, setProfile] = useState<UserProfile>({
     email: "admin@kitapos.id",
     displayName: "Admin",
   });
   const [loading, setLoading] = useState(true);
+  const [isSnapshotLoading, setIsSnapshotLoading] = useState(true);
   const [, setLangTick] = useState(0);
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const openThemeModal = () => {
@@ -11208,6 +11322,8 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     } catch (err) {
       console.warn("[refresh] Error loading snapshot:", err);
       setSnapshot((prev) => (prev?.businessId ? prev : emptySnapshot));
+    } finally {
+      setIsSnapshotLoading(false);
     }
   }
 
@@ -11229,11 +11345,24 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     const handleMenuSync = () => {
       refresh().catch(() => undefined);
     };
+    const handleBusinessUpdated = (e: any) => {
+      const detail = e?.detail;
+      if (detail) {
+        setSnapshot((prev) => ({
+          ...prev,
+          businessName: detail.business_name || detail.name || prev.businessName,
+          logo: detail.logo !== undefined ? detail.logo : prev.logo,
+          city: detail.city || prev.city,
+        }));
+      }
+      refresh().catch(() => undefined);
+    };
     window.addEventListener("pos:menu-updated", handleMenuSync);
     window.addEventListener("menu-updated", handleMenuSync);
     window.addEventListener("inventory:updated", handleMenuSync);
     window.addEventListener("order:created", handleMenuSync);
     window.addEventListener("outlet:staff-updated", handleMenuSync);
+    window.addEventListener("business:updated", handleBusinessUpdated);
 
     return () => {
       window.removeEventListener("pos:menu-updated", handleMenuSync);
@@ -11241,6 +11370,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       window.removeEventListener("inventory:updated", handleMenuSync);
       window.removeEventListener("order:created", handleMenuSync);
       window.removeEventListener("outlet:staff-updated", handleMenuSync);
+      window.removeEventListener("business:updated", handleBusinessUpdated);
     };
   }, []);
 
@@ -11561,6 +11691,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
           snapshot={snapshot}
           onRefresh={refresh}
           isPosOrders={page === "pos-orders"}
+          isLoading={isSnapshotLoading}
         />
       );
     }
@@ -11583,7 +11714,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       return <StockTransferPage />;
     }
     if (page === "customers") {
-      return <CustomersPage snapshot={snapshot} />;
+      return <CustomersPage snapshot={snapshot} isLoading={isSnapshotLoading} />;
     }
     if (page === "analytics") {
       return <AnalyticsPage snapshot={snapshot} />;
@@ -11643,7 +11774,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       return <LoginActivityPage />;
     }
     return <DashboardPage snapshot={snapshot} />;
-  }, [page, snapshot, profile, activeCashierName, appManagerPermissions]);
+  }, [page, snapshot, profile, activeCashierName, appManagerPermissions, isSnapshotLoading]);
 
   if (loading) {
     return (

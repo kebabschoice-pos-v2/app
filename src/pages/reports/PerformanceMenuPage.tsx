@@ -489,10 +489,10 @@ export function PerformanceMenuPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground font-black uppercase">
+        <div className="overflow-x-auto rounded-xl border border-border/60">
+          <table className="w-full min-w-[980px] text-left text-xs">
+            <thead className="bg-muted border-b border-border text-muted-foreground font-black uppercase">
+              <tr>
                 <th className="py-2.5 px-3">Nama Menu</th>
                 <th className="py-2.5 px-3">Kategori</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Harga Jual</th>
@@ -501,7 +501,7 @@ export function PerformanceMenuPage() {
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Terjual</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Total Revenue</th>
                 <th className="py-2.5 px-3 text-center whitespace-nowrap">Status</th>
-                <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
                   Recipe BOM
                 </th>
               </tr>
@@ -560,7 +560,7 @@ export function PerformanceMenuPage() {
                       </span>
                     )}
                   </td>
-                  <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                  <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10">
                     {item.recipeItemsCount > 0 ? (
                       <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
                         <Package className="size-3.5 text-muted-foreground" /> {item.recipeItemsCount} Bahan

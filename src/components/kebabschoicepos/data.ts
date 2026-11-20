@@ -625,9 +625,9 @@ export const calculateSnapshotMetrics = (snapshot: Snapshot) => {
 
 export const emptySnapshot: Snapshot = {
   businessId: null,
-  businessName: "KebabsChoicePOS Studio",
+  businessName: "",
   logo: null,
-  city: "Jakarta",
+  city: "",
   role: "owner",
   assignedOutletId: null,
   products: [],

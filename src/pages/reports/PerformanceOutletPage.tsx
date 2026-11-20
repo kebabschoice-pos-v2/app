@@ -457,10 +457,11 @@ export function PerformanceOutletPage() {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={chartData} margin={{ top: 10, right: 16, left: -12, bottom: 4 }}>
+                <BarChart data={chartData} margin={{ top: 10, right: 16, left: 8, bottom: 4 }}>
                   <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
                   <XAxis dataKey="name" fontSize={12} interval={0} />
                   <YAxis
+                    width={72}
                     fontSize={12}
                     domain={[0, "auto"]}
                     allowDecimals={false}
@@ -684,10 +685,10 @@ export function PerformanceOutletPage() {
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-border text-muted-foreground font-black uppercase">
+        <div className="overflow-x-auto rounded-xl border border-border/60">
+          <table className="w-full min-w-[1060px] text-left text-xs">
+            <thead className="bg-muted border-b border-border text-muted-foreground font-black uppercase">
+              <tr>
                 <th className="py-2.5 px-3">Cabang</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Total Omzet</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Penerimaan Tunai</th>
@@ -695,7 +696,7 @@ export function PerformanceOutletPage() {
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Estimasi HPP</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Kas Keluar Ops</th>
                 <th className="py-2.5 px-3 text-right whitespace-nowrap">Laba Bersih</th>
-                <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                <th className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
                   Status Audit
                 </th>
               </tr>
@@ -772,7 +773,7 @@ export function PerformanceOutletPage() {
                         Margin {actualMarginPct}%
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-center sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                    <td className="py-2.5 px-3 text-center sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10">
                       <div className="flex flex-col items-center gap-1">
                         <span
                           className={cn(
@@ -784,7 +785,7 @@ export function PerformanceOutletPage() {
                         >
                           <span
                             className={cn(
-                              "w-2 h-2 rounded-full inline-block",
+                              "w-2 h-2 rounded-full inline-block shrink-0",
                               outlet.healthStatus === "danger"
                                 ? "bg-rose-500"
                                 : outlet.healthStatus === "warning"
@@ -792,7 +793,7 @@ export function PerformanceOutletPage() {
                                   : "bg-emerald-500",
                             )}
                           />
-                          {outlet.healthScoreLabel}
+                          {String(outlet.healthScoreLabel || "").replace(/^[^\p{L}\p{N}]+/u, "").trim()}
                         </span>
                         {outlet.anomalyNotes && outlet.anomalyNotes.length > 0 && (
                           <span

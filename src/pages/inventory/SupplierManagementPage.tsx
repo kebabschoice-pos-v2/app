@@ -261,14 +261,14 @@ export function SupplierManagementPage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[740px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
+              <thead className="bg-muted border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">Nama Vendor</th>
                   <th className="py-2.5 px-3 font-bold">Kategori Pasokan</th>
                   <th className="py-2.5 px-3 font-bold">Kontak Telepon</th>
                   <th className="py-2.5 px-3 font-bold">Email</th>
                   <th className="py-2.5 px-3 font-bold">Alamat</th>
-                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                  <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
                     Aksi
                   </th>
                 </tr>
@@ -340,7 +340,7 @@ export function SupplierManagementPage() {
                       <td className="py-3.5 px-4 text-muted-foreground text-xs max-w-xs truncate">
                         {s.address || "-"}
                       </td>
-                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10 py-2.5 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
@@ -382,8 +382,8 @@ export function SupplierManagementPage() {
 
       {/* MODAL: Tambah / Edit Supplier */}
       {supplierModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[2rem] border border-border bg-background p-6 shadow-float">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
               <div className="flex items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
@@ -506,8 +506,8 @@ export function SupplierManagementPage() {
 
       {/* MODAL: Detail Riwayat PO Supplier */}
       {detailModalOpen && selectedSupplier && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-[2rem] border border-border bg-card p-6 shadow-float overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-[2rem] border border-border bg-background p-6 shadow-float overflow-hidden">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
               <div>
                 <h3 className="text-lg font-black">{selectedSupplier.name}</h3>

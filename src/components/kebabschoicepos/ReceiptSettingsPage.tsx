@@ -586,7 +586,7 @@ export function ReceiptSettingsPage() {
                 </div>
 
                 {/* Address & Phone */}
-                <div className="grid gap-3 sm:grid-cols-2">
+                <div className="grid gap-3 grid-cols-1 xl:grid-cols-2">
                   <div>
                     <label className="text-xs font-bold text-foreground/80">
                       Nomor Telepon Toko
@@ -605,15 +605,15 @@ export function ReceiptSettingsPage() {
                       Format Kertas Struk
                     </label>
                     <select
-                      className="mt-1.5 h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      className="mt-1.5 h-10 w-full rounded-xl border border-input bg-card px-3 text-xs sm:text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                       value={form.paper_size || "58mm"}
                       onChange={(e) =>
                         setForm({ ...form, paper_size: e.target.value as "58mm" | "80mm" })
                       }
                       disabled={!canEdit}
                     >
-                      <option value="58mm">58mm (Printer Kasir Mobile / Standar)</option>
-                      <option value="80mm">80mm (Printer Kasir Desktop Lebar)</option>
+                      <option value="58mm">58mm (Mobile / Standar)</option>
+                      <option value="80mm">80mm (Desktop Lebar)</option>
                     </select>
                   </div>
                 </div>

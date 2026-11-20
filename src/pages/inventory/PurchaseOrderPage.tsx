@@ -391,7 +391,7 @@ export function PurchaseOrderPage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[780px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
+              <thead className="bg-muted border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">No. PO</th>
                   <th className="py-2.5 px-3 font-bold">Supplier</th>
@@ -400,7 +400,7 @@ export function PurchaseOrderPage() {
                   <th className="py-2.5 px-3 font-bold text-center">Item</th>
                   <th className="py-2.5 px-3 font-bold text-right">Total Nilai</th>
                   <th className="py-2.5 px-3 font-bold text-center">Status</th>
-                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                  <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
                     Aksi
                   </th>
                 </tr>
@@ -461,7 +461,7 @@ export function PurchaseOrderPage() {
                           </span>
                         )}
                       </td>
-                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10 py-2.5 px-3 text-right whitespace-nowrap">
                         <div className="flex items-center justify-end gap-1.5">
                           {/* Contextual Action Buttons */}
                           {po.status === "draft" && (
@@ -524,10 +524,10 @@ export function PurchaseOrderPage() {
 
       {/* MODAL: Buat PO Baru (Dynamic Line Items) */}
       {createModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative flex max-h-[92vh] w-full max-w-4xl flex-col rounded-[2rem] border border-border bg-card shadow-float overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-[2rem] border border-border bg-background shadow-float overflow-hidden">
             {/* Header */}
-            <div className="flex items-center justify-between border-b border-border p-5 bg-muted/20">
+            <div className="flex items-center justify-between border-b border-border p-5 bg-muted/60 shrink-0">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <FileText className="size-5" />
@@ -625,14 +625,14 @@ export function PurchaseOrderPage() {
 
               <div className="rounded-2xl border border-border overflow-x-auto">
                 <table className="w-full min-w-[640px] text-left text-xs">
-                  <thead className="bg-muted/50 border-b border-border text-muted-foreground font-bold uppercase text-xs">
+                  <thead className="bg-muted border-b border-border text-muted-foreground font-bold uppercase text-xs">
                     <tr>
                       <th className="py-2.5 px-3">Bahan Baku</th>
                       <th className="py-2.5 px-3 w-28 text-right">Kuantitas</th>
                       <th className="py-2.5 px-3 w-20">Satuan</th>
                       <th className="py-2.5 px-3 w-36 text-right">Harga Satuan (Rp)</th>
                       <th className="py-2.5 px-3 w-36 text-right">Subtotal</th>
-                      <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 w-12 text-center">
+                      <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] py-2.5 px-3 w-12 text-center">
                         Hapus
                       </th>
                     </tr>
@@ -768,8 +768,8 @@ export function PurchaseOrderPage() {
 
       {/* MODAL: Detail Purchase Order */}
       {detailModalOpen && selectedPO && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative flex max-h-[85vh] w-full max-w-2xl flex-col rounded-[2rem] border border-border bg-card p-6 shadow-float overflow-hidden">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-[2rem] border border-border bg-background p-6 shadow-float overflow-hidden">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
               <div>
                 <h3 className="text-lg font-black">{selectedPO.po_number}</h3>

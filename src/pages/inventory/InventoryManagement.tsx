@@ -1613,7 +1613,7 @@ export function InventoryManagement() {
           <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
             <div className="overflow-x-auto min-w-full">
               <table className="w-full min-w-[780px] text-left text-xs sm:text-sm">
-                <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
+                <thead className="bg-muted border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                   <tr>
                     <th className="py-2.5 px-3 font-bold">Nama Bahan</th>
                     <th className="py-2.5 px-3 font-bold">Kategori</th>
@@ -1623,7 +1623,7 @@ export function InventoryManagement() {
                     <th className="py-2.5 px-3 font-bold text-right">Min. Stok</th>
                     <th className="py-2.5 px-3 font-bold text-center">Status</th>
                     <th className="hidden 2xl:table-cell py-2.5 px-3 font-bold">Supplier</th>
-                    <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
+                    <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] py-2.5 px-3 font-bold text-right whitespace-nowrap">
                       Aksi
                     </th>
                   </tr>
@@ -1771,7 +1771,7 @@ export function InventoryManagement() {
                           <td className="hidden 2xl:table-cell py-2.5 px-3 text-muted-foreground text-xs">
                             {item.supplier_name || "-"}
                           </td>
-                          <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-right whitespace-nowrap">
+                          <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10 py-2.5 px-3 text-right whitespace-nowrap">
                             <div className="flex items-center justify-end gap-1">
                               {isCritical && (
                                 <Button

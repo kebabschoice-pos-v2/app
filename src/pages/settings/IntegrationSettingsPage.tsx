@@ -1,16 +1,25 @@
 import { useState } from "react";
-import { Puzzle, Check, ExternalLink, RefreshCw, Key } from "lucide-react";
+import { Puzzle, RefreshCw, Key, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+
+function maskApiSecretKey(rawKey: string): string {
+  const trimmed = String(rawKey || "").trim();
+  if (!trimmed) return "";
+  if (trimmed.length <= 12) return "••••••••";
+  const prefix = trimmed.startsWith("kc_live_") ? "kc_live_" : trimmed.slice(0, 6);
+  const suffix = trimmed.slice(-4);
+  return `${prefix}••••••••${suffix}`;
+}
 
 export function IntegrationSettingsPage() {
   const [gofoodActive, setGofoodActive] = useState(false);
   const [grabfoodActive, setGrabfoodActive] = useState(false);
   const [shopeefoodActive, setShopeefoodActive] = useState(false);
-  const [jurnalActive, setJurnalActive] = useState(false);
   const [apiKey, setApiKey] = useState("kc_live_948f938201fa84c98e21");
-  const [webhookUrl, setWebhookUrl] = useState("https://api.yourdomain.com/pos/webhook");
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState("");
 
   const generateNewKey = () => {
     const randomHex = Array.from({ length: 24 }, () =>
@@ -165,8 +174,31 @@ export function IntegrationSettingsPage() {
           <div className="space-y-4 pt-2">
             <div>
               <label className="text-xs font-bold text-foreground/80">API Secret Key</label>
-              <div className="flex gap-2 mt-1.5">
-                <Input className="rounded-xl font-mono text-xs" value={apiKey} readOnly />
+              <div className="flex flex-wrap sm:flex-nowrap gap-2 mt-1.5">
+                <Input
+                  className="rounded-xl font-mono text-xs"
+                  value={showApiKey ? apiKey : maskApiSecretKey(apiKey)}
+                  readOnly
+                  aria-label="API Secret Key"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowApiKey((prev) => !prev)}
+                  className="rounded-xl text-xs font-bold shrink-0 gap-1.5"
+                >
+                  {showApiKey ? (
+                    <>
+                      <EyeOff className="size-3.5" />
+                      Sembunyikan
+                    </>
+                  ) : (
+                    <>
+                      <Eye className="size-3.5" />
+                      Lihat
+                    </>
+                  )}
+                </Button>
                 <Button
                   type="button"
                   variant="outline"
@@ -187,7 +219,7 @@ export function IntegrationSettingsPage() {
                 className="mt-1.5 rounded-xl font-mono text-xs"
                 value={webhookUrl}
                 onChange={(e) => setWebhookUrl(e.target.value)}
-                placeholder="https://domain.com/webhook"
+                placeholder="https://api.yourdomain.com/pos/webhook"
               />
             </div>
           </div>

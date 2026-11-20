@@ -1449,7 +1449,14 @@ export function StaffManagement() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {outlets.length === 0 ? (
+              {loading && outlets.length === 0 ? (
+                Array.from({ length: 2 }).map((_, idx) => (
+                  <div
+                    key={`outlet-skel-${idx}`}
+                    className="h-16 rounded-xl border border-border/60 bg-muted/40 animate-pulse"
+                  />
+                ))
+              ) : outlets.length === 0 ? (
                 <div className="col-span-full py-3 text-center text-xs text-muted-foreground italic">
                   Belum ada cabang outlet terdaftar.
                 </div>
@@ -1569,20 +1576,39 @@ export function StaffManagement() {
           <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[780px] text-left text-sm">
-                <thead className="border-b border-border bg-muted/40 text-xs uppercase font-bold text-muted-foreground">
+                <thead className="border-b border-border bg-muted text-xs uppercase font-bold text-muted-foreground">
                   <tr>
                     <th className="px-4 py-3">Karyawan</th>
                     <th className="px-4 py-3">Jabatan & Role</th>
                     <th className="px-4 py-3">Cabang Outlet</th>
                     <th className="px-4 py-3">Status & Masuk</th>
                     {currentUserRole !== "cashier" && <th className="px-4 py-3">Gaji Pokok</th>}
-                    <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-4 py-3 text-right whitespace-nowrap">
+                    <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] px-4 py-3 text-right whitespace-nowrap">
                       Aksi
                     </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {filteredStaff.map((staff, sIdx) => {
+                  {loading && filteredStaff.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={currentUserRole !== "cashier" ? 6 : 5}
+                        className="py-12 text-center text-muted-foreground"
+                      >
+                        <RefreshCw className="mx-auto size-6 animate-spin text-primary mb-2" />
+                        <span className="text-xs font-medium">Memuat data karyawan &amp; HR...</span>
+                      </td>
+                    </tr>
+                  ) : filteredStaff.length === 0 ? (
+                    <tr>
+                      <td
+                        colSpan={currentUserRole !== "cashier" ? 6 : 5}
+                        className="py-12 text-center text-muted-foreground text-xs"
+                      >
+                        Belum ada data karyawan yang sesuai filter.
+                      </td>
+                    </tr>
+                  ) : filteredStaff.map((staff, sIdx) => {
                     const hr = getProfileForStaff(staff.user_id);
                     return (
                       <tr
@@ -1701,7 +1727,7 @@ export function StaffManagement() {
                         )}
 
                         {/* Actions */}
-                        <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-4 py-3 text-right whitespace-nowrap">
+                        <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10 px-4 py-3 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               variant="ghost"
@@ -2660,7 +2686,7 @@ export function StaffManagement() {
                                   </th>
                                 ))}
                                 {currentUserRole !== "cashier" && (
-                                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-2 py-2.5 w-12 text-center whitespace-nowrap">
+                                  <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] px-2 py-2.5 w-12 text-center whitespace-nowrap">
                                     Aksi
                                   </th>
                                 )}
@@ -2967,7 +2993,7 @@ export function StaffManagement() {
           {/* Payroll Table */}
           <div className="overflow-x-auto rounded-xl border border-border">
             <table className="w-full min-w-[920px] text-left text-xs">
-              <thead className="bg-muted/40 font-bold text-muted-foreground border-b border-border">
+              <thead className="bg-muted font-bold text-muted-foreground border-b border-border">
                 <tr>
                   <th className="px-3 py-2.5">Nama Karyawan</th>
                   <th className="px-3 py-2.5">Outlet</th>
@@ -2978,7 +3004,7 @@ export function StaffManagement() {
                   <th className="px-3 py-2.5">Bonus (+)</th>
                   <th className="px-3 py-2.5">Total Gaji (Net)</th>
                   <th className="px-3 py-2.5">Status</th>
-                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] px-3 py-2.5 text-right whitespace-nowrap">
+                  <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] px-3 py-2.5 text-right whitespace-nowrap">
                     Aksi
                   </th>
                 </tr>

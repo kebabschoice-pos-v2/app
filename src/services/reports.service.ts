@@ -775,14 +775,14 @@ export async function getComprehensiveAnalytics(
       }
 
       let healthStatus: "healthy" | "warning" | "danger" = "healthy";
-      let healthScoreLabel = "🟢 Aman & Terkendali";
+      let healthScoreLabel = "Aman & Terkendali";
 
       if (cashDifference < -50000 || voidCount >= 4 || wasteLoss >= 200000) {
         healthStatus = "danger";
-        healthScoreLabel = "🔴 Indikasi Kebocoran (Cek Kas/Stok)";
+        healthScoreLabel = "Indikasi Kebocoran (Cek Kas/Stok)";
       } else if (cashDifference < 0 || voidCount > 0 || wasteLoss > 30000) {
         healthStatus = "warning";
-        healthScoreLabel = "🟡 Perlu Perhatian";
+        healthScoreLabel = "Perlu Perhatian";
       }
 
       // Hourly peak calculation

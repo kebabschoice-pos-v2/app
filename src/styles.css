@@ -66,9 +66,9 @@
   --font-body: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
   --background: oklch(0.984 0.006 247.858);
   --foreground: oklch(0.186 0.035 260.9);
-  --card: oklch(1 0 0 / 86%);
+  --card: oklch(1 0 0);
   --card-foreground: oklch(0.186 0.035 260.9);
-  --popover: oklch(1 0 0 / 94%);
+  --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.186 0.035 260.9);
   --primary: oklch(0.689 0.205 37.7);
   --primary-foreground: oklch(0.992 0.004 84);
@@ -120,9 +120,9 @@
 .dark {
   --background: oklch(0.149 0.031 258.3);
   --foreground: oklch(0.984 0.003 247.858);
-  --card: oklch(0.215 0.035 260.6 / 84%);
+  --card: oklch(0.215 0.035 260.6);
   --card-foreground: oklch(0.984 0.003 247.858);
-  --popover: oklch(0.215 0.035 260.6 / 94%);
+  --popover: oklch(0.215 0.035 260.6);
   --popover-foreground: oklch(0.984 0.003 247.858);
   --primary: oklch(0.715 0.19 39.3);
   --primary-foreground: oklch(0.14 0.03 260.6);

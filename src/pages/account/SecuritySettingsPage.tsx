@@ -25,6 +25,33 @@ export function SecuritySettingsPage() {
     return "";
   });
   const [isSaving, setIsSaving] = useState(false);
+  const [currentUserEmail, setCurrentUserEmail] = useState<string>("");
+
+  const currentDeviceLabel = (() => {
+    if (typeof navigator === "undefined") return "Browser Desktop (Sesi Saat Ini)";
+    const ua = navigator.userAgent || "";
+    const os = /Windows/i.test(ua)
+      ? "Windows PC"
+      : /Macintosh|Mac OS X/i.test(ua)
+        ? "macOS"
+        : /iPhone|iPad/i.test(ua)
+          ? "iOS"
+          : /Android/i.test(ua)
+            ? "Android"
+            : /Linux/i.test(ua)
+              ? "Linux PC"
+              : "Perangkat Browser";
+    const browser = /Edg\//i.test(ua)
+      ? "Microsoft Edge"
+      : /Chrome\//i.test(ua)
+        ? "Google Chrome"
+        : /Safari\//i.test(ua)
+          ? "Safari"
+          : /Firefox\//i.test(ua)
+            ? "Firefox"
+            : "Web Browser";
+    return `${os} · ${browser}`;
+  })();
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -32,6 +59,12 @@ export function SecuritySettingsPage() {
       if (savedPin) setManagerPin(savedPin);
     }
     getManagerPermissions().then((p) => setManagerPermissions(p)).catch(() => {});
+    supabase.auth
+      .getUser()
+      .then(({ data }) => {
+        if (data?.user?.email) setCurrentUserEmail(data.user.email);
+      })
+      .catch(() => {});
   }, []);
 
   const handleSave = async () => {
@@ -261,35 +294,26 @@ export function SecuritySettingsPage() {
           </div>
 
           <div className="space-y-3 pt-2">
-            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-secondary/50 border border-border">
-              <div className="flex items-center gap-3">
-                <div className="size-2 rounded-full bg-emerald-500" />
-                <div>
-                  <p className="text-sm font-bold">Windows PC (Browser Saat Ini)</p>
-                  <p className="text-xs text-muted-foreground">
-                    Jakarta, Indonesia • IP 182.253.x.x
+            <div className="flex items-center justify-between gap-3 p-3.5 rounded-2xl bg-secondary/50 border border-border">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="size-2.5 rounded-full bg-emerald-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-bold truncate">{currentDeviceLabel}</p>
+                  <p className="text-xs text-muted-foreground truncate">
+                    {currentUserEmail
+                      ? `Akun: ${currentUserEmail} · Sesi browser aktif saat ini`
+                      : "Sesi browser aktif saat ini"}
                   </p>
                 </div>
               </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600">
+              <span className="text-xs font-bold px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 whitespace-nowrap shrink-0">
                 Sesi Ini
               </span>
             </div>
-
-            <div className="flex items-center justify-between p-3.5 rounded-2xl bg-secondary/30 border border-border">
-              <div className="flex items-center gap-3">
-                <div className="size-2 rounded-full bg-muted-foreground" />
-                <div>
-                  <p className="text-sm font-bold">Android Tablet Kasir (Pasar Jumat)</p>
-                  <p className="text-xs text-muted-foreground">
-                    Aktif 2 jam yang lalu • IP 180.244.x.x
-                  </p>
-                </div>
-              </div>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-muted-foreground">
-                Aktif
-              </span>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              Demi keamanan, daftar sesi hanya menampilkan sesi browser aktif saat ini. Gunakan tombol
+              &ldquo;Keluarkan Perangkat Lain&rdquo; untuk mengakhiri sesi autentikasi di perangkat lain.
+            </p>
           </div>
         </div>
 

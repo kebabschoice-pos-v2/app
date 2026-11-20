@@ -2159,17 +2159,17 @@ export function MoneyAllocationPage({
               Kios, listrik, dan parkir dicadangkan otomatis tanpa mengurangi kas lancar lain.
             </p>
           </div>
-          <div className="flex items-center gap-2 mt-2 sm:mt-0">
+          <div className="flex flex-wrap items-center gap-2 mt-2 sm:mt-0 shrink-0">
             <Button
               size="sm"
               variant="outline"
-              className="rounded-xl font-bold text-xs gap-1"
+              className="rounded-xl font-bold text-xs gap-1 whitespace-nowrap shrink-0"
               onClick={() => setIsAddingOp(!isAddingOp)}
             >
               <Plus className="size-3.5" />
               Tambah Pos Biaya
             </Button>
-            <Badge variant="outline" className="text-xs font-bold font-mono">
+            <Badge variant="outline" className="text-xs font-bold font-mono whitespace-nowrap shrink-0">
               Total Saldo: {formatRupiah(totalOpSavings)}
             </Badge>
           </div>

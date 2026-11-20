@@ -71,7 +71,7 @@ export async function getBusinessProfile(businessId?: string): Promise<BusinessP
 
   const raw = data as Record<string, unknown>;
 
-  return {
+  const result: BusinessProfile = {
     ...raw,
     id: raw.id as string,
     business_name: (raw.name as string) ?? (raw.business_name as string) ?? "",
@@ -83,6 +83,22 @@ export async function getBusinessProfile(businessId?: string): Promise<BusinessP
     email: (raw.email as string | null) ?? null,
     website: (raw.website as string | null) ?? null,
   };
+
+  if (typeof window !== "undefined" && result.id) {
+    try {
+      const identity = {
+        businessId: result.id,
+        businessName: result.business_name || (raw.name as string) || "",
+        logo: result.logo || null,
+        city: (raw.city as string) || "",
+      };
+      if (identity.businessName) {
+        localStorage.setItem("kebabschoicepos_business_identity", JSON.stringify(identity));
+      }
+    } catch {}
+  }
+
+  return result;
 }
 
 export async function updateBusinessProfile(
@@ -143,6 +159,9 @@ export async function updateBusinessProfile(
 
   // Single Source Of Truth: Fetch fresh profile from Supabase
   const refreshed = await getBusinessProfile(businessId);
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("business:updated", { detail: refreshed }));
+  }
   return refreshed;
 }
 

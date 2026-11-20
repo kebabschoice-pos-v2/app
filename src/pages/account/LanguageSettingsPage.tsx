@@ -28,7 +28,7 @@ const LANGUAGES: LanguageOption[] = [
     region: "asia",
   },
   { code: "ko", name: "Korean", nativeName: "한국어", flag: "🇰🇷", region: "asia" },
-  { code: "th", name: "Thai", nativeName: "ภาษาไทย", flag: "🇹🇭", region: "asia" },
+  { code: "th", name: "Thai", nativeName: "ไทย", flag: "🇹🇭", region: "asia" },
   { code: "vi", name: "Vietnamese", nativeName: "Tiếng Việt", flag: "🇻🇳", region: "asia" },
   { code: "ms", name: "Malay", nativeName: "Bahasa Melayu", flag: "🇲🇾", region: "asia" },
   { code: "fil", name: "Filipino", nativeName: "Tagalog", flag: "🇵🇭", region: "asia" },
@@ -201,11 +201,20 @@ export function LanguageSettingsPage() {
                     : "border-border bg-background hover:bg-secondary/60 text-foreground"
                 }`}
               >
-                <div className="flex items-center gap-3 min-w-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
                   <span className="text-2xl shrink-0">{lang.flag}</span>
-                  <div className="truncate">
+                  <div className="min-w-0 flex-1">
                     <p
-                      className={`text-sm truncate leading-tight ${isSelected ? "font-black text-primary" : "font-bold"}`}
+                      lang={lang.code}
+                      style={{
+                        fontFamily:
+                          lang.code === "th"
+                            ? '"Noto Sans Thai", "Leelawadee UI", "Thonburi", system-ui, sans-serif'
+                            : lang.code === "hi"
+                              ? '"Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", system-ui, sans-serif'
+                              : undefined,
+                      }}
+                      className={`text-sm leading-normal min-h-[1.35rem] truncate ${isSelected ? "font-black text-primary" : "font-bold text-foreground"}`}
                     >
                       {lang.nativeName}
                     </p>

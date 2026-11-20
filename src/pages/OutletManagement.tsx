@@ -851,20 +851,23 @@ export function OutletManagement({
               >
                 <div>
                   {/* Top Bar: Icon, Title, Status Toggle */}
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary font-bold">
-                        <Store className="size-6" />
+                  <div className="flex items-start justify-between gap-2.5">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
+                      <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary font-bold">
+                        <Store className="size-5" />
                       </div>
-                      <div>
-                        <h3 className="font-bold text-base leading-snug line-clamp-1">
+                      <div className="min-w-0 flex-1">
+                        <h3
+                          className="font-bold text-base leading-snug break-words line-clamp-2"
+                          title={outlet.outlet_name}
+                        >
                           {outlet.outlet_name}
                         </h3>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="inline-block rounded-md bg-muted px-2 py-0.5 text-[0.68rem] font-mono font-bold text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          <span className="inline-block rounded-md bg-muted px-2 py-0.5 text-xs font-mono font-bold text-muted-foreground">
                             {outlet.code || "NO CODE"}
                           </span>
-                          <span className="text-[0.68rem] text-muted-foreground flex items-center gap-0.5">
+                          <span className="text-xs text-muted-foreground flex items-center gap-0.5">
                             <Clock className="size-3" />
                             {outlet.timezone === "Asia/Jakarta" ? "WIB" : outlet.timezone}
                           </span>
@@ -881,7 +884,7 @@ export function OutletManagement({
                           ? "Hanya Owner/Manager yang dapat mengubah status"
                           : `Klik untuk ubah ke ${isActive ? "Non-aktif" : "Aktif"}`
                       }
-                      className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-all ${
+                      className={`shrink-0 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold transition-all ${
                         isCashier ? "cursor-not-allowed opacity-80 " : ""
                       }${
                         isActive
@@ -950,7 +953,7 @@ export function OutletManagement({
                                   <span className="size-1.5 rounded-full bg-muted animate-ping shrink-0" />
                                   <span>Menunggu Konfirmasi Gmail Owner</span>
                                 </div>
-                                <p className="font-mono text-xs text-muted-foreground truncate">
+                                <p className="font-mono text-xs text-muted-foreground break-all">
                                   {(outlet.settings as any).outlet_login_email}
                                 </p>
                                 <a
@@ -963,10 +966,13 @@ export function OutletManagement({
                                 </a>
                               </div>
                             ) : (
-                              <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
-                                <div className="flex items-center gap-1.5 min-w-0">
+                              <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1.5 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                   <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                                  <span className="truncate font-mono font-bold text-foreground">
+                                  <span
+                                    className="font-mono font-bold text-foreground break-all leading-snug"
+                                    title={(outlet.settings as any).outlet_login_email}
+                                  >
                                     {(outlet.settings as any).outlet_login_email}
                                   </span>
                                 </div>
@@ -1007,11 +1013,11 @@ export function OutletManagement({
                               Belum ada karyawan ditugaskan ke cabang ini.
                             </p>
                           ) : (
-                            <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-0.5">
+                            <div className="flex flex-wrap gap-1.5 max-h-40 overflow-y-auto pt-1 pb-2 pr-1">
                               {branchEmployees.map((emp, empIdx) => (
                                 <span
                                   key={`card-emp-${emp.name}-${empIdx}`}
-                                  className="inline-flex items-center gap-1 rounded-lg bg-secondary/80 px-2 py-0.5 text-[11px] font-bold text-foreground border border-border/60"
+                                  className="inline-flex items-center gap-1 rounded-lg bg-secondary/80 px-2 py-1 text-xs font-bold text-foreground border border-border/60"
                                   title={`${emp.name} (${emp.role === "cashier" ? "Kasir" : emp.role})`}
                                 >
                                   <span className="size-1 rounded-full bg-primary" />
@@ -1089,15 +1095,15 @@ export function OutletManagement({
         /* Table View */
         <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-soft">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-border bg-muted/40 text-xs uppercase font-bold text-muted-foreground">
+            <table className="w-full min-w-[820px] text-left text-sm">
+              <thead className="border-b border-border bg-muted text-xs uppercase font-bold text-muted-foreground">
                 <tr>
                   <th className="py-2.5 px-3 whitespace-nowrap">Cabang Outlet</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">Akun Login Outlet</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">Karyawan Cabang</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">Alamat &amp; Kontak</th>
                   <th className="py-2.5 px-3 whitespace-nowrap">Status</th>
-                  <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                  <th className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
                     Aksi
                   </th>
                 </tr>
@@ -1229,7 +1235,7 @@ export function OutletManagement({
                       </td>
 
                       {/* Actions */}
-                      <td className="py-2.5 px-3 text-right sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
+                      <td className="py-2.5 px-3 text-right sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10">
                         <div className="flex items-center justify-end gap-1">
                           <Button
                             variant="ghost"
@@ -1289,9 +1295,10 @@ export function OutletManagement({
       {/* MODAL 1: CREATE & EDIT OUTLET FORM                       */}
       {/* ========================================================= */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between border-b border-border pb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 flex max-h-[90vh] w-full max-w-lg flex-col rounded-[2rem] border border-border bg-background shadow-float overflow-hidden">
+            {/* Fixed Modal Header */}
+            <div className="flex shrink-0 items-center justify-between border-b border-border px-6 py-4 bg-muted/50">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <Store className="size-5" />
@@ -1306,6 +1313,7 @@ export function OutletManagement({
                 </div>
               </div>
               <Button
+                type="button"
                 variant="ghost"
                 size="icon"
                 className="rounded-full size-8"
@@ -1315,7 +1323,9 @@ export function OutletManagement({
               </Button>
             </div>
 
-            <form onSubmit={handleSubmit} className="mt-5 space-y-4">
+            <form onSubmit={handleSubmit} className="flex flex-1 flex-col min-h-0 overflow-hidden">
+              {/* Scrollable Form Fields */}
+              <div className="flex-1 overflow-y-auto px-6 py-5 space-y-4">
               {/* Section 1: Identitas */}
               <div>
                 <label className="text-xs font-bold text-foreground/80">
@@ -1339,7 +1349,7 @@ export function OutletManagement({
                     value={form.code || ""}
                     onChange={(e) => setForm({ ...form, code: e.target.value })}
                   />
-                  <span className="text-[0.68rem] text-muted-foreground">
+                  <span className="text-xs text-muted-foreground">
                     Otomatis dibuat jika kosong
                   </span>
                 </div>
@@ -1402,7 +1412,7 @@ export function OutletManagement({
                     </option>
                   ))}
                 </select>
-                <span className="text-[0.68rem] text-muted-foreground mt-0.5 block">
+                <span className="text-xs text-muted-foreground mt-0.5 block">
                   Karyawan yang dipilih akan diberikan hak akses manajer cabang.
                 </span>
               </div>
@@ -1438,18 +1448,19 @@ export function OutletManagement({
                     <span className="font-bold text-foreground block">
                       {"Salin Master Bahan Baku & Pengaturan Konversi dari Cabang Utama (Stok Awal = 0)"}
                     </span>
-                    <span className="text-[11px] text-muted-foreground block mt-0.5">
+                    <span className="text-xs text-muted-foreground block mt-0.5">
                       Otomatis menduplikasi master bahan baku (lengkap dengan kapasitas konversi yield dan patokan harga buffer) sehingga resep menu langsung terhubung tanpa perlu ketik ulang.
                     </span>
                   </label>
                 </div>
               )}
+              </div>
 
-              {/* Form Action Buttons */}
-              <div className="mt-6 flex items-center justify-end gap-3 border-t border-border pt-4">
+              {/* Fixed Footer Action Buttons */}
+              <div className="shrink-0 flex items-center justify-end gap-3 border-t border-border bg-muted/40 px-6 py-4">
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   className="rounded-xl"
                   onClick={handleCloseModal}
                   disabled={submitting}
@@ -1482,8 +1493,8 @@ export function OutletManagement({
       {/* MODAL 2: OUTLET DETAIL MODAL                             */}
       {/* ========================================================= */}
       {detailModalOpen && selectedOutlet && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-[2rem] border border-border bg-card p-6 shadow-float max-h-[90vh] overflow-y-auto">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 w-full max-w-2xl rounded-[2rem] border border-border bg-background p-6 shadow-float max-h-[90vh] overflow-y-auto">
             {/* Header */}
             <div className="flex items-start justify-between border-b border-border pb-4">
               <div className="flex items-center gap-3">

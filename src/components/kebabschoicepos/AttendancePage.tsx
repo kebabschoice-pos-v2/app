@@ -576,15 +576,15 @@ export function AttendancePage({
               />
 
               {!isCameraActive && (
-                <div className="text-center p-6 space-y-3">
-                  <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-muted/20 text-muted-foreground">
+                <div className="relative z-10 text-center p-6 space-y-3">
+                  <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-white/10 text-white/85 border border-white/15">
                     <Camera className="size-7" />
                   </div>
                   <div>
-                    <p className="text-sm font-bold text-foreground">
+                    <p className="text-sm font-bold text-white/95">
                       {cameraError || "Kamera Siap Diaktifkan"}
                     </p>
-                    <p className="text-xs text-muted-foreground max-w-xs mx-auto mt-1">
+                    <p className="text-xs text-white/75 max-w-xs mx-auto mt-1">
                       Pastikan wajah Anda berada di dalam garis panduan oval di bawah pencahayaan
                       yang cukup.
                     </p>
@@ -639,7 +639,18 @@ export function AttendancePage({
                 <Laptop className="size-3.5 text-primary" />
                 <span>
                   Device: Browser Client (
-                  {navigator.userAgent.includes("Windows") ? "PC" : "Mobile"})
+                  {(() => {
+                    if (typeof navigator === "undefined") return "Desktop";
+                    const ua = navigator.userAgent || "";
+                    const isMobileUa =
+                      /Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
+                    const isTabletUa = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua);
+                    if (isMobileUa) return "Mobile";
+                    if (isTabletUa) return "Tablet";
+                    if (typeof window !== "undefined" && window.innerWidth < 640) return "Mobile";
+                    return "Desktop";
+                  })()}
+                  )
                 </span>
               </span>
               <button

@@ -309,7 +309,7 @@ export function WastePage() {
         <div className="rounded-[1.75rem] border border-border bg-card overflow-hidden shadow-soft">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[760px] text-left text-xs sm:text-sm">
-              <thead className="bg-muted/40 border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
+              <thead className="bg-muted border-b border-border text-muted-foreground uppercase text-xs sm:text-xs tracking-wider">
                 <tr>
                   <th className="py-2.5 px-3 font-bold">Waktu</th>
                   <th className="py-2.5 px-3 font-bold">Nama Bahan</th>
@@ -317,7 +317,7 @@ export function WastePage() {
                   <th className="py-2.5 px-3 font-bold text-right">Jumlah Terbuang</th>
                   <th className="py-2.5 px-3 font-bold text-right">Estimasi Kerugian</th>
                   <th className="py-2.5 px-3 font-bold">Dicatat Oleh</th>
-                  <th className="sticky right-0 z-10 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 font-bold">
+                  <th className="sticky right-0 z-20 bg-muted border-l border-border shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)] py-2.5 px-3 font-bold">
                     Catatan
                   </th>
                 </tr>
@@ -362,7 +362,7 @@ export function WastePage() {
                       <td className="py-2.5 px-3 text-muted-foreground">
                         {w.created_by || "Staff"}
                       </td>
-                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] py-2.5 px-3 text-muted-foreground text-xs">
+                      <td className="sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)] border-l border-border z-10 py-2.5 px-3 text-muted-foreground text-xs">
                         {w.notes || "-"}
                       </td>
                     </tr>
@@ -376,8 +376,8 @@ export function WastePage() {
 
       {/* MODAL: Catat Barang Terbuang */}
       {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-lg rounded-[2rem] border border-border bg-card p-6 shadow-float">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
+          <div className="relative z-50 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[2rem] border border-border bg-background p-6 shadow-float">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
               <div className="flex items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600">
@@ -511,7 +511,7 @@ export function WastePage() {
                 <Input
                   value={wasteNotes}
                   onChange={(e) => setWasteNotes(e.target.value)}
-                  placeholder="Contoh: Kemasan sobek saat unboxing, susu basi karena mati lampu..."
+                  placeholder="Contoh: Mati lampu / bahan kadaluwarsa / kemasan rusak"
                   className="mt-1 rounded-2xl"
                 />
               </div>

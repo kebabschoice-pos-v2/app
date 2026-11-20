@@ -236,11 +236,11 @@ export function StockOpnamePage() {
         <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-muted-foreground">Draft Menunggu Approval</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/75">
               <Clock className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black text-amber-600">
+          <p className="mt-3 text-2xl font-black text-foreground/75">
             {opnames.filter((o) => o.status === "draft").length}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">Perlu review supervisor</p>
@@ -311,7 +311,7 @@ export function StockOpnamePage() {
                             Disetujui
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-600">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-bold text-foreground/75">
                             <Clock className="size-3" />
                             Draft
                           </span>
@@ -407,7 +407,7 @@ export function StockOpnamePage() {
             <div className="flex-1 overflow-y-auto p-5">
               <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
                 <span>Daftar {totalAuditItems} bahan baku aktif</span>
-                <span className="font-bold text-amber-600">
+                <span className="font-bold text-foreground/75">
                   {itemsWithDifference} bahan terdeteksi selisih
                 </span>
               </div>

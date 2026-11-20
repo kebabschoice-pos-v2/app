@@ -1698,7 +1698,7 @@ function Sidebar({
         icon: WalletCards,
         isActive: active === "pos-shift-cash",
         title: hasActiveShift ? "Shift Aktif — Kelola Kas Laci" : "Shift Tutup — Buka Shift Kasir",
-        badgeDot: hasActiveShift ? "bg-emerald-500" : "bg-amber-500",
+        badgeDot: hasActiveShift ? "bg-emerald-500" : "bg-muted-foreground",
       },
       {
         key: "pos-inventory",
@@ -2468,12 +2468,10 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className="text-xs font-black text-primary whitespace-nowrap">
+                      <p className="text-xs font-bold text-foreground tabular-nums whitespace-nowrap">
                         {formatRupiah(perf.revenue || 0)}
                       </p>
-                      <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-                        Aktif
-                      </span>
+                      <span className="text-xs font-medium text-muted-foreground">Aktif</span>
                     </div>
                   </div>
                 );
@@ -2528,10 +2526,10 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
                     </div>
                   </div>
                   <div className="text-right shrink-0">
-                    <p className="text-xs font-black text-foreground whitespace-nowrap">
+                    <p className="text-xs font-semibold text-foreground tabular-nums whitespace-nowrap">
                       {prod.soldCount || 0} porsi terjual
                     </p>
-                    <p className="text-xs font-semibold text-primary whitespace-nowrap">
+                    <p className="text-xs font-medium text-muted-foreground tabular-nums whitespace-nowrap">
                       {formatRupiah(prod.revenue || 0)}
                     </p>
                   </div>
@@ -5657,9 +5655,9 @@ function PosPage({
     },
     shopeefood: {
       label: "ShopeeFood",
-      dotClass: "bg-orange-500",
+      dotClass: "bg-foreground/60",
       badgeClass: "bg-muted text-foreground border-border",
-      activeClass: "bg-orange-600 hover:bg-orange-700 text-white border-orange-600",
+      activeClass: "bg-primary hover:bg-primary/90 text-primary-foreground border-primary",
     },
   };
   const activeChannelMeta = channelMetaMap[orderType] || channelMetaMap.dine_in;
@@ -5710,7 +5708,7 @@ function PosPage({
             <span
               className={cn(
                 "w-2 h-2 rounded-full shrink-0",
-                activeShift?.status === "open" ? "bg-emerald-500" : "bg-amber-500",
+                activeShift?.status === "open" ? "bg-emerald-500" : "bg-muted-foreground",
               )}
             />
             <span>
@@ -5797,7 +5795,7 @@ function PosPage({
                     <span
                       className={cn(
                         "font-bold",
-                        printerInfo.status === "connected" ? "text-emerald-600" : "text-amber-600",
+                        printerInfo.status === "connected" ? "text-emerald-600" : "text-foreground/75",
                       )}
                     >
                       {printerInfo.status === "connected"
@@ -6036,7 +6034,7 @@ function PosPage({
                     </div>
 
                     {product.ai_badge && (
-                      <p className="mt-2.5 rounded-full bg-ai-soft px-3 py-1 text-xs font-bold text-ai">
+                      <p className="mt-2.5 rounded-full bg-muted px-3 py-1 text-xs font-bold text-foreground/75">
                         AI: {product.ai_badge}
                       </p>
                     )}
@@ -6135,7 +6133,7 @@ function PosPage({
                 activeCartPopover === "customer"
                   ? "bg-primary text-primary-foreground border-primary shadow-xs"
                   : customerMode !== "public"
-                    ? "bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30"
+                    ? "bg-muted text-foreground/75 border-border"
                     : "bg-secondary/80 text-foreground border-border hover:bg-secondary",
               )}
             >
@@ -6194,7 +6192,7 @@ function PosPage({
                       id: "shopeefood",
                       label: "ShopeeFood",
                       activeClass:
-                        "bg-orange-600 hover:bg-orange-700 text-white border-orange-600",
+                        "bg-primary hover:bg-primary/90 text-white border-primary",
                     },
                   ] as Array<{ id: PosOrderType; label: string; activeClass?: string }>
                 ).map((tItem) => (
@@ -6560,7 +6558,7 @@ function PosPage({
                         item.selected_modifiers &&
                         item.selected_modifiers.length > 0 && (
                           <p className="text-muted-foreground flex items-center gap-1">
-                            <Flame className="size-3 text-amber-500 shrink-0" />
+                            <Flame className="size-3 text-foreground/75 shrink-0" />
                             <span>{item.selected_modifiers.join(", ")}</span>
                           </p>
                         )
@@ -6629,7 +6627,7 @@ function PosPage({
                 type="button"
                 variant="outline"
                 onClick={handleHoldOrder}
-                className="min-h-[48px] px-3.5 rounded-2xl flex items-center justify-center gap-1.5 border-dashed border-amber-500/50 bg-amber-500/5 text-amber-700 dark:text-amber-400 hover:bg-amber-500/15 shrink-0 font-bold text-xs cursor-pointer"
+                className="min-h-[48px] px-3.5 rounded-2xl flex items-center justify-center gap-1.5 border-dashed border-border bg-muted text-foreground/75 hover:bg-muted shrink-0 font-bold text-xs cursor-pointer"
                 title="Simpan sementara antrean pesanan ini (Hold)"
               >
                 <Clock className="size-4 shrink-0" />
@@ -7025,7 +7023,7 @@ function PosPage({
                             </span>
                             <span className="text-xs font-black text-foreground">{group.name}</span>
                             {group.is_required !== false ? (
-                              <span className="rounded-full bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-[9px] font-bold text-amber-600 dark:text-amber-400">
+                              <span className="rounded-full bg-muted border border-border px-2 py-0.5 text-[9px] font-bold text-foreground/75">
                                 Pilihan wajib dipilih
                               </span>
                             ) : (
@@ -7160,7 +7158,7 @@ function PosPage({
                     return (
                       <div className="space-y-2.5">
                         <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-amber-500">
+                          <div className="flex items-center gap-1.5 text-xs font-bold text-foreground/75">
                             <Flame className="size-4" />
                             <span>2. Level Pedas</span>
                           </div>
@@ -7177,7 +7175,7 @@ function PosPage({
                                 className={cn(
                                   "flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition-all",
                                   isSelected
-                                    ? "border-amber-500 bg-amber-500/10 shadow-sm ring-1 ring-amber-500 text-amber-600 dark:text-amber-400 font-black"
+                                    ? "border-border bg-muted shadow-sm ring-1 ring-primary text-foreground/75 font-black"
                                     : "border-border bg-background hover:bg-secondary/50 text-foreground",
                                 )}
                               >
@@ -7325,7 +7323,7 @@ function PosPage({
                   "text-[10px] font-bold px-2 py-0.5 transition-colors",
                   qrisStatus === "PAID"
                     ? "border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                    : "border-blue-500 bg-blue-500/10 text-blue-600 dark:text-blue-400",
+                    : "border-border bg-muted text-foreground/75",
                 )}
               >
                 {qrisStatus === "PAID" ? (
@@ -7335,7 +7333,7 @@ function PosPage({
                   </span>
                 ) : (
                   <span className="flex items-center gap-1.5">
-                    <span className="size-1.5 rounded-full bg-blue-500 animate-pulse" />
+                    <span className="size-1.5 rounded-full bg-muted animate-pulse" />
                     Menunggu Pembayaran
                   </span>
                 )}
@@ -7534,10 +7532,10 @@ function PosPage({
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-10 rounded-xl text-xs font-semibold border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 hover:bg-amber-100 gap-1.5"
+                        className="h-10 rounded-xl text-xs font-semibold border-border bg-muted text-foreground/75 hover:bg-muted gap-1.5"
                         onClick={handleSimulateQrisPayment}
                       >
-                        <Zap className="size-3.5 text-amber-500" />
+                        <Zap className="size-3.5 text-foreground/75" />
                         Simulasi Bayar (Test)
                       </Button>
                     )}
@@ -7568,7 +7566,7 @@ function PosPage({
           <div className="relative flex max-h-[90vh] w-full max-w-md flex-col rounded-[2rem] border border-border bg-card p-6 shadow-float overflow-hidden">
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
-                <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+                <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/75">
                   <Clock className="size-5" />
                 </div>
                 <div>
@@ -7613,7 +7611,7 @@ function PosPage({
                               {held.orderType.replace("_", " ")}
                             </span>
                             {held.ojolOrderCode && (
-                              <span className="rounded-md bg-orange-500/15 px-1.5 py-0.5 text-[10px] font-black text-orange-600">
+                              <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-black text-foreground/75">
                                 {held.ojolOrderCode}
                               </span>
                             )}
@@ -7730,7 +7728,7 @@ function InventoryPage({ snapshot }: { snapshot: Snapshot }) {
                   </p>
                 </div>
               </div>
-              <p className="mt-4 rounded-2xl bg-ai-soft px-4 py-3 text-sm leading-6 text-ai">
+              <p className="mt-4 rounded-2xl bg-muted px-4 py-3 text-sm leading-6 text-foreground/75">
                 {item.ai_alert}
               </p>
             </div>
@@ -7803,7 +7801,7 @@ function CustomersPage({ snapshot }: { snapshot: Snapshot }) {
                 </div>
               </div>
               {customer.ai_insight && (
-                <p className="mt-4 rounded-2xl bg-ai-soft px-4 py-3 text-sm leading-6 text-ai">
+                <p className="mt-4 rounded-2xl bg-muted px-4 py-3 text-sm leading-6 text-foreground/75">
                   {customer.ai_insight}
                 </p>
               )}
@@ -8697,17 +8695,17 @@ function OrdersPage({
 
         <div className="flex flex-wrap items-center gap-3">
           {/* Outlet Filter */}
-          <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
-            <Store className="size-4 text-primary shrink-0" />
-            <div className="text-xs">
-              <span className="block text-xs font-bold text-muted-foreground uppercase">
+          <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+            <Store className="w-4 h-4 text-muted-foreground shrink-0" />
+            <div className="flex flex-col items-start justify-center min-w-0">
+              <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                 {t("orders.filter_outlet", "Filter Outlet")}
               </span>
               {isOwner ? (
                 <select
                   value={selectedOutletFilter}
                   onChange={(e) => setSelectedOutletFilter(e.target.value)}
-                  className="bg-transparent font-bold text-foreground focus:outline-none cursor-pointer"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="all">
                     {t("orders.all_outlets_option", "Semua Cabang Outlet")}
@@ -8719,7 +8717,7 @@ function OrdersPage({
                   ))}
                 </select>
               ) : (
-                <div className="flex items-center gap-1.5 font-bold text-foreground">
+                <div className="flex items-center gap-1.5 font-semibold text-sm leading-tight text-foreground mt-0.5">
                   <span>
                     {snapshot.outlets?.find((o) => o.id === selectedOutletFilter)?.name ||
                       "Outlet Kasir"}
@@ -8730,6 +8728,9 @@ function OrdersPage({
                 </div>
               )}
             </div>
+            {isOwner && (
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
+            )}
           </div>
 
           {/* Date Filter Tabs */}
@@ -8807,25 +8808,27 @@ function OrdersPage({
 
       {/* Summary Chips */}
       <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
-        <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.total_orders_filtered", "Total Order Terfilter")}
           </p>
-          <p className="text-xl font-black mt-1">{filteredOrders.length} Transaksi</p>
+          <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+            {filteredOrders.length} Transaksi
+          </p>
         </div>
-        <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.revenue_filtered", "Omzet Bersih Terfilter")}
           </p>
-          <p className="text-xl font-black text-primary mt-1">
+          <p className="text-xl font-bold text-foreground tabular-nums mt-1">
             {formatRupiah(filteredTotalRevenue)}
           </p>
         </div>
-        <div className="col-span-2 md:col-span-1 rounded-2xl border border-border bg-card p-4">
+        <div className="col-span-2 md:col-span-1 bg-card rounded-2xl border border-border/60 shadow-sm p-4">
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.outlet_status", "Status Outlet")}
           </p>
-          <p className="text-xl font-black text-emerald-600 dark:text-emerald-400 mt-1">
+          <p className="text-xl font-bold text-foreground mt-1">
             {selectedOutletFilter === "all"
               ? t("orders.all_connected", "Semua Cabang Terhubung")
               : snapshot.outlets?.find((o) => o.id === selectedOutletFilter)?.name || "Aktif"}
@@ -8874,7 +8877,7 @@ function OrdersPage({
                         className={cn(
                           "rounded-full px-2.5 py-0.5 text-[11px] font-bold capitalize",
                           isRefunded
-                            ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                            ? "bg-muted text-foreground/75"
                             : isVoid
                               ? "bg-destructive/15 text-destructive"
                               : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
@@ -8989,7 +8992,7 @@ function OrdersPage({
                     className={cn(
                       "px-2.5 py-0.5 rounded-full text-xs font-bold capitalize",
                       selectedDetailOrder.status === "refunded"
-                        ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                        ? "bg-muted text-foreground/75"
                         : selectedDetailOrder.status === "void" || selectedDetailOrder.status === "cancelled"
                           ? "bg-destructive/15 text-destructive"
                           : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
@@ -9057,8 +9060,8 @@ function OrdersPage({
             {(selectedDetailOrder.status === "refunded" ||
               selectedDetailOrder.status === "void" ||
               selectedDetailOrder.status === "cancelled") && (
-              <div className="mt-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-amber-700 dark:text-amber-400">
+              <div className="mt-3 rounded-2xl border border-border bg-muted p-3 text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-foreground/75">
                   <ShieldAlert className="size-4 shrink-0" />
                   <span>
                     Informasi Otorisasi{" "}
@@ -9127,7 +9130,7 @@ function OrdersPage({
                         </p>
                       )}
                       {item.notes && (
-                        <p className="text-[10px] italic text-amber-600 dark:text-amber-400">
+                        <p className="text-[10px] italic text-foreground/75">
                           Catatan: {item.notes}
                         </p>
                       )}
@@ -9204,7 +9207,7 @@ function OrdersPage({
                   <>
                     <Button
                       variant="outline"
-                      className="rounded-xl font-bold text-xs gap-1.5 text-amber-600 border-amber-500/30 hover:bg-amber-500/10"
+                      className="rounded-xl font-bold text-xs gap-1.5 text-foreground/75 border-border hover:bg-muted"
                       onClick={() => handleOpenActionModal("refund", selectedDetailOrder)}
                     >
                       <RotateCcw className="size-3.5" />
@@ -9240,7 +9243,7 @@ function OrdersPage({
                   className={cn(
                     "flex size-10 items-center justify-center rounded-2xl",
                     actionModal.mode === "refund"
-                      ? "bg-amber-500/15 text-amber-600"
+                      ? "bg-muted text-foreground/75"
                       : "bg-destructive/15 text-destructive",
                   )}
                 >
@@ -9752,20 +9755,20 @@ function BranchPosSwitchModal({
                 key={out.id}
                 type="button"
                 onClick={() => onSelectBranch(out)}
-                className="w-full flex items-center justify-between p-3.5 rounded-2xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-all text-left group cursor-pointer"
+                className="w-full flex items-center justify-between gap-3 p-3.5 rounded-2xl border border-border hover:border-primary/50 hover:bg-muted/60 transition-all text-left group cursor-pointer"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className="flex size-9 items-center justify-center rounded-xl bg-secondary group-hover:bg-primary/10 group-hover:text-primary transition-colors font-bold text-xs shrink-0">
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                  <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/75 group-hover:bg-primary/10 group-hover:text-primary transition-colors font-bold text-xs shrink-0">
                     <Store className="size-4" />
                   </div>
-                  <div className="min-w-0">
-                    <p className="font-black text-sm text-foreground truncate">{out.name || (out as any).outlet_name}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-bold text-sm text-foreground truncate">{out.name || (out as any).outlet_name}</p>
                     <p className="text-xs text-muted-foreground truncate">{out.address || out.code || "Outlet Aktif"}</p>
                   </div>
                 </div>
-                <div className="flex items-center gap-1.5 text-xs font-bold text-primary opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="flex items-center gap-1.5 shrink-0 whitespace-nowrap text-xs font-bold text-primary opacity-0 group-hover:opacity-100 transition-opacity">
                   <span>Buka POS</span>
-                  <ChevronRight className="size-4" />
+                  <ChevronRight className="size-4 shrink-0" />
                 </div>
               </button>
             ))
@@ -10246,10 +10249,10 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     if (snapshot.isPendingConfirmation) {
       return (
         <div className="flex min-h-[70vh] flex-col items-center justify-center p-6 text-center">
-          <div className="size-20 rounded-3xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-5 shadow-lg border border-amber-500/20">
+          <div className="size-20 rounded-3xl bg-muted text-foreground/75 flex items-center justify-center mb-5 shadow-lg border border-border">
             <Lock className="size-10" />
           </div>
-          <span className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 bg-amber-500/15 px-3 py-1 rounded-full mb-2">
+          <span className="text-xs font-black uppercase tracking-wider text-foreground/75 bg-muted px-3 py-1 rounded-full mb-2">
             Status: Menunggu Otorisasi Owner
           </span>
           <h2 className="text-2xl font-black text-foreground max-w-md">
@@ -10335,7 +10338,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       const fallbackRoute = getDefaultManagerHQRoute(appManagerPermissions);
       return (
         <div className="flex min-h-[60vh] flex-col items-center justify-center text-center p-8">
-          <div className="flex size-16 items-center justify-center rounded-3xl bg-amber-500/10 text-amber-600 mb-4">
+          <div className="flex size-16 items-center justify-center rounded-3xl bg-muted text-foreground/75 mb-4">
             <ShieldAlert className="size-8" />
           </div>
           <h2 className="text-2xl font-black">Akses Terbatas (RBAC Manager)</h2>

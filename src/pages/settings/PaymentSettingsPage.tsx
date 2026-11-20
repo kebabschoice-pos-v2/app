@@ -188,7 +188,7 @@ export function PaymentSettingsPage() {
         <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground/75">
                 <CreditCard className="size-5" />
               </div>
               <div>
@@ -214,7 +214,7 @@ export function PaymentSettingsPage() {
         <div className="rounded-2xl border bg-card p-6 shadow-soft space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="flex size-10 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600">
+              <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground/75">
                 <Building className="size-5" />
               </div>
               <div>

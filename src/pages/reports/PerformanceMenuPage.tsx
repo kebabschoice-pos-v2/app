@@ -15,6 +15,7 @@ import {
   Store,
   Calendar,
   Download,
+  ChevronDown,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -250,16 +251,16 @@ export function PerformanceMenuPage() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter Cabang Dropdown */}
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Store className="w-4 h-4 text-foreground/70 shrink-0" />
-              <div className="text-xs">
-                <span className="block text-xs font-bold text-muted-foreground uppercase">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Store className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                   Cabang
                 </span>
                 <select
                   value={selectedOutletId}
                   onChange={(e) => setSelectedOutletId(e.target.value)}
-                  className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="all">Semua Cabang ({outletsList.length})</option>
                   {outletsList.map((o) => (
@@ -269,19 +270,20 @@ export function PerformanceMenuPage() {
                   ))}
                 </select>
               </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             {/* Filter Rentang Tanggal */}
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Calendar className="w-4 h-4 text-foreground/70 shrink-0" />
-              <div className="text-xs">
-                <span className="block text-xs font-bold text-muted-foreground uppercase">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                   Periode
                 </span>
                 <select
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
-                  className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="today">Hari Ini</option>
                   <option value="last_7_days">7 Hari Terakhir</option>
@@ -289,6 +291,7 @@ export function PerformanceMenuPage() {
                   <option value="custom">Custom Range</option>
                 </select>
               </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             {/* Custom Date Pickers */}
@@ -416,20 +419,32 @@ export function PerformanceMenuPage() {
         </div>
 
         <div className="h-64 w-full pt-2">
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 10, right: 16, left: -16, bottom: 4 }}>
-              <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-              <XAxis dataKey="name" fontSize={12} interval={0} />
-              <YAxis fontSize={12} />
-              <ChartTooltip
-                formatter={(val: any, name: string) => [
-                  name === "Revenue" ? `${formatRupiah(Number(val) * 1000000)}` : `${val} porsi`,
-                  name === "Revenue" ? "Omzet" : "Terjual",
-                ]}
-              />
-              <Bar dataKey="Terjual" fill="var(--primary)" maxBarSize={48} radius={[8, 8, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          {!chartData.some((c) => (Number(c.Terjual) || 0) > 0) ? (
+            <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+              <UtensilsCrossed className="w-5 h-5 text-muted-foreground mb-2" />
+              <p className="text-sm font-semibold text-foreground">
+                Belum ada transaksi pada periode terpilih
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Grafik volume penjualan menu akan tampil otomatis setelah ada pesanan.
+              </p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={chartData} margin={{ top: 10, right: 16, left: -16, bottom: 4 }}>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                <XAxis dataKey="name" fontSize={12} interval={0} />
+                <YAxis fontSize={12} domain={[0, "auto"]} allowDecimals={false} />
+                <ChartTooltip
+                  formatter={(val: any, name: string) => [
+                    name === "Revenue" ? `${formatRupiah(Number(val) * 1000000)}` : `${val} porsi`,
+                    name === "Revenue" ? "Omzet" : "Terjual",
+                  ]}
+                />
+                <Bar dataKey="Terjual" fill="var(--primary)" maxBarSize={48} radius={[8, 8, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
 
@@ -507,30 +522,36 @@ export function PerformanceMenuPage() {
                       {item.category}
                     </span>
                   </td>
-                  <td className="py-2.5 px-3 text-right font-semibold whitespace-nowrap">
+                  <td className="py-2.5 px-3 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
                     {formatRupiah(item.price)}
                   </td>
-                  <td className="py-2.5 px-3 text-right text-muted-foreground whitespace-nowrap">
+                  <td className="py-2.5 px-3 text-right font-normal text-muted-foreground tabular-nums whitespace-nowrap">
                     {formatRupiah(item.cost)}
                   </td>
-                  <td className="py-2.5 px-3 text-right font-black text-emerald-600 whitespace-nowrap">
+                  <td
+                    className={`py-2.5 px-3 text-right font-semibold tabular-nums whitespace-nowrap ${
+                      item.margin < 0 ? "text-destructive" : "text-foreground"
+                    }`}
+                  >
                     {item.margin}%
                   </td>
-                  <td className="py-2.5 px-3 text-right font-black whitespace-nowrap">{item.soldCount}</td>
-                  <td className="py-2.5 px-3 text-right font-black text-primary whitespace-nowrap">
+                  <td className="py-2.5 px-3 text-right font-semibold text-foreground tabular-nums whitespace-nowrap">
+                    {item.soldCount}
+                  </td>
+                  <td className="py-2.5 px-3 text-right font-bold text-foreground tabular-nums whitespace-nowrap">
                     {formatRupiah(item.revenue)}
                   </td>
                   <td className="py-2.5 px-3 text-center whitespace-nowrap">
                     {item.status === "best_seller" ? (
-                      <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-bold text-emerald-600">
+                      <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-foreground">
                         Best Seller
                       </span>
                     ) : item.status === "growth" ? (
-                      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-bold text-primary">
+                      <span className="rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-foreground/80">
                         Growth
                       </span>
                     ) : item.status === "slow_moving" ? (
-                      <span className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-bold text-destructive">
+                      <span className="rounded-full bg-destructive/10 px-2.5 py-0.5 text-xs font-semibold text-destructive">
                         Slow Moving
                       </span>
                     ) : (
@@ -541,8 +562,8 @@ export function PerformanceMenuPage() {
                   </td>
                   <td className="py-2.5 px-3 text-center whitespace-nowrap sticky right-0 bg-card shadow-[-4px_0_8px_rgba(0,0,0,0.04)]">
                     {item.recipeItemsCount > 0 ? (
-                      <span className="inline-flex items-center gap-1 text-xs font-bold text-primary">
-                        <Package className="size-3.5" /> {item.recipeItemsCount} Bahan
+                      <span className="inline-flex items-center gap-1 text-xs font-medium text-foreground">
+                        <Package className="size-3.5 text-muted-foreground" /> {item.recipeItemsCount} Bahan
                       </span>
                     ) : (
                       <span className="text-xs text-muted-foreground">Standar 40%</span>

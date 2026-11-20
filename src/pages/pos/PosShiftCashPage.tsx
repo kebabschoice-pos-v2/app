@@ -903,7 +903,7 @@ export function PosShiftCashPage() {
                               "text-[9px] px-1 py-0.2 rounded font-black",
                               isSelected
                                 ? "bg-white/20 text-white"
-                                : "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+                                : "bg-muted text-foreground/75",
                             )}
                           >
                             Pagi
@@ -1405,7 +1405,7 @@ export function PosShiftCashPage() {
                     Number(actualCashInput) - expectedEndingCash === 0
                       ? "bg-success-soft text-success border-success/30"
                       : Number(actualCashInput) - expectedEndingCash > 0
-                        ? "bg-blue-500/10 text-blue-600 border-blue-500/30"
+                        ? "bg-muted text-foreground/75 border-border"
                         : "bg-destructive/10 text-destructive border-destructive/30"
                   }`}
                 >

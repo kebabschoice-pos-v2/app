@@ -261,7 +261,7 @@ export function BusinessProfilePage({ onRefresh }: BusinessProfilePageProps) {
                 </span>
               )}
               {logoPreview && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-semibold text-amber-500">
+                <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-1 text-xs font-semibold text-foreground/75">
                   Pratinjau (Belum Tersimpan)
                 </span>
               )}

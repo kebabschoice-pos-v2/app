@@ -309,11 +309,11 @@ export function StockTransferPage() {
         <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-muted-foreground">Dalam Pengiriman</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/75">
               <Truck className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black text-amber-600">
+          <p className="mt-3 text-2xl font-black text-foreground/75">
             {transfers.filter((t) => t.status === "sent").length}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">Barang sedang dalam perjalanan</p>
@@ -437,7 +437,7 @@ export function StockTransferPage() {
                             Diterima
                           </span>
                         ) : t.status === "sent" ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-600">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-bold text-foreground/75">
                             <Truck className="size-3" />
                             Dalam Pengiriman
                           </span>
@@ -484,7 +484,7 @@ export function StockTransferPage() {
                                 variant="outline"
                                 disabled={updatingTransferId === t.id}
                                 onClick={() => handleStatusChange(t, "sent")}
-                                className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 text-amber-600 border-amber-500/30"
+                                className="h-8 px-2.5 text-xs font-bold rounded-xl gap-1 text-foreground/75 border-border"
                               >
                                 <Truck className="size-3" />
                                 <span>Kirim</span>

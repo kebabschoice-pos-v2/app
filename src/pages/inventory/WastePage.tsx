@@ -215,7 +215,7 @@ export function WastePage() {
         <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
           <div className="flex items-center justify-between">
             <p className="text-xs font-semibold text-muted-foreground">Total Kejadian Waste</p>
-            <div className="flex size-9 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+            <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/75">
               <AlertOctagon className="size-4" />
             </div>
           </div>

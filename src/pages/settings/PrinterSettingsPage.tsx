@@ -259,7 +259,7 @@ export function PrinterSettingsPage() {
                       printerInfo.status === "connected"
                         ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                         : printerInfo.status === "connecting"
-                          ? "bg-amber-500/15 text-amber-600 animate-pulse"
+                          ? "bg-muted text-foreground/75 animate-pulse"
                           : "bg-secondary text-muted-foreground"
                     }`}
                   >

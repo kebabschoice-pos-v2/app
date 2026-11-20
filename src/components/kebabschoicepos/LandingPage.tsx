@@ -35,7 +35,7 @@ export function LandingPage() {
             className="flex items-center justify-between rounded-2xl border-2 border-border p-4.5 hover:border-primary/60 hover:bg-muted/40 transition-all group"
           >
             <div className="flex items-center gap-3.5">
-              <div className="flex size-11 items-center justify-center rounded-xl bg-orange-500/10 text-orange-600 group-hover:scale-105 transition-transform">
+              <div className="flex size-11 items-center justify-center rounded-xl bg-muted text-foreground/75 group-hover:scale-105 transition-transform">
                 <Shield className="size-5" />
               </div>
               <div>
@@ -43,7 +43,7 @@ export function LandingPage() {
                 <p className="text-xs text-muted-foreground">Command center laporan, keuangan & menu</p>
               </div>
             </div>
-            <span className="text-xs font-bold text-orange-600">Buka &rarr;</span>
+            <span className="text-xs font-bold text-foreground/75">Buka &rarr;</span>
           </Link>
         </div>
 

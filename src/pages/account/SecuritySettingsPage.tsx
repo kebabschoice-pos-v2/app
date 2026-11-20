@@ -136,7 +136,7 @@ export function SecuritySettingsPage() {
               placeholder="Belum diatur"
             />
             {!managerPin.trim() && (
-              <p className="mt-1.5 text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+              <p className="mt-1.5 text-[11px] font-semibold text-foreground/75">
                 PIN belum diatur. Refund / void di POS akan ditolak sampai Owner menyimpan PIN di
                 halaman ini.
               </p>

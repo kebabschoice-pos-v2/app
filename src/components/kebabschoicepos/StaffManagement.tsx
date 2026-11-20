@@ -1260,11 +1260,11 @@ export function StaffManagement() {
   const roleBadgeStyle = (role: string) => {
     switch (role.toLowerCase()) {
       case "owner":
-        return "bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20";
+        return "bg-muted text-foreground/75 border-border";
       case "admin":
-        return "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20";
+        return "bg-muted text-foreground/75 border-border";
       case "manager":
-        return "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20";
+        return "bg-muted text-foreground/75 border-border";
       case "cashier":
       default:
         return "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20";
@@ -1426,25 +1426,21 @@ export function StaffManagement() {
               <span className="text-xs text-muted-foreground font-semibold">Total Karyawan</span>
               <p className="text-2xl font-black">{totalStaff}</p>
             </div>
-            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 shadow-soft">
-              <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-                Kasir & Barista POS
+            <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
+              <span className="text-xs text-muted-foreground font-semibold">
+                Kasir &amp; Barista POS
               </span>
-              <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-                {totalCashiers}
-              </p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">{totalCashiers}</p>
             </div>
-            <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4 shadow-soft">
-              <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold">
-                Store Manager & Admin
+            <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
+              <span className="text-xs text-muted-foreground font-semibold">
+                Store Manager &amp; Admin
               </span>
-              <p className="text-2xl font-black text-blue-600 dark:text-blue-400">
-                {totalManagers}
-              </p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">{totalManagers}</p>
             </div>
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
+            <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
               <span className="text-xs text-muted-foreground font-semibold">Outlet Terlayani</span>
-              <p className="text-2xl font-black">{outlets.length} Cabang</p>
+              <p className="text-2xl font-bold text-foreground tabular-nums">{outlets.length} Cabang</p>
             </div>
           </div>
 
@@ -1505,7 +1501,7 @@ export function StaffManagement() {
                           <div className="mt-1 flex items-center gap-1.5">
                             <span
                               className={`size-1.5 rounded-full shrink-0 ${
-                                isPending ? "bg-amber-500 animate-ping" : "bg-emerald-500"
+                                isPending ? "bg-muted-foreground animate-ping" : "bg-emerald-500"
                               }`}
                             />
                             <p className="text-xs font-mono text-muted-foreground truncate">
@@ -1521,7 +1517,7 @@ export function StaffManagement() {
                       <span
                         className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
                           isPending
-                            ? "bg-amber-500/10 text-amber-600 border border-amber-500/25"
+                            ? "bg-muted text-foreground/75 border border-border"
                             : loginEmail
                               ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
                               : "bg-muted text-muted-foreground"
@@ -1647,14 +1643,14 @@ export function StaffManagement() {
                                 <p className="font-bold text-foreground">{staff.name}</p>
                                 {(hr.gender || (staff as any).gender) === "female" ? (
                                   <span
-                                    className="inline-flex items-center justify-center size-4 rounded-full bg-pink-500/15 text-pink-600 dark:text-pink-400 text-xs font-black"
+                                    className="inline-flex items-center justify-center size-4 rounded-full bg-muted text-foreground/75 text-xs font-black"
                                     title="Perempuan (P)"
                                   >
                                     P
                                   </span>
                                 ) : (
                                   <span
-                                    className="inline-flex items-center justify-center size-4 rounded-full bg-blue-500/15 text-blue-600 dark:text-blue-400 text-xs font-black"
+                                    className="inline-flex items-center justify-center size-4 rounded-full bg-muted text-foreground/75 text-xs font-black"
                                     title="Laki-laki (L)"
                                   >
                                     L
@@ -1899,10 +1895,10 @@ export function StaffManagement() {
                     </div>
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-4">
+                  <div className="rounded-2xl border border-border bg-muted p-4 space-y-4">
                     <div className="flex items-center gap-2">
-                      <ShieldCheck className="size-4 text-amber-600 dark:text-amber-400" />
-                      <span className="font-bold text-xs text-amber-800 dark:text-amber-300 uppercase tracking-wider">
+                      <ShieldCheck className="size-4 text-foreground/75" />
+                      <span className="font-bold text-xs text-foreground/75 uppercase tracking-wider">
                         Akun Login Store Manager (Akses HQ)
                       </span>
                     </div>
@@ -2269,7 +2265,7 @@ export function StaffManagement() {
                         className={`inline-block rounded-md px-2 py-0.5 font-bold uppercase text-[0.65rem] ${
                           item.type === "in"
                             ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                            : "bg-muted text-foreground/75"
                         }`}
                       >
                         {item.type === "in" ? "Masuk" : "Keluar"}
@@ -2288,12 +2284,12 @@ export function StaffManagement() {
                         className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold text-[0.68rem] ${
                           item.status === "on_time"
                             ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                            : "bg-muted text-foreground/75"
                         }`}
                       >
                         <span
                           className={`w-2 h-2 rounded-full inline-block shrink-0 ${
-                            item.status === "on_time" ? "bg-emerald-500" : "bg-amber-500"
+                            item.status === "on_time" ? "bg-emerald-500" : "bg-muted-foreground"
                           }`}
                         />
                         {item.status === "on_time"
@@ -2777,9 +2773,9 @@ export function StaffManagement() {
                                               isCellOff
                                                 ? "bg-sky-500/10 text-sky-700 dark:text-sky-300 border border-sky-500/20"
                                                 : isCellSakit
-                                                ? "bg-amber-500/10 text-amber-700 dark:text-amber-300 border border-amber-500/20"
+                                                ? "bg-muted text-foreground/75 border border-border"
                                                 : isCellIzin
-                                                ? "bg-purple-500/10 text-purple-700 dark:text-purple-300 border border-purple-500/20"
+                                                ? "bg-muted text-foreground/75 border border-border"
                                                 : isPagi
                                                 ? "bg-rose-500/5 text-foreground hover:bg-rose-500/10 border border-rose-500/15"
                                                 : "bg-muted/30 text-foreground hover:bg-muted/60 border border-border/40"
@@ -2797,7 +2793,7 @@ export function StaffManagement() {
                                                   if (g === "female") {
                                                     return (
                                                       <span
-                                                        className="inline-flex items-center justify-center size-3.5 rounded-full bg-pink-500/20 text-pink-600 dark:text-pink-400 text-[8px] font-black shrink-0"
+                                                        className="inline-flex items-center justify-center size-3.5 rounded-full bg-muted text-foreground/75 text-[8px] font-black shrink-0"
                                                         title="Perempuan (P)"
                                                       >
                                                         P
@@ -2807,7 +2803,7 @@ export function StaffManagement() {
                                                   if (g === "male") {
                                                     return (
                                                       <span
-                                                        className="inline-flex items-center justify-center size-3.5 rounded-full bg-blue-500/20 text-blue-600 dark:text-blue-400 text-[8px] font-black shrink-0"
+                                                        className="inline-flex items-center justify-center size-3.5 rounded-full bg-muted text-foreground/75 text-[8px] font-black shrink-0"
                                                         title="Laki-laki (L)"
                                                       >
                                                         L
@@ -3060,7 +3056,7 @@ export function StaffManagement() {
                     </td>
 
                     {/* Bonus */}
-                    <td className="px-4 py-3 font-mono text-blue-600">
+                    <td className="px-4 py-3 font-mono text-foreground/75">
                       +Rp{Number(pr.bonus_amount || 0).toLocaleString("id-ID")}
                     </td>
 
@@ -3075,7 +3071,7 @@ export function StaffManagement() {
                         className={`inline-block rounded-md px-2 py-0.5 font-bold uppercase text-[0.65rem] ${
                           pr.status === "paid"
                             ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                            : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                            : "bg-muted text-foreground/75"
                         }`}
                       >
                         {pr.status === "paid" ? "Dibayar" : "Draft"}
@@ -3466,10 +3462,10 @@ export function StaffManagement() {
 
               {/* If Role is Store Manager, show HQ credentials and permissions */}
               {editRole === "manager" && (
-                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                <div className="rounded-2xl border border-border bg-muted p-4 space-y-3">
                   <div className="flex items-center gap-2">
-                    <ShieldCheck className="size-4 text-amber-600 dark:text-amber-400" />
-                    <span className="font-bold text-xs text-amber-800 dark:text-amber-300 uppercase tracking-wider">
+                    <ShieldCheck className="size-4 text-foreground/75" />
+                    <span className="font-bold text-xs text-foreground/75 uppercase tracking-wider">
                       Akses Login HQ Store Manager
                     </span>
                   </div>
@@ -3847,7 +3843,7 @@ export function StaffManagement() {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Keterlambatan:</span>
-                  <span className="font-bold text-amber-600">
+                  <span className="font-bold text-foreground/75">
                     {selectedPayslip.total_times_late} Kali
                   </span>
                 </div>
@@ -3872,7 +3868,7 @@ export function StaffManagement() {
                     +Rp{Number(selectedPayslip.allowance_amount || 0).toLocaleString("id-ID")}
                   </span>
                 </div>
-                <div className="flex justify-between text-blue-600">
+                <div className="flex justify-between text-foreground/75">
                   <span>Bonus / Insentif:</span>
                   <span className="font-mono font-semibold">
                     +Rp{Number(selectedPayslip.bonus_amount || 0).toLocaleString("id-ID")}

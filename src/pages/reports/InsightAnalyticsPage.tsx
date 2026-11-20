@@ -14,6 +14,7 @@ import {
   RefreshCw,
   Store,
   Download,
+  ChevronDown,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -110,9 +111,9 @@ export function InsightAnalyticsPage() {
     return (
       <div className="flex min-h-[400px] items-center justify-center">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="size-8 animate-spin text-ai" />
+          <Loader2 className="size-8 animate-spin text-primary" />
           <p className="text-sm font-bold text-muted-foreground">
-            Menganalisis pola transaksi & engine AI...
+            Menganalisis pola transaksi...
           </p>
         </div>
       </div>
@@ -123,6 +124,10 @@ export function InsightAnalyticsPage() {
   const dailyTrends = analytics?.dailyTrends || [];
   const peakHours = analytics?.peakHours || [];
   const topOutlet = analytics?.outlets[0];
+  const hasDailySalesData = dailyTrends.some(
+    (d) => (Number(d.aktual) || 0) > 0 || (Number(d.prediksi) || 0) > 0,
+  );
+  const hasPeakHoursData = peakHours.some((h) => (Number(h.orders) || 0) > 0);
 
   const handleExportCSV = () => {
     if (!analytics || dailyTrends.length === 0) {
@@ -161,33 +166,32 @@ export function InsightAnalyticsPage() {
   return (
     <div className="space-y-6 w-full max-w-none">
       {/* Header Banner */}
-      <div className="rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <div className="flex items-center gap-2.5">
-              <div className="flex size-10 items-center justify-center rounded-2xl bg-ai-soft text-ai">
-                <BrainCircuit className="size-5" />
+              <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground/75">
+                <BrainCircuit className="w-4 h-4" />
               </div>
               <h1 className="text-3xl font-black tracking-normal">Insight Analytics</h1>
             </div>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Intelligence engine yang menganalisis transaksi kasir, prediksi omzet, jam sibuk
-              outlet, dan rekomendasi restock bahan baku.
+              Analisis transaksi kasir, prediksi omzet, jam sibuk outlet, dan rekomendasi restock bahan baku.
             </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter Cabang Dropdown */}
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Store className="w-4 h-4 text-foreground/70 shrink-0" />
-              <div className="text-xs">
-                <span className="block text-xs font-bold text-muted-foreground uppercase">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Store className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                   Cabang
                 </span>
                 <select
                   value={selectedOutletId}
                   onChange={(e) => setSelectedOutletId(e.target.value)}
-                  className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="all">Semua Cabang ({outletsList.length})</option>
                   {outletsList.map((o) => (
@@ -197,19 +201,20 @@ export function InsightAnalyticsPage() {
                   ))}
                 </select>
               </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             {/* Filter Rentang Tanggal */}
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Calendar className="w-4 h-4 text-foreground/70 shrink-0" />
-              <div className="text-xs">
-                <span className="block text-xs font-bold text-muted-foreground uppercase">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                   Periode
                 </span>
                 <select
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
-                  className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="today">Hari Ini</option>
                   <option value="last_7_days">7 Hari Terakhir</option>
@@ -217,6 +222,7 @@ export function InsightAnalyticsPage() {
                   <option value="custom">Custom Range</option>
                 </select>
               </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             {/* Custom Date Pickers */}
@@ -329,63 +335,79 @@ export function InsightAnalyticsPage() {
           </div>
 
           <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={dailyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="aktualGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
-                    <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.0} />
-                  </linearGradient>
-                  <linearGradient id="prediksiGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="var(--muted-foreground)" stopOpacity={0.2} />
-                    <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity={0.0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="day" fontSize={12} />
-                <YAxis
-                  fontSize={12}
-                  domain={[0, "auto"]}
-                  allowDataOverflow={false}
-                  tickFormatter={(val) => {
-                    const num = Number(val) || 0;
-                    if (num >= 1000000) return `Rp ${(num / 1000000).toFixed(1).replace(/\.0$/, "")} Jt`;
-                    if (num >= 1000) return `Rp ${(num / 1000).toFixed(0)}rb`;
-                    return `Rp ${num}`;
-                  }}
-                />
-                <ChartTooltip
-                  formatter={(val: any, name: string) => [
-                    val ? formatRupiah(Number(val)) : "Belum Berjalan",
-                    name === "aktual" ? "Aktual" : "Prediksi",
-                  ]}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="aktual"
-                  stroke="var(--primary)"
-                  fill="url(#aktualGrad)"
-                  strokeWidth={2.5}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="prediksi"
-                  stroke="var(--muted-foreground)"
-                  strokeDasharray="4 4"
-                  fill="url(#prediksiGrad)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            {!hasDailySalesData ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+                <TrendingUp className="w-5 h-5 text-muted-foreground mb-2" />
+                <p className="text-sm font-semibold text-foreground">
+                  Belum ada transaksi pada periode terpilih
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Grafik trend omzet harian dan proyeksi akan muncul otomatis setelah transaksi tercatat.
+                </p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={dailyTrends} margin={{ top: 10, right: 10, left: -12, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="aktualGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.35} />
+                      <stop offset="100%" stopColor="var(--primary)" stopOpacity={0.0} />
+                    </linearGradient>
+                    <linearGradient id="prediksiGrad" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="var(--muted-foreground)" stopOpacity={0.2} />
+                      <stop offset="100%" stopColor="var(--muted-foreground)" stopOpacity={0.0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="day" fontSize={12} />
+                  <YAxis
+                    fontSize={12}
+                    domain={[0, "auto"]}
+                    allowDecimals={false}
+                    allowDataOverflow={false}
+                    tickFormatter={(val) => {
+                      const num = Number(val) || 0;
+                      if (num === 0) return "Rp 0";
+                      if (num >= 1000000) return `Rp ${(num / 1000000).toFixed(1).replace(/\.0$/, "")} Jt`;
+                      if (num >= 1000) return `Rp ${(num / 1000).toFixed(0)}rb`;
+                      return `Rp ${num}`;
+                    }}
+                  />
+                  <ChartTooltip
+                    formatter={(val: any, name: string) => [
+                      val ? formatRupiah(Number(val)) : "Belum Berjalan",
+                      name === "aktual" ? "Aktual" : "Prediksi",
+                    ]}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="aktual"
+                    stroke="var(--primary)"
+                    fill="url(#aktualGrad)"
+                    strokeWidth={2.5}
+                  />
+                  <Area
+                    type="monotone"
+                    dataKey="prediksi"
+                    stroke="var(--muted-foreground)"
+                    strokeDasharray="4 4"
+                    fill="url(#prediksiGrad)"
+                    strokeWidth={2}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
-          <div className="flex items-center justify-center gap-6 text-xs pt-1">
-            <span className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-primary" /> Aktual
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="size-2.5 rounded-full bg-muted-foreground" /> Proyeksi AI
-            </span>
-          </div>
+          {hasDailySalesData && (
+            <div className="flex items-center justify-center gap-6 text-xs pt-1">
+              <span className="flex items-center gap-2">
+                <span className="size-2.5 rounded-full bg-primary" /> Aktual
+              </span>
+              <span className="flex items-center gap-2">
+                <span className="size-2.5 rounded-full bg-muted-foreground" /> Proyeksi AI
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Pola Jam Sibuk (Peak Hours) */}
@@ -398,19 +420,33 @@ export function InsightAnalyticsPage() {
           </div>
 
           <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={peakHours} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="hour" fontSize={11} />
-                <YAxis fontSize={12} />
-                <ChartTooltip formatter={(val: any) => [`${val} Order`, "Volume Transaksi"]} />
-                <Bar dataKey="orders" fill="var(--primary)" maxBarSize={48} radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {!hasPeakHoursData ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+                <Clock className="w-5 h-5 text-muted-foreground mb-2" />
+                <p className="text-sm font-semibold text-foreground">
+                  Belum ada transaksi pada periode terpilih
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Distribusi jam sibuk akan tampil otomatis setelah ada pesanan masuk di kasir.
+                </p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={peakHours} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="hour" fontSize={11} />
+                  <YAxis fontSize={12} domain={[0, "auto"]} allowDecimals={false} />
+                  <ChartTooltip formatter={(val: any) => [`${val} Order`, "Volume Transaksi"]} />
+                  <Bar dataKey="orders" fill="var(--primary)" maxBarSize={48} radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
-          <p className="text-center text-xs text-muted-foreground">
-            Waktu terpadat terdeteksi pada jam makan siang (12:00) dan makan malam (18:00 - 20:00).
-          </p>
+          {hasPeakHoursData && (
+            <p className="text-center text-xs text-muted-foreground">
+              Distribusi volume order berdasarkan waktu transaksi aktual pada periode terpilih.
+            </p>
+          )}
         </div>
       </div>
     </div>

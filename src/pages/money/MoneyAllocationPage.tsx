@@ -25,6 +25,8 @@ import {
   Users,
   Banknote,
   ArrowDownLeft,
+  Calendar,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -1541,11 +1543,11 @@ export function MoneyAllocationPage({
   return (
     <div className="space-y-6 w-full max-w-none pb-12">
       {/* 1. Header Banner & Filter Outlet */}
-      <div className="rounded-[2.2rem] border border-border bg-card/85 p-6 shadow-soft backdrop-blur-2xl">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider mb-1">
-              <PiggyBank className="size-4" />
+            <div className="flex items-center gap-2 text-muted-foreground font-semibold text-xs uppercase tracking-wider mb-1">
+              <PiggyBank className="w-4 h-4 shrink-0" />
               <span>HQ Smart Financial Vault</span>
             </div>
             <h1 className="text-3xl font-black tracking-normal text-foreground">
@@ -1556,38 +1558,50 @@ export function MoneyAllocationPage({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter Periode Waktu */}
-            <div className="flex items-center gap-1.5 rounded-2xl border border-input bg-card px-3 py-1.5 shadow-xs">
-              <span className="text-xs font-bold text-muted-foreground uppercase">Periode:</span>
-              <select
-                aria-label="Pilih Periode Akumulasi"
-                value={dateRange}
-                onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
-                className="bg-transparent text-xs font-bold focus:outline-none cursor-pointer"
-              >
-                <option value="all">Semua Waktu (Akumulasi Aktif)</option>
-                <option value="this_month">Bulan Ini</option>
-                <option value="last_7_days">7 Hari Terakhir</option>
-                <option value="today">Hari Ini</option>
-              </select>
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
+                  Periode
+                </span>
+                <select
+                  aria-label="Pilih Periode Akumulasi"
+                  value={dateRange}
+                  onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
+                >
+                  <option value="all">Semua Waktu (Akumulasi Aktif)</option>
+                  <option value="this_month">Bulan Ini</option>
+                  <option value="last_7_days">7 Hari Terakhir</option>
+                  <option value="today">Hari Ini</option>
+                </select>
+              </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
-            <div className="flex items-center gap-1.5 rounded-2xl border border-input bg-card px-3 py-1.5 shadow-xs">
-              <Store className="size-3.5 text-muted-foreground" />
-              <select
-                aria-label="Pilih Cabang Outlet"
-                value={selectedOutletId}
-                onChange={(e) => setSelectedOutletId(e.target.value)}
-                className="bg-transparent text-xs font-bold focus:outline-none cursor-pointer"
-              >
-                <option value="all">Semua Cabang (HQ Consolidate)</option>
-                {outletsList.map((o) => (
-                  <option key={o.id} value={o.id}>
-                    {o.name}
-                  </option>
-                ))}
-              </select>
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Store className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
+                  Cabang
+                </span>
+                <select
+                  aria-label="Pilih Cabang Outlet"
+                  value={selectedOutletId}
+                  onChange={(e) => setSelectedOutletId(e.target.value)}
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
+                >
+                  <option value="all">Semua Cabang (HQ Consolidate)</option>
+                  {outletsList.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             <Button
@@ -1743,11 +1757,13 @@ export function MoneyAllocationPage({
 
         {/* Multi-Branch Comparison Cards (HQ Summary View - Strict Per-Branch Isolation) */}
         {!loading && hasLoadedData && selectedOutletId === "all" && outletsList.length > 0 && (
-          <div className="mt-6 rounded-2xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+          <div className="mt-6 rounded-2xl border border-border/60 bg-muted/30 p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <Store className="size-4 text-primary" />
-                <h3 className="text-xs font-black uppercase tracking-wider text-foreground">
+                <div className="flex size-7 items-center justify-center rounded-lg bg-muted text-foreground/75">
+                  <Store className="w-4 h-4" />
+                </div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-foreground">
                   Ringkasan per Cabang
                 </h3>
               </div>
@@ -1810,28 +1826,34 @@ export function MoneyAllocationPage({
                         {out.code || "CABANG"}
                       </Badge>
                     </div>
-                    <div className="space-y-1 text-[11px]">
+                    <div className="space-y-1.5 text-xs">
                       <div className="flex justify-between text-muted-foreground">
                         <span>1. Total Omzet Masuk:</span>
-                        <span className="font-semibold text-foreground font-mono">
+                        <span className="font-semibold text-foreground tabular-nums">
                           {formatRupiah(outRevenue)}
                         </span>
                       </div>
-                      <div className="flex justify-between text-amber-600 dark:text-amber-400">
+                      <div className="flex justify-between text-muted-foreground">
                         <span>2. Celengan Bahan (BOM):</span>
-                        <span className="font-mono font-semibold">
+                        <span className="font-normal text-foreground tabular-nums">
                           -{formatRupiah(outBomSavings)}
                         </span>
                       </div>
-                      <div className="flex justify-between text-blue-600 dark:text-blue-400">
+                      <div className="flex justify-between text-muted-foreground">
                         <span>3. Kebutuhan Operasional:</span>
-                        <span className="font-mono font-semibold">
+                        <span className="font-normal text-foreground tabular-nums">
                           -{formatRupiah(outOpCost)}
                         </span>
                       </div>
-                      <div className="flex justify-between pt-1 border-t border-border font-bold text-emerald-600 dark:text-emerald-400">
+                      <div className="flex justify-between pt-1.5 border-t border-border/60 font-semibold text-foreground">
                         <span>4. Estimasi Profit Bersih:</span>
-                        <span className="font-mono font-black">{formatRupiah(outProfit)}</span>
+                        <span
+                          className={`font-bold tabular-nums ${
+                            outProfit < 0 ? "text-destructive" : "text-foreground"
+                          }`}
+                        >
+                          {formatRupiah(outProfit)}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1843,11 +1865,13 @@ export function MoneyAllocationPage({
       </div>
 
       {/* 3. Section 1: Celengan Belanja Bahan Baku (BOM Repurchase Pocket) */}
-      <div className="rounded-[2rem] border border-border bg-card p-6 shadow-soft space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+      <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-6 space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-border/60 pb-3">
           <div>
-            <div className="flex items-center gap-2">
-              <Boxes className="size-4 text-amber-500" />
+            <div className="flex items-center gap-2.5">
+              <div className="flex size-7 items-center justify-center rounded-lg bg-muted text-foreground/75 shrink-0">
+                <Boxes className="w-4 h-4" />
+              </div>
               <h2 className="text-base font-black text-foreground">
                 Celengan Belanja Bahan Baku (Sinkron Inventory HQ)
               </h2>
@@ -1985,8 +2009,8 @@ export function MoneyAllocationPage({
                       setTopUpModalOpen(true);
                     }}
                   >
-                    <Plus className="size-3.5" />
-                    + Saldo
+                    <Plus className="w-3.5 h-3.5" />
+                    Saldo
                   </Button>
                   <Button
                     size="sm"
@@ -2458,11 +2482,11 @@ export function MoneyAllocationPage({
                     </td>
                     <td className="px-4 py-3">
                       {item.type === "belanja_bahan" ? (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-bold uppercase text-xs text-foreground/80 dark:text-amber-400 border border-amber-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-semibold uppercase text-xs text-foreground/80 border border-border/60 whitespace-nowrap">
                           <Boxes className="size-3" /> Belanja Bahan
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-bold uppercase text-xs text-foreground/80 dark:text-blue-400 border border-blue-500/20">
+                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 font-semibold uppercase text-xs text-foreground/80 border border-border/60 whitespace-nowrap">
                           <Zap className="size-3" /> Operasional
                         </span>
                       )}
@@ -2711,7 +2735,7 @@ export function MoneyAllocationPage({
             <div className="rounded-2xl bg-muted/40 p-4 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Saldo Celengan Terkumpul:</span>
-                <span className="font-mono font-black text-amber-600 dark:text-amber-400">
+                <span className="font-mono font-bold text-foreground tabular-nums">
                   {formatRupiah(spendingItem.accumulated_balance)}
                 </span>
               </div>
@@ -2802,7 +2826,7 @@ export function MoneyAllocationPage({
             <div className="rounded-2xl bg-muted/40 p-4 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Saldo Celengan Terkumpul:</span>
-                <span className="font-mono font-black text-blue-600 dark:text-blue-400">
+                <span className="font-mono font-bold text-foreground tabular-nums">
                   {formatRupiah(payOpModal.accumulated_balance)}
                 </span>
               </div>
@@ -2870,7 +2894,7 @@ export function MoneyAllocationPage({
             <div className="rounded-2xl bg-muted/40 p-4 space-y-2 text-xs">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Saldo Celengan Gaji Siap Cair:</span>
-                <span className="font-mono font-black text-purple-600 dark:text-purple-400">
+                <span className="font-mono font-bold text-foreground tabular-nums">
                   {formatRupiah(totalSalarySavings)}
                 </span>
               </div>
@@ -2947,7 +2971,7 @@ export function MoneyAllocationPage({
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Harga 1 Pack ({topUpItem.item.unit}):</span>
-                <span className="font-mono font-bold text-amber-600 dark:text-amber-400">
+                <span className="font-mono font-bold text-foreground tabular-nums">
                   {formatRupiah(topUpItem.pack_price)}
                 </span>
               </div>

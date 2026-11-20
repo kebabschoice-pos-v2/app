@@ -156,13 +156,13 @@ export function RegisterExperience() {
         <div className="space-y-2">
           <Label className="flex items-center justify-between text-xs font-bold text-foreground">
             <span>Kode Otorisasi Internal Owner</span>
-            <span className="text-[10px] text-amber-600 font-normal">Wajib untuk internal</span>
+            <span className="text-[10px] text-foreground/75 font-normal">Wajib untuk internal</span>
           </Label>
           <Input
             value={authCode}
             onChange={(e) => setAuthCode(e.target.value)}
             placeholder="Masukkan kode master owner (contoh: KEBABSCHOICE-OWNER-VIP)"
-            className="font-mono uppercase tracking-wider text-xs border-amber-500/40 focus:border-amber-500"
+            className="font-mono uppercase tracking-wider text-xs border-border focus:border-border"
             required
           />
         </div>

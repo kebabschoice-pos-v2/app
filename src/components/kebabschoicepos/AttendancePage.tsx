@@ -622,7 +622,7 @@ export function AttendancePage({
                             todayInRecord?.status === "on_time"
                               ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
                               : todayInRecord?.status === "late"
-                                ? "bg-amber-500/10 text-amber-600 border border-amber-500/20"
+                                ? "bg-muted text-foreground/75 border border-border"
                                 : "bg-muted text-muted-foreground",
                           )}
                         >
@@ -639,8 +639,8 @@ export function AttendancePage({
               })()}
 
               {/* Shift Rule Banner */}
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-3 text-xs space-y-1">
-                <span className="font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1.5">
+              <div className="rounded-xl border border-border bg-muted p-3 text-xs space-y-1">
+                <span className="font-bold text-foreground/75 flex items-center gap-1.5">
                   <Clock className="size-3.5" />
                   Aturan Kehadiran Shift
                 </span>
@@ -759,7 +759,7 @@ export function AttendancePage({
                             className={`inline-block rounded-md px-2 py-0.5 font-bold uppercase text-[0.68rem] ${
                               item.type === "in"
                                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                : "bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                                : "bg-muted text-foreground/75"
                             }`}
                           >
                             {item.type === "in" ? "Masuk" : "Keluar"}
@@ -780,12 +780,12 @@ export function AttendancePage({
                             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.68rem] font-bold ${
                               item.status === "on_time"
                                 ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                                : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                                : "bg-muted text-foreground/75"
                             }`}
                           >
                             <span
                               className={`size-1.5 rounded-full ${
-                                item.status === "on_time" ? "bg-emerald-500" : "bg-amber-500"
+                                item.status === "on_time" ? "bg-emerald-500" : "bg-muted-foreground"
                               }`}
                             />
                             {item.status === "on_time"
@@ -987,9 +987,9 @@ export function AttendancePage({
                                           isCellOff
                                             ? "bg-sky-500/10 text-sky-700 dark:text-sky-300"
                                             : isCellSakit
-                                            ? "bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                                            ? "bg-muted text-foreground/75"
                                             : isCellIzin
-                                            ? "bg-purple-500/10 text-purple-700 dark:text-purple-300"
+                                            ? "bg-muted text-foreground/75"
                                             : isPagi
                                             ? "bg-rose-500/5 text-foreground"
                                             : "bg-muted/30 text-foreground"
@@ -1071,13 +1071,13 @@ export function AttendancePage({
                   className={`font-bold ${
                     successRecord.status === "on_time"
                       ? "text-emerald-600 dark:text-emerald-400"
-                      : "text-amber-600 dark:text-amber-400"
+                      : "text-foreground/75"
                   }`}
                 >
                   <span className="inline-flex items-center gap-1.5">
                     <span
                       className={`w-2 h-2 rounded-full inline-block shrink-0 ${
-                        successRecord.status === "on_time" ? "bg-emerald-500" : "bg-amber-500"
+                        successRecord.status === "on_time" ? "bg-emerald-500" : "bg-muted-foreground"
                       }`}
                     />
                     {successRecord.status === "on_time"

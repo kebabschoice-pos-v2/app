@@ -119,7 +119,7 @@ export function AiAssistantPanel({ snapshot }: { snapshot: Snapshot }) {
     <section className="flex h-[42rem] min-h-0 flex-col rounded-[1.75rem] border border-border bg-card/86 shadow-float backdrop-blur-2xl">
       <div className="flex items-center justify-between gap-4 border-b border-border px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-2xl bg-ai-soft text-ai">
+          <div className="flex size-10 items-center justify-center rounded-2xl bg-muted text-foreground/75">
             <Bot className="size-5" />
           </div>
           <div>

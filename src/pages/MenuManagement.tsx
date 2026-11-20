@@ -1910,7 +1910,7 @@ export function MenuManagement() {
                       <td className="px-3 py-3">
                         <button
                           onClick={() => handleOpenQuickOutlet(item)}
-                          className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 text-xs font-semibold text-foreground/80 hover:bg-blue-500/20"
+                          className="inline-flex items-center gap-1 rounded-xl bg-muted px-2 py-1 text-xs font-semibold text-foreground/80 hover:bg-muted"
                         >
                           <MapPin className="size-3" />
                           <span>
@@ -2413,7 +2413,7 @@ export function MenuManagement() {
                             variant="ghost"
                             size="sm"
                             onClick={calculateBOMCost}
-                            className="h-6 rounded-lg text-xs font-bold text-purple-600 dark:text-purple-400 gap-1 hover:bg-purple-500/10"
+                            className="h-6 rounded-lg text-xs font-bold text-foreground/75 gap-1 hover:bg-muted"
                             title="Hitung otomatis dari resep bahan baku Tab 3"
                           >
                             <Sparkles className="size-3" />
@@ -2437,11 +2437,11 @@ export function MenuManagement() {
                           <span>
                             Format: {formatIDR(costPrice)}
                             {userRole === "manager" && managerPermissions?.can_edit_menu_recipes === false && (
-                              <span className="ml-1 text-amber-600 font-bold">(Terkunci oleh Owner)</span>
+                              <span className="ml-1 text-foreground/75 font-bold">(Terkunci oleh Owner)</span>
                             )}
                           </span>
                           {recipeItems.length > 0 && (
-                            <span className="text-purple-600 dark:text-purple-400 font-semibold">
+                            <span className="text-foreground/75 font-semibold">
                               {recipeItems.length} bahan baku terhubung
                             </span>
                           )}
@@ -2483,7 +2483,7 @@ export function MenuManagement() {
                       <div className="rounded-2xl border border-border bg-card p-4 space-y-1.5">
                         <div className="flex items-center justify-between">
                           <label className="text-xs font-bold text-muted-foreground flex items-center gap-1">
-                            <Percent className="size-3.5 text-blue-500" />
+                            <Percent className="size-3.5 text-foreground/75" />
                             <span>Tarif Pajak Konsumen (%)</span>
                           </label>
                           <div className="flex items-center gap-1">
@@ -2556,7 +2556,7 @@ export function MenuManagement() {
                               marginPercentage >= 40
                                 ? "text-emerald-600 dark:text-emerald-400"
                                 : marginPercentage >= 20
-                                  ? "text-amber-600 dark:text-amber-400"
+                                  ? "text-foreground/75"
                                   : "text-rose-600 dark:text-rose-400"
                             }`}
                           >
@@ -2612,8 +2612,8 @@ export function MenuManagement() {
                             </div>
                           </div>
                         ) : marginPercentage >= 20 ? (
-                          <div className="flex items-center gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-3 text-amber-700 dark:text-amber-300">
-                            <AlertTriangle className="size-5 shrink-0 text-amber-600 dark:text-amber-400" />
+                          <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-muted p-3 text-foreground/75">
+                            <AlertTriangle className="size-5 shrink-0 text-foreground/75" />
                             <div className="text-xs">
                               <p className="font-black">Margin Rendah / Waspada (20% - 39%)</p>
                               <p className="text-[11px] opacity-90">
@@ -3288,7 +3288,7 @@ export function MenuManagement() {
                     <div className="space-y-4 rounded-3xl border border-border bg-card/60 p-5 shadow-sm">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border pb-4">
                         <div>
-                          <div className="flex items-center gap-2 text-sm font-black text-purple-600 dark:text-purple-400">
+                          <div className="flex items-center gap-2 text-sm font-black text-foreground/75">
                             <BookOpen className="size-4" />
                             <span>2. Resep Bahan Baku (BOM)</span>
                           </div>
@@ -3300,7 +3300,7 @@ export function MenuManagement() {
                             variant="outline"
                             size="sm"
                             onClick={calculateBOMCost}
-                            className="rounded-xl text-xs gap-1 font-bold text-purple-600 dark:text-purple-400 hover:bg-purple-500/10"
+                            className="rounded-xl text-xs gap-1 font-bold text-foreground/75 hover:bg-muted"
                           >
                             <Sparkles className="size-3.5" />
                             Kalkulasi & Terapkan ke HPP
@@ -3549,8 +3549,8 @@ export function MenuManagement() {
 
                                 {/* Inline Quick Fix if Ingredient Cost is Rp 0 */}
                                 {matchedInv && (!matchedInv.cost_price || matchedInv.cost_price <= 0) && (
-                                  <div className="flex flex-wrap items-center gap-2 rounded-xl bg-amber-500/10 border border-amber-500/30 p-2.5 text-xs text-amber-700 dark:text-amber-300">
-                                    <AlertCircle className="size-4 shrink-0 text-amber-600" />
+                                  <div className="flex flex-wrap items-center gap-2 rounded-xl bg-muted border border-border p-2.5 text-xs text-foreground/75">
+                                    <AlertCircle className="size-4 shrink-0 text-foreground/75" />
                                     <span className="font-semibold">
                                       Harga beli 1 {matchedInv.unit} {matchedInv.name} belum diatur.
                                     </span>
@@ -3593,7 +3593,7 @@ export function MenuManagement() {
                                             r.unit || "pcs",
                                           )
                                         }
-                                        className="h-7 px-2.5 rounded-lg text-xs font-bold bg-amber-600 hover:bg-amber-700 text-white"
+                                        className="h-7 px-2.5 rounded-lg text-xs font-bold bg-primary hover:bg-muted text-white"
                                       >
                                         {quickFixLoading[matchedInv.id] ? "Menyimpan..." : "Simpan & Hitung"}
                                       </Button>
@@ -4088,11 +4088,11 @@ export function MenuManagement() {
                                 <div className="flex items-center gap-1.5">
                                   <p className="font-bold text-xs">{cat.name}</p>
                                   {isSystemCategory(cat) ? (
-                                    <span className="rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 px-1.5 py-0.5 text-xs font-bold">
+                                    <span className="rounded-md bg-muted text-foreground/75 border border-border px-1.5 py-0.5 text-xs font-bold">
                                       System
                                     </span>
                                   ) : (
-                                    <span className="rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 px-1.5 py-0.5 text-xs font-bold">
+                                    <span className="rounded-md bg-muted text-foreground/75 border border-border px-1.5 py-0.5 text-xs font-bold">
                                       User
                                     </span>
                                   )}

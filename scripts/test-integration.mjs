@@ -3589,6 +3589,94 @@ test("Enforces zero UI emojis across core pages, single Monitor icon on Masuk PO
   );
 });
 
+// --- TEST 112: Full-App Visual, CSS & Alignment Sweep (Neutral --accent, Tabular Neutral Numbers, No Double + +, Modal Alignment, Filter Pills & Zero-Omzet Empty State) ---
+console.log("\n▶ 112. FULL-APP VISUAL, CSS & ALIGNMENT SWEEP (NEUTRAL --ACCENT, NO DOUBLE + +, ALIGNED FILTERS & ZERO-OMZET EMPTY STATE)");
+test("Enforces neutral --accent CSS token, zero orange/amber hover or rainbow icons in src/components & src/pages, zero double + + buttons, aligned Masuk POS modal & filter pills, and clean zero-omzet Insight empty states", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const stylesCss = read("src/styles.css");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const moneyCode = read("src/pages/money/MoneyAllocationPage.tsx");
+  const insightCode = read("src/pages/reports/InsightAnalyticsPage.tsx");
+  const perfOutletCode = read("src/pages/reports/PerformanceOutletPage.tsx");
+  const perfMenuCode = read("src/pages/reports/PerformanceMenuPage.tsx");
+  const reportsServiceCode = read("src/services/reports.service.ts");
+
+  // 1. Neutral --accent token in styles.css (not orange oklch(0.739 0.168 47.2))
+  assert.ok(
+    stylesCss.includes("--accent: hsl(210 20% 96%);") &&
+      stylesCss.includes("--accent-foreground: hsl(222 47% 11%);") &&
+      !stylesCss.includes("--accent: oklch(0.739 0.168 47.2)"),
+    "src/styles.css must define neutral --accent and --accent-foreground instead of orange",
+  );
+
+  // 2. Zero double + + button in MoneyAllocationPage & neutral Ringkasan per Cabang numbers
+  assert.ok(
+    !moneyCode.includes("<Plus className=\"size-3.5\" />\n                    + Saldo") &&
+      moneyCode.includes('<Plus className="w-3.5 h-3.5" />\n                    Saldo') &&
+      moneyCode.includes("tabular-nums"),
+    "MoneyAllocationPage must not duplicate + symbol on Saldo button and must use neutral tabular-nums for Ringkasan per Cabang",
+  );
+
+  // 3. Masuk POS Kasir modal single-line alignment (min-w-0 flex-1 left, shrink-0 whitespace-nowrap right)
+  assert.ok(
+    posAppCode.includes('className="flex items-center gap-3 min-w-0 flex-1"') &&
+      posAppCode.includes("flex items-center gap-1.5 shrink-0 whitespace-nowrap text-xs font-bold text-primary"),
+    "BranchPosSwitchModal must keep branch info min-w-0 flex-1 and Buka POS CTA shrink-0 whitespace-nowrap on 1 line",
+  );
+
+  // 4. Aligned dropdown filter pills across InsightAnalytics, PerformanceOutlet, PerformanceMenu, MoneyAllocation, and Orders
+  const pillSig =
+    'className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"';
+  const chevronSig = 'className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none"';
+  for (const [name, src] of [
+    ["InsightAnalyticsPage", insightCode],
+    ["PerformanceOutletPage", perfOutletCode],
+    ["PerformanceMenuPage", perfMenuCode],
+    ["MoneyAllocationPage", moneyCode],
+    ["KebabsChoicePOSApp(Orders)", posAppCode],
+  ]) {
+    assert.ok(
+      src.includes(pillSig) && src.includes(chevronSig),
+      `${name} filter dropdown pill must align label and select flush-left with vertically centered ChevronDown`,
+    );
+  }
+
+  // 5. Clean zero-omzet empty state in reports.service.ts & InsightAnalyticsPage.tsx charts (no purple bg-ai-soft header)
+  assert.ok(
+    reportsServiceCode.includes("outletsReport[0].revenue > 0") &&
+      reportsServiceCode.includes("Belum ada transaksi pada periode terpilih") &&
+      insightCode.includes("hasDailySalesData") &&
+      insightCode.includes("hasPeakHoursData") &&
+      !insightCode.includes("bg-ai-soft") &&
+      !insightCode.includes("text-ai"),
+    "InsightAnalyticsPage and reports.service must show clean zero-omzet empty state and monochrome neutral header icon",
+  );
+
+  // 6. Full src/components audit: 0 UI emojis, 0 hover:bg-orange/amber, 0 rainbow classes
+  function walkTsx(dir, out = []) {
+    for (const f of fs.readdirSync(dir)) {
+      const p = path.join(dir, f);
+      if (fs.statSync(p).isDirectory()) walkTsx(p, out);
+      else if (p.endsWith(".tsx")) out.push(p);
+    }
+    return out;
+  }
+  const rainbowRe = /(?:bg|text|border)-(?:orange|amber|purple|violet|indigo|pink|blue|cyan|yellow|teal)-\d+|bg-ai-soft|\btext-ai\b/;
+  const hoverRe = /hover:bg-(?:orange|amber)/;
+  const emojiRe = /[\u{231A}-\u{23FF}\u{2B00}-\u{2BFF}\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu;
+  for (const f of walkTsx(path.join(process.cwd(), "src/components"))) {
+    const src = fs.readFileSync(f, "utf8");
+    assert.ok(!hoverRe.test(src), `${f} must have 0 hover:bg-orange/amber classes`);
+    assert.ok(!rainbowRe.test(src), `${f} must have 0 rainbow icon/card classes`);
+    for (const line of src.split("\n")) {
+      const t = line.trim();
+      if (t.startsWith("//") || t.startsWith("*")) continue;
+      const m = (line.match(emojiRe) || []).filter((c) => c !== "✕" && c !== "⌫" && c !== "➔" && c !== "•");
+      assert.strictEqual(m.length, 0, `${f} must have 0 UI emojis (found ${m.join("")})`);
+    }
+  }
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

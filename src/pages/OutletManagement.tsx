@@ -673,31 +673,19 @@ export function OutletManagement({
         <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4 border-t border-border/60 pt-4">
           <div className="rounded-xl bg-muted/40 p-3.5">
             <span className="text-xs text-muted-foreground font-semibold">Total Cabang</span>
-            <p className="text-2xl font-black">{totalCount}</p>
+            <p className="text-2xl font-bold text-foreground tabular-nums">{totalCount}</p>
           </div>
-          <div className="rounded-xl bg-emerald-500/10 p-3.5">
-            <span className="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">
-              Outlet Aktif
-            </span>
-            <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
-              {activeCount}
-            </p>
+          <div className="rounded-xl bg-muted/40 p-3.5">
+            <span className="text-xs text-muted-foreground font-semibold">Outlet Aktif</span>
+            <p className="text-2xl font-bold text-foreground tabular-nums">{activeCount}</p>
           </div>
-          <div className="rounded-xl bg-amber-500/10 p-3.5">
-            <span className="text-xs text-amber-600 dark:text-amber-400 font-semibold">
-              Non-aktif
-            </span>
-            <p className="text-2xl font-black text-amber-600 dark:text-amber-400">
-              {inactiveCount}
-            </p>
+          <div className="rounded-xl bg-muted/40 p-3.5">
+            <span className="text-xs text-muted-foreground font-semibold">Non-aktif</span>
+            <p className="text-2xl font-bold text-foreground tabular-nums">{inactiveCount}</p>
           </div>
-          <div className="rounded-xl bg-blue-500/10 p-3.5">
-            <span className="text-xs text-blue-600 dark:text-blue-400 font-semibold">
-              Karyawan Ditugaskan
-            </span>
-            <p className="text-2xl font-black text-blue-600 dark:text-blue-400">
-              {totalAssignedStaff}
-            </p>
+          <div className="rounded-xl bg-muted/40 p-3.5">
+            <span className="text-xs text-muted-foreground font-semibold">Karyawan Ditugaskan</span>
+            <p className="text-2xl font-bold text-foreground tabular-nums">{totalAssignedStaff}</p>
           </div>
         </div>
       </div>
@@ -919,9 +907,9 @@ export function OutletManagement({
 
                           {Boolean((outlet.settings as any)?.outlet_login_email) ? (
                             (outlet.settings as any)?.outlet_login_account?.status === "pending_confirmation" ? (
-                              <div className="space-y-1 rounded-lg bg-amber-500/10 border border-amber-500/25 p-2 text-[11px] text-amber-700 dark:text-amber-400">
+                              <div className="space-y-1 rounded-lg bg-muted border border-border p-2 text-[11px] text-foreground/75">
                                 <div className="flex items-center gap-1.5 font-bold">
-                                  <span className="size-1.5 rounded-full bg-amber-500 animate-ping shrink-0" />
+                                  <span className="size-1.5 rounded-full bg-muted animate-ping shrink-0" />
                                   <span>Menunggu Konfirmasi Gmail Owner</span>
                                 </div>
                                 <p className="font-mono text-xs text-muted-foreground truncate">
@@ -931,7 +919,7 @@ export function OutletManagement({
                                   href="https://mail.google.com"
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-300 underline hover:text-amber-800"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-foreground/75 underline hover:text-foreground"
                                 >
                                   <span>Buka Gmail Owner Sekarang &rarr;</span>
                                 </a>
@@ -968,7 +956,7 @@ export function OutletManagement({
                         <div className="rounded-xl border border-border/80 bg-card p-3 text-xs space-y-2">
                           <div className="flex items-center justify-between">
                             <div className="flex items-center gap-1.5 font-bold text-foreground">
-                              <Users className="size-3.5 text-blue-500" />
+                              <Users className="size-3.5 text-foreground/75" />
                               <span>Karyawan Cabang Ini ({branchEmployees.length})</span>
                             </div>
                             <span className="text-xs text-muted-foreground">
@@ -1111,7 +1099,7 @@ export function OutletManagement({
                             <div className="flex items-center gap-1.5">
                               <span
                                 className={`size-1.5 rounded-full shrink-0 ${
-                                  isPending ? "bg-amber-500 animate-ping" : "bg-emerald-500"
+                                  isPending ? "bg-muted-foreground animate-ping" : "bg-emerald-500"
                                 }`}
                               />
                               <span className="font-mono text-xs font-bold text-foreground">
@@ -1124,7 +1112,7 @@ export function OutletManagement({
                                   href="https://mail.google.com"
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="inline-flex items-center gap-1 text-xs font-bold text-amber-700 dark:text-amber-400 hover:underline"
+                                  className="inline-flex items-center gap-1 text-xs font-bold text-foreground/75 hover:underline"
                                 >
                                   Cek Gmail Owner &rarr;
                                 </a>
@@ -1522,10 +1510,10 @@ export function OutletManagement({
                 </div>
 
                 {/* Manager Card */}
-                <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+                <div className="rounded-2xl border border-border bg-muted p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="flex size-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-600 font-bold">
+                      <div className="flex size-10 items-center justify-center rounded-xl bg-muted text-foreground/75 font-bold">
                         {selectedOutlet.manager ? (
                           selectedOutlet.manager.name.charAt(0).toUpperCase()
                         ) : (
@@ -1533,7 +1521,7 @@ export function OutletManagement({
                         )}
                       </div>
                       <div>
-                        <span className="text-[0.68rem] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-wider block">
+                        <span className="text-[0.68rem] font-bold text-foreground/75 uppercase tracking-wider block">
                           Store Manager
                         </span>
                         <h4 className="font-bold text-base text-foreground">
@@ -1796,8 +1784,8 @@ export function OutletManagement({
               </div>
 
               {/* Box Verifikasi & Konfirmasi Keamanan Gmail Owner */}
-              <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3.5 space-y-2.5">
-                <div className="flex items-start gap-2 text-amber-700 dark:text-amber-400">
+              <div className="rounded-2xl border border-border bg-muted p-3.5 space-y-2.5">
+                <div className="flex items-start gap-2 text-foreground/75">
                   <Shield className="size-4 shrink-0 mt-0.5" />
                   <div>
                     <h5 className="font-black text-xs">Konfirmasi Keamanan Bisnis Pribadi</h5>
@@ -1811,7 +1799,7 @@ export function OutletManagement({
                   </div>
                 </div>
 
-                <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between gap-2">
+                <div className="pt-2 border-t border-border flex items-center justify-between gap-2">
                   <label className="flex items-center gap-2 cursor-pointer select-none">
                     <input
                       type="checkbox"

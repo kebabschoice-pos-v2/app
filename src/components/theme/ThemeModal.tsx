@@ -33,7 +33,7 @@ export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
     setAppearance(app);
     saveTheme(app, color);
     toast.success(
-      `Tampilan diubah ke ${app === "light" ? "Light Mode ☀️" : app === "dark" ? "Dark Mode 🌙" : "System Mode 🌓"}`,
+      `Tampilan diubah ke ${app === "light" ? "Light Mode" : app === "dark" ? "Dark Mode" : "System Mode"}`,
     );
   };
 
@@ -48,8 +48,8 @@ export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
       <div className="relative w-full max-w-md rounded-[2rem] border border-border bg-card p-6 shadow-float animate-in zoom-in-95">
         <div className="flex items-center justify-between border-b border-border pb-4">
           <div className="flex items-center gap-2.5">
-            <div className="flex size-9 items-center justify-center rounded-xl bg-primary/10 text-primary">
-              <Palette className="size-5" />
+            <div className="flex size-9 items-center justify-center rounded-xl bg-muted text-foreground/75">
+              <Palette className="size-4" />
             </div>
             <div>
               <h2 className="text-lg font-black tracking-normal">Kustomisasi Tema UI</h2>

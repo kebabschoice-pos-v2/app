@@ -954,16 +954,30 @@ export async function getComprehensiveAnalytics(
     }
 
     if (outletsReport[0]) {
-      recommendations.push({
-        id: "rec-outlet",
-        type: "outlet",
-        title: `Performa Cabang Utama: ${outletsReport[0].name}`,
-        description: `Cabang ${outletsReport[0].name} memimpin dengan omzet ${formatRupiah(outletsReport[0].revenue)}. Jam tersibuk tercatat pada ${outletsReport[0].peakTime}.`,
-        impact: "Efisiensi jadwal staff & persiapan bahan baku resep",
-        priority: "low",
-        actionLabel: "Lihat Detail Cabang",
-        actionHref: "/performance-outlet",
-      });
+      if (outletsReport[0].revenue > 0) {
+        recommendations.push({
+          id: "rec-outlet",
+          type: "outlet",
+          title: `Performa Cabang Utama: ${outletsReport[0].name}`,
+          description: `Cabang ${outletsReport[0].name} memimpin dengan omzet ${formatRupiah(outletsReport[0].revenue)}. Jam tersibuk tercatat pada ${outletsReport[0].peakTime}.`,
+          impact: "Efisiensi jadwal staff & persiapan bahan baku resep",
+          priority: "low",
+          actionLabel: "Lihat Detail Cabang",
+          actionHref: "/performance-outlet",
+        });
+      } else {
+        recommendations.push({
+          id: "rec-outlet",
+          type: "outlet",
+          title: "Aktivitas Transaksi Periode Ini",
+          description:
+            "Belum ada transaksi pada periode terpilih. Mulai transaksi di POS Kasir untuk melihat analisa performa cabang secara otomatis.",
+          impact: "Analitik otomatis terisi setelah transaksi tercatat",
+          priority: "low",
+          actionLabel: "Lihat Detail Cabang",
+          actionHref: "/performance-outlet",
+        });
+      }
     }
 
     // Overall payment methods breakdown

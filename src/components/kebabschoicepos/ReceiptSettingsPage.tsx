@@ -357,7 +357,7 @@ export function ReceiptSettingsPage() {
         </div>
 
         {!canEdit && (
-          <div className="mt-4 flex items-center gap-2 rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-600 dark:text-amber-400">
+          <div className="mt-4 flex items-center gap-2 rounded-xl border border-border bg-muted p-3 text-xs text-foreground/75">
             <ShieldAlert className="size-4 shrink-0" />
             <span>
               <strong>Mode Tinjau Struk:</strong> Akun kasir hanya memiliki hak akses melihat
@@ -392,7 +392,7 @@ export function ReceiptSettingsPage() {
                     printerInfo.status === "connected"
                       ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
                       : printerInfo.status === "connecting"
-                        ? "bg-amber-500/15 text-amber-600 animate-pulse"
+                        ? "bg-muted text-foreground/75 animate-pulse"
                         : "bg-secondary text-muted-foreground"
                   }`}
                 >

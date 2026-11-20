@@ -1390,16 +1390,16 @@ export function InventoryManagement() {
 
       {/* Low Stock Alert Visual Banner */}
       {metrics.lowStockCount + metrics.outOfStockCount > 0 && (
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-[1.5rem] border border-amber-500/30 bg-amber-500/10 p-4 text-xs shadow-soft animate-in fade-in">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 rounded-[1.5rem] border border-border bg-muted p-4 text-xs shadow-soft animate-in fade-in">
           <div className="flex items-center gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-amber-500/20 text-amber-600 dark:text-amber-400">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted text-foreground/75">
               <AlertTriangle className="size-5" />
             </div>
             <div>
-              <p className="font-black text-amber-950 dark:text-amber-200 text-sm">
+              <p className="font-black text-foreground/75 text-sm">
                 Peringatan Stok Rendah (Low Stock Alert)
               </p>
-              <p className="text-amber-800 dark:text-amber-400 text-xs mt-0.5">
+              <p className="text-foreground/75 text-xs mt-0.5">
                 Terdapat{" "}
                 <strong>{metrics.lowStockCount + metrics.outOfStockCount} bahan baku</strong> yang
                 berada pada atau di bawah batas minimum stok ({metrics.outOfStockCount} habis,{" "}
@@ -1411,7 +1411,7 @@ export function InventoryManagement() {
           <Button
             size="sm"
             variant="outline"
-            className="shrink-0 border-amber-500/40 bg-amber-500/20 text-amber-900 dark:text-amber-100 hover:bg-amber-500/30 font-bold text-xs rounded-xl h-9"
+            className="shrink-0 border-border bg-muted text-foreground/75 hover:bg-muted font-bold text-xs rounded-xl h-9"
             onClick={() => setActiveTab("low-stock")}
           >
             Lihat Bahan Kritis ({metrics.lowStockCount + metrics.outOfStockCount})
@@ -1478,7 +1478,7 @@ export function InventoryManagement() {
           onClick={() => setActiveTab("low-stock")}
           className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold transition-all ${
             activeTab === "low-stock"
-              ? "bg-amber-600 text-white shadow-brand"
+              ? "bg-primary text-white shadow-brand"
               : "bg-card text-muted-foreground hover:bg-secondary hover:text-foreground"
           }`}
         >
@@ -2042,7 +2042,7 @@ export function InventoryManagement() {
                   <div
                     key={item.id}
                     className={`rounded-[1.5rem] border p-5 shadow-soft bg-card ${
-                      isOutOfStock ? "border-rose-500/40" : "border-amber-500/40"
+                      isOutOfStock ? "border-rose-500/40" : "border-border"
                     }`}
                   >
                     <div className="flex items-start justify-between gap-3">
@@ -2051,7 +2051,7 @@ export function InventoryManagement() {
                           className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-black uppercase ${
                             isOutOfStock
                               ? "bg-rose-500/10 text-rose-600"
-                              : "bg-amber-500/10 text-amber-600"
+                              : "bg-muted text-foreground/75"
                           }`}
                         >
                           {isOutOfStock ? "Habis" : "Menipis"}
@@ -2470,19 +2470,19 @@ export function InventoryManagement() {
 
               {/* Total Belanja & Buffer HPP Protection Box */}
               {stockInQty > 0 && stockInUnitCost > 0 && (
-                <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3.5 space-y-2">
+                <div className="rounded-2xl border border-border bg-muted p-3.5 space-y-2">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-muted-foreground">Total Belanja Aktual:</span>
-                    <span className="font-black text-amber-600 dark:text-amber-400 font-mono text-sm">
+                    <span className="font-black text-foreground/75 font-mono text-sm">
                       Rp {(stockInQty * stockInUnitCost).toLocaleString("id-ID")}
                     </span>
                   </div>
-                  <label className="flex items-center gap-2 pt-1 border-t border-amber-500/10 cursor-pointer">
+                  <label className="flex items-center gap-2 pt-1 border-t border-border cursor-pointer">
                     <input
                       type="checkbox"
                       checked={updateBenchmarkCost}
                       onChange={(e) => setUpdateBenchmarkCost(e.target.checked)}
-                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500"
+                      className="rounded border-border text-foreground/75 focus:ring-primary"
                     />
                     <span className="text-xs font-medium text-foreground">
                       Update harga patokan HPP dengan harga belanja ini

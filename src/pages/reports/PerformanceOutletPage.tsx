@@ -29,6 +29,7 @@ import {
   AlertTriangle,
   Bike,
   AlertCircle,
+  ChevronDown,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -286,16 +287,16 @@ export function PerformanceOutletPage() {
 
           <div className="flex flex-wrap items-center gap-2.5">
             {/* Filter Cabang Dropdown */}
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Store className="w-4 h-4 text-foreground/70 shrink-0" />
-              <div className="text-xs">
-                <span className="block text-xs font-bold text-muted-foreground uppercase">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Store className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                   Cabang
                 </span>
                 <select
                   value={selectedOutletId}
                   onChange={(e) => setSelectedOutletId(e.target.value)}
-                  className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="all">Semua Cabang ({outletsDropdownList.length})</option>
                   {outletsDropdownList.map((o) => (
@@ -305,19 +306,20 @@ export function PerformanceOutletPage() {
                   ))}
                 </select>
               </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             {/* Filter Rentang Tanggal */}
-            <div className="flex items-center gap-2 rounded-2xl border border-border bg-background px-3 py-1.5 shadow-xs">
-              <Calendar className="w-4 h-4 text-foreground/70 shrink-0" />
-              <div className="text-xs">
-                <span className="block text-xs font-bold text-muted-foreground uppercase">
+            <div className="flex items-center gap-2.5 rounded-2xl border border-border bg-background px-3.5 py-2 shadow-xs">
+              <Calendar className="w-4 h-4 text-muted-foreground shrink-0" />
+              <div className="flex flex-col items-start justify-center min-w-0">
+                <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground leading-none">
                   Periode
                 </span>
                 <select
                   value={dateRange}
                   onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
-                  className="bg-transparent font-black text-foreground focus:outline-none cursor-pointer pr-1"
+                  className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
                   <option value="today">Hari Ini</option>
                   <option value="last_7_days">7 Hari Terakhir</option>
@@ -325,6 +327,7 @@ export function PerformanceOutletPage() {
                   <option value="custom">Custom Range</option>
                 </select>
               </div>
+              <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0 self-center pointer-events-none" />
             </div>
 
             {/* Custom Date Pickers */}
@@ -442,27 +445,40 @@ export function PerformanceOutletPage() {
           </div>
 
           <div className="h-64 w-full pt-2">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={chartData} margin={{ top: 10, right: 16, left: -12, bottom: 4 }}>
-                <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-                <XAxis dataKey="name" fontSize={12} interval={0} />
-                <YAxis
-                  fontSize={12}
-                  domain={[0, "auto"]}
-                  allowDataOverflow={false}
-                  tickFormatter={(val) => formatCompactRupiah(Number(val))}
-                />
-                <ChartTooltip
-                  formatter={(val: any) => [`${formatRupiah(Number(val))}`, "Omzet"]}
-                />
-                <Bar
-                  dataKey="Revenue"
-                  fill="var(--primary)"
-                  maxBarSize={48}
-                  radius={[8, 8, 0, 0]}
-                />
-              </BarChart>
-            </ResponsiveContainer>
+            {!chartData.some((c) => (Number(c.Revenue) || 0) > 0) ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+                <Store className="w-5 h-5 text-muted-foreground mb-2" />
+                <p className="text-sm font-semibold text-foreground">
+                  Belum ada transaksi pada periode terpilih
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Grafik pendapatan per cabang akan tampil otomatis setelah ada transaksi.
+                </p>
+              </div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 10, right: 16, left: -12, bottom: 4 }}>
+                  <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
+                  <XAxis dataKey="name" fontSize={12} interval={0} />
+                  <YAxis
+                    fontSize={12}
+                    domain={[0, "auto"]}
+                    allowDecimals={false}
+                    allowDataOverflow={false}
+                    tickFormatter={(val) => formatCompactRupiah(Number(val))}
+                  />
+                  <ChartTooltip
+                    formatter={(val: any) => [`${formatRupiah(Number(val))}`, "Omzet"]}
+                  />
+                  <Bar
+                    dataKey="Revenue"
+                    fill="var(--primary)"
+                    maxBarSize={48}
+                    radius={[8, 8, 0, 0]}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
         </div>
 
@@ -712,23 +728,23 @@ export function PerformanceOutletPage() {
                         </div>
                       </div>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-bold text-foreground whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-right font-bold text-foreground tabular-nums whitespace-nowrap">
                       <div>{formatRupiah(outlet.revenue)}</div>
                       <span className="text-xs text-muted-foreground font-normal">
                         {outlet.ordersCount} Order
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-semibold text-foreground whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
                       <div>{formatRupiah(outlet.cashRevenue)}</div>
                       <span className="text-xs text-muted-foreground font-normal">Fisik Laci</span>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-semibold text-foreground whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-right font-medium text-foreground tabular-nums whitespace-nowrap">
                       <div>{formatRupiah(outlet.digitalRevenue)}</div>
                       <span className="text-xs text-muted-foreground font-normal">
                         QRIS / Ojol / Kartu
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-right font-semibold text-muted-foreground whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-right font-normal text-muted-foreground tabular-nums whitespace-nowrap">
                       <div>{formatRupiah(outlet.cpmEstimate)}</div>
                       <span className="text-xs text-muted-foreground font-normal">
                         {actualHppPct}% Omzet
@@ -736,9 +752,9 @@ export function PerformanceOutletPage() {
                     </td>
                     <td
                       className={cn(
-                        "py-2.5 px-3 text-right font-semibold whitespace-nowrap",
+                        "py-2.5 px-3 text-right font-medium tabular-nums whitespace-nowrap",
                         outlet.operationalCashOut > 0
-                          ? "text-rose-600 dark:text-rose-400"
+                          ? "text-destructive"
                           : "text-muted-foreground",
                       )}
                     >
@@ -747,10 +763,8 @@ export function PerformanceOutletPage() {
                     </td>
                     <td
                       className={cn(
-                        "py-2.5 px-3 text-right font-bold whitespace-nowrap",
-                        outlet.netProfit < 0
-                          ? "text-rose-600 dark:text-rose-400"
-                          : "text-foreground",
+                        "py-2.5 px-3 text-right font-bold tabular-nums whitespace-nowrap",
+                        outlet.netProfit < 0 ? "text-destructive" : "text-foreground",
                       )}
                     >
                       <div>{formatRupiah(outlet.netProfit)}</div>
@@ -764,10 +778,8 @@ export function PerformanceOutletPage() {
                           className={cn(
                             "rounded-full px-2.5 py-0.5 text-xs font-bold inline-flex items-center gap-1.5 whitespace-nowrap",
                             outlet.healthStatus === "danger"
-                              ? "bg-rose-500/10 text-rose-600 border border-rose-500/30"
-                              : outlet.healthStatus === "warning"
-                                ? "bg-muted text-foreground border border-border"
-                                : "bg-muted text-foreground/80 border border-border/60",
+                              ? "bg-rose-500/10 text-destructive border border-rose-500/30"
+                              : "bg-muted text-foreground/80 border border-border/60",
                           )}
                         >
                           <span
@@ -776,7 +788,7 @@ export function PerformanceOutletPage() {
                               outlet.healthStatus === "danger"
                                 ? "bg-rose-500"
                                 : outlet.healthStatus === "warning"
-                                  ? "bg-amber-500"
+                                  ? "bg-muted-foreground"
                                   : "bg-emerald-500",
                             )}
                           />

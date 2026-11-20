@@ -326,7 +326,7 @@ export function PurchaseOrderPage() {
 
         <div className="rounded-[1.5rem] border border-border bg-card/80 p-5 shadow-soft">
           <p className="text-xs font-semibold text-muted-foreground">Menunggu Persetujuan</p>
-          <p className="mt-3 text-2xl font-black text-amber-600">
+          <p className="mt-3 text-2xl font-black text-foreground/75">
             {purchaseOrders.filter((p) => p.status === "pending").length}
           </p>
           <p className="mt-1 text-[11px] text-muted-foreground">Status Pending</p>
@@ -446,7 +446,7 @@ export function PurchaseOrderPage() {
                             Disetujui
                           </span>
                         ) : po.status === "pending" ? (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-[11px] font-bold text-amber-600">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-bold text-foreground/75">
                             <Clock className="size-3" />
                             Pending
                           </span>

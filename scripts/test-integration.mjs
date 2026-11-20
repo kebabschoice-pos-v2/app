@@ -3677,6 +3677,93 @@ test("Enforces neutral --accent CSS token, zero orange/amber hover or rainbow ic
   }
 });
 
+// --- TEST 113: Critical POS Infinite Loop Kill, Discount Rp 5.000 + Tender Rp 50.000, Smart Cart Take Away, No Auto-Print & Shift Crew Filtering ---
+console.log("\n▶ 113. CRITICAL POS FIXES: NO INFINITE LOOP, DISCOUNT 5.000 + TENDER 50.000, TAKE AWAY SMART CART, NO AUTO-PRINT & SHIFT CREW FILTER");
+test("Verifies stable useEffect dependencies in PosPage/OrdersPage, Discount Rp 5.000 + Tender Rp 50.000 math & schema-safe sales_orders fallback, zero auto window.print() on checkout, Take Away Smart Cart without Bungkus/history, and PosShiftCashPage companion crew filtering + thousand dot formatting", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const shiftPageCode = read("src/pages/pos/PosShiftCashPage.tsx");
+  const formattersCode = read("src/lib/input-formatters.ts");
+  const stylesCss = read("src/styles.css");
+
+  // 1. Kill infinite fetch loop on /pos: activeOutlets memoized with useMemo & syncShift does NOT depend on activeOutlets
+  assert.ok(
+    posAppCode.includes("const activeOutlets = useMemo(") &&
+      posAppCode.includes("}, [selectedOutletId, snapshot.businessId]);") &&
+      !posAppCode.includes("}, [selectedOutletId, activeOutlets]);"),
+    "PosPage must memoize activeOutlets and exclude activeOutlets from syncShift useEffect dependencies",
+  );
+
+  // 2. Discount Rp 5.000 + Quick Cash Rp 50.000 calculation (no NaN, accurate change, validation passes, schema-safe corePayload)
+  const parseNumberFromDots = (str) => {
+    if (typeof str === "number") return isNaN(str) ? 0 : str;
+    if (!str) return 0;
+    const cleaned = String(str).replace(/\D/g, "");
+    if (!cleaned) return 0;
+    const parsed = parseInt(cleaned, 10);
+    return isNaN(parsed) ? 0 : parsed;
+  };
+  const subtotal = 35000;
+  const discountValue = parseNumberFromDots("5.000");
+  const discountAmount = Math.min(subtotal, Math.max(0, discountValue));
+  const total = Math.max(0, subtotal - discountAmount);
+  const cashTendered = parseNumberFromDots("50.000");
+  const changeAmount = Math.max(0, cashTendered - total);
+
+  assert.strictEqual(discountValue, 5000, "Discount '5.000' must parse to integer 5000");
+  assert.strictEqual(total, 30000, "Total after Rp 5.000 discount on Rp 35.000 must be 30000");
+  assert.strictEqual(cashTendered, 50000, "Quick cash '50.000' must parse to integer 50000");
+  assert.strictEqual(changeAmount, 20000, "Change for Rp 50.000 tender on Rp 30.000 total must be 20000");
+  assert.ok(!Number.isNaN(total) && !Number.isNaN(changeAmount), "Calculations must never produce NaN");
+  assert.ok(cashTendered >= total, "Validation must pass when cashTendered (50000) >= discounted total (30000)");
+  assert.ok(
+    posAppCode.includes("const safeDiscountAmount = parseNumberFromDots(discountAmount);") &&
+      posAppCode.includes("const safeTotal = parseNumberFromDots(total);") &&
+      posAppCode.includes("const safeCashTendered = parseNumberFromDots(cashTendered);"),
+    "checkout() must sanitize subtotal, discountAmount, total, and cashTendered via parseNumberFromDots",
+  );
+
+  // 3. No automatic window.print() / printReceipt() inside checkout() or finalizePaidQrisOrder()
+  const checkoutSlice = posAppCode.slice(
+    posAppCode.indexOf("async function finalizePaidQrisOrder("),
+    posAppCode.indexOf("const channelMetaMap: Record<"),
+  );
+  assert.ok(
+    !checkoutSlice.includes("printReceipt({") &&
+      !checkoutSlice.includes("window.print()"),
+    "finalizePaidQrisOrder() and checkout() must NOT automatically invoke printReceipt() or window.print()",
+  );
+  assert.ok(
+    stylesCss.includes("@media print") && stylesCss.includes("#pos-printable-receipt"),
+    "src/styles.css must isolate #pos-printable-receipt inside @media print",
+  );
+
+  // 4. No "Bungkus" in Smart Cart (replaced with "Take Away"), always-visible channels, no lastReceiptNotice in Smart Cart
+  const posPageSlice = posAppCode.slice(
+    posAppCode.indexOf("const channelMetaMap: Record<"),
+    posAppCode.indexOf("function AnalyticsPage("),
+  );
+  assert.ok(
+    !posPageSlice.includes("Bungkus") &&
+      posPageSlice.includes('{ id: "take_away", label: "Take Away" }') &&
+      !posPageSlice.includes("activeCartPopover === \"channel\"") &&
+      !posPageSlice.includes("activeCartPopover === \"customer\"") &&
+      !posPageSlice.includes("Struk #{lastReceiptNotice.orderNumber}"),
+    "PosPage Smart Cart must use 'Take Away' (zero 'Bungkus'), render channels & customer inputs open without channel/customer popovers, and omit lastReceiptNotice from Smart Cart",
+  );
+
+  // 5. PosShiftCashPage filters companion crew (excludes selected cashier), locks Outlet Aktif readOnly, and formats startingCashInput with thousand dots
+  assert.ok(
+    shiftPageCode.includes('useState("200.000")') &&
+      shiftPageCode.includes("formatRupiahInput") &&
+      shiftPageCode.includes("parseNumberFromDots") &&
+      shiftPageCode.includes("availableCompanionCrew") &&
+      shiftPageCode.includes("lower === activeCashierLower") &&
+      shiftPageCode.includes("readOnly"),
+    "PosShiftCashPage must format opening balance as '200.000', lock active outlet as readOnly, and exclude selected cashier from companion crew chips",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

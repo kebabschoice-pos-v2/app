@@ -196,3 +196,26 @@
     background-color: color-mix(in oklab, var(--primary) 24%, transparent);
   }
 }
+
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  #pos-printable-receipt,
+  #pos-printable-receipt * {
+    visibility: visible !important;
+  }
+  #pos-printable-receipt {
+    position: fixed !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 80mm !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 4mm !important;
+    background: #ffffff !important;
+    color: #000000 !important;
+    box-shadow: none !important;
+    overflow: visible !important;
+  }
+}

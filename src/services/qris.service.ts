@@ -86,31 +86,88 @@ export function normalizeNmid(value: unknown): string | null {
   return raw;
 }
 
-async function loadOutletPaymentSettings(outletId?: string | null): Promise<any | null> {
-  if (!outletId) return null;
+async function loadOutletPaymentSettings(
+  outletId?: string | null,
+  businessId?: string | null,
+): Promise<any | null> {
   try {
-    const { data } = await (supabase.from("outlets" as any) as any)
-      .select("settings")
-      .eq("id", outletId)
-      .maybeSingle();
-    return (data?.settings as any)?.payment_settings || null;
+    if (outletId && outletId !== "all" && outletId !== "default") {
+      const { data } = await (supabase.from("outlets" as any) as any)
+        .select("settings")
+        .eq("id", outletId)
+        .maybeSingle();
+      const directPay = (data?.settings as any)?.payment_settings;
+      if (
+        directPay &&
+        (directPay.qrisNmid ||
+          directPay.qris_nmid ||
+          directPay.nmid ||
+          directPay.qrisStaticImageUrl ||
+          directPay.staticQrisImageUrl ||
+          directPay.static_qris_image_url ||
+          directPay.qrisImageUrl ||
+          directPay.qrisStaticPayload)
+      ) {
+        return directPay;
+      }
+      if (!businessId && directPay) return directPay;
+    }
+
+    if (businessId) {
+      const { data: busOutlets } = await (supabase.from("outlets" as any) as any)
+        .select("settings")
+        .eq("business_id", businessId)
+        .limit(10);
+      if (Array.isArray(busOutlets)) {
+        let firstFound: any = null;
+        for (const out of busOutlets) {
+          const pay = (out?.settings as any)?.payment_settings;
+          if (pay) {
+            if (!firstFound) firstFound = pay;
+            if (
+              pay.qrisNmid ||
+              pay.qris_nmid ||
+              pay.nmid ||
+              pay.qrisStaticImageUrl ||
+              pay.staticQrisImageUrl ||
+              pay.static_qris_image_url ||
+              pay.qrisImageUrl ||
+              pay.qrisStaticPayload
+            ) {
+              return pay;
+            }
+          }
+        }
+        if (firstFound) return firstFound;
+      }
+    }
+    return null;
   } catch (err) {
     console.warn("[QRIS] Gagal membaca payment_settings outlet:", err);
     return null;
   }
 }
 
-function extractStaticQris(cfg: any): StaticQrisSettings | null {
+export function extractStaticQris(cfg: any): StaticQrisSettings | null {
   if (!cfg) return null;
   if (String(cfg.qrisMode || "").toLowerCase() === "dynamic") return null;
   if (cfg.qrisStaticEnabled === false) return null;
-  const payload = String(cfg.qrisStaticPayload || "").trim();
-  const imageUrl = String(cfg.qrisStaticImageUrl || "").trim();
+  const payload = String(
+    cfg.qrisStaticPayload || cfg.staticQrisPayload || cfg.static_qris_payload || "",
+  ).trim();
+  const imageUrl = String(
+    cfg.qrisStaticImageUrl ||
+      cfg.staticQrisImageUrl ||
+      cfg.static_qris_image_url ||
+      cfg.qrisImageUrl ||
+      cfg.qris_image_url ||
+      "",
+  ).trim();
   if (!payload && !imageUrl) return null;
   return {
     payload,
     imageUrl,
-    merchantName: String(cfg.qrisMerchantName || "").trim(),
+    merchantName: String(cfg.qrisMerchantName || cfg.merchantName || "").trim(),
   };
 }
 
@@ -325,7 +382,7 @@ export async function generateDynamicQris(params: {
   const randomSuffix = Math.random().toString(36).substring(2, 8).toUpperCase();
   const expiresAt = new Date(timestamp + 15 * 60 * 1000).toISOString(); // 15 mins expiry
 
-  const outletSettings = await loadOutletPaymentSettings(params.outletId);
+  const outletSettings = await loadOutletPaymentSettings(params.outletId, params.businessId);
   const localSettings = loadLocalPaymentSettings();
   const configuredMerchantName = String(
     outletSettings?.qrisMerchantName || localSettings?.qrisMerchantName || "",

@@ -433,13 +433,33 @@ export async function syncPendingTransactions(
           .select("id")
           .single();
 
-        if (orderErr && (orderErr.message?.includes("outlet_id") || orderErr.code === "PGRST204")) {
-          delete orderPayload.outlet_id;
-          const retry = await supabase
+        if (orderErr) {
+          const schemaSafePayload: Record<string, any> = {
+            business_id: orderPayload.business_id || tx.business_id,
+            order_number: orderPayload.order_number || tx.order_number,
+            total: Number(orderPayload.total) || 0,
+            payment_method: String(orderPayload.payment_method || "cash").toLowerCase(),
+            status: "paid",
+            channel: orderPayload.channel || "dine_in",
+            paid_at: orderPayload.paid_at || tx.created_at || new Date().toISOString(),
+          };
+          if (orderPayload.outlet_id) schemaSafePayload.outlet_id = orderPayload.outlet_id;
+          if (orderPayload.customer_id) schemaSafePayload.customer_id = orderPayload.customer_id;
+
+          let retry = await supabase
             .from("sales_orders")
-            .insert(orderPayload)
+            .insert(schemaSafePayload as any)
             .select("id")
             .single();
+
+          if (retry.error) {
+            delete schemaSafePayload.outlet_id;
+            retry = await supabase
+              .from("sales_orders")
+              .insert(schemaSafePayload as any)
+              .select("id")
+              .single();
+          }
           newOrder = retry.data;
           orderErr = retry.error;
         }

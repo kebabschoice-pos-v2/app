@@ -158,6 +158,7 @@ import {
   simulateQrisPayment,
   logStaticQrisConfirmation,
   subscribeQrisStatus,
+  normalizeNmid,
   type QrisTransactionResponse,
 } from "@/services/qris.service";
 import { normalizeOrderOutletId } from "@/lib/bom-analytics";
@@ -3530,7 +3531,10 @@ function PosPage({
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
-  const activeOutlets = snapshot.outlets?.filter((o) => o.active !== false) || [];
+  const activeOutlets = useMemo(
+    () => (snapshot.outlets || []).filter((o) => o.active !== false),
+    [snapshot.outlets],
+  );
   // prettier-ignore
   const assignedOutlet = activeOutlets.find((o) => o.id === snapshot.assignedOutletId) || activeOutlets[0];
 
@@ -3601,6 +3605,25 @@ function PosPage({
   useEffect(() => {
     let isCancelled = false;
 
+    const updateActiveShiftIfChanged = (nextShift: any) => {
+      setActiveShift((prev: any) => {
+        if (!prev && !nextShift) return prev;
+        if (
+          prev &&
+          nextShift &&
+          prev.id === nextShift.id &&
+          prev.status === nextShift.status &&
+          prev.cashierName === nextShift.cashierName &&
+          prev.outletId === nextShift.outletId &&
+          Number(prev.startingCash) === Number(nextShift.startingCash) &&
+          Number(prev.cashSales) === Number(nextShift.cashSales)
+        ) {
+          return prev;
+        }
+        return nextShift;
+      });
+    };
+
     async function syncShift() {
       try {
         const outletKey = getOutletShiftKey(selectedOutletId);
@@ -3608,7 +3631,7 @@ function PosPage({
         if (saved) {
           const parsed = JSON.parse(saved);
           if (parsed?.status === "open" && parsed.outletId === selectedOutletId) {
-            if (!isCancelled) setActiveShift(parsed);
+            if (!isCancelled) updateActiveShiftIfChanged(parsed);
           }
         }
       } catch {}
@@ -3626,13 +3649,15 @@ function PosPage({
 
           if (dbShifts && dbShifts.length > 0 && !isCancelled) {
             const row: any = dbShifts[0];
+            const matchedOutletName = (snapshot.outlets || []).find(
+              (o) => o.id === selectedOutletId,
+            )?.name;
             const liveShift = {
               id: row.id,
               cashierName: row.cashier_name || "Kasir",
               cashierId: row.cashier_id,
               teamMembers: row.team_members,
-              outletName:
-                row.outlet_name || activeOutlets.find((o) => o.id === selectedOutletId)?.name,
+              outletName: row.outlet_name || matchedOutletName,
               outletId: row.outlet_id || selectedOutletId,
               startingCash: Number(row.opening_cash ?? row.starting_cash) || 0,
               startTime: row.start_time || row.opened_at,
@@ -3644,7 +3669,7 @@ function PosPage({
                 Number(row.expected_ending_cash) || Number(row.opening_cash ?? row.starting_cash) || 0,
               notes: row.notes,
             };
-            setActiveShift(liveShift);
+            updateActiveShiftIfChanged(liveShift);
             localStorage.setItem(
               `kebabschoicepos_active_shift_${selectedOutletId}`,
               JSON.stringify(liveShift),
@@ -3654,7 +3679,7 @@ function PosPage({
               const localOutletShift = localStorage.getItem(
                 `kebabschoicepos_active_shift_${selectedOutletId}`,
               );
-              if (!localOutletShift) setActiveShift(null);
+              if (!localOutletShift) updateActiveShiftIfChanged(null);
             }
           }
         } catch {}
@@ -3671,7 +3696,7 @@ function PosPage({
       window.removeEventListener("pos:shift-updated", handleShiftUpdated);
       window.removeEventListener("outlet:changed", handleShiftUpdated);
     };
-  }, [selectedOutletId, activeOutlets]);
+  }, [selectedOutletId, snapshot.businessId]);
 
   // Thermal Printer & Hardware status
   const [printerInfo, setPrinterInfo] = useState<ConnectedPrinterInfo>({
@@ -3749,11 +3774,20 @@ function PosPage({
 
   // Payment settings & cash tender
   const [cashTendered, setCashTendered] = useState<number>(0);
-  const [paymentSettings, setPaymentSettings] = useState({
+  const [paymentSettings, setPaymentSettings] = useState<{
+    cashEnabled: boolean;
+    qrisEnabled: boolean;
+    cardEnabled: boolean;
+    transferEnabled: boolean;
+    qrisNmid: string;
+    qrisStaticImageUrl: string;
+  }>({
     cashEnabled: true,
     qrisEnabled: true,
     cardEnabled: true,
     transferEnabled: false,
+    qrisNmid: "",
+    qrisStaticImageUrl: "",
   });
 
   useEffect(() => {
@@ -3766,6 +3800,15 @@ function PosPage({
           qrisEnabled: parsed.qrisEnabled ?? true,
           cardEnabled: parsed.cardEnabled ?? true,
           transferEnabled: parsed.transferEnabled ?? false,
+          qrisNmid: normalizeNmid(parsed.qrisNmid ?? parsed.qris_nmid ?? parsed.nmid) || "",
+          qrisStaticImageUrl: String(
+            parsed.qrisStaticImageUrl ||
+              parsed.staticQrisImageUrl ||
+              parsed.static_qris_image_url ||
+              parsed.qrisImageUrl ||
+              parsed.qris_image_url ||
+              "",
+          ).trim(),
         });
       }
     } catch {}
@@ -4082,29 +4125,61 @@ function PosPage({
         } catch {}
       }
 
-      // Payment settings
+      // Payment settings (merge active outlet, any configured business outlet, and localStorage)
       const outletPay = activeOutlet?.settings?.payment_settings;
-      if (outletPay) {
-        setPaymentSettings({
-          cashEnabled: outletPay.cashEnabled ?? true,
-          qrisEnabled: outletPay.qrisEnabled ?? true,
-          cardEnabled: outletPay.cardEnabled ?? true,
-          transferEnabled: outletPay.transferEnabled ?? false,
-        });
-      } else {
-        try {
-          const saved = localStorage.getItem("kebabschoicepos_payment_settings");
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            setPaymentSettings({
-              cashEnabled: parsed.cashEnabled ?? true,
-              qrisEnabled: parsed.qrisEnabled ?? true,
-              cardEnabled: parsed.cardEnabled ?? true,
-              transferEnabled: parsed.transferEnabled ?? false,
-            });
-          }
-        } catch {}
-      }
+      const fallbackOutletWithPay = (snapshot.outlets || []).find(
+        (o) => (o.settings as any)?.payment_settings,
+      );
+      const fallbackOutletPay = (fallbackOutletWithPay?.settings as any)?.payment_settings;
+      let localPay: any = null;
+      try {
+        const saved = localStorage.getItem("kebabschoicepos_payment_settings");
+        if (saved) localPay = JSON.parse(saved);
+      } catch {}
+
+      const mergedPay = { ...(fallbackOutletPay || {}), ...(localPay || {}), ...(outletPay || {}) };
+      const nextQrisNmid =
+        normalizeNmid(
+          mergedPay.qrisNmid ??
+            mergedPay.qris_nmid ??
+            mergedPay.nmid ??
+            localPay?.qrisNmid ??
+            outletPay?.qrisNmid,
+        ) || "";
+      const nextStaticImg = String(
+        mergedPay.qrisStaticImageUrl ||
+          mergedPay.staticQrisImageUrl ||
+          mergedPay.static_qris_image_url ||
+          mergedPay.qrisImageUrl ||
+          mergedPay.qris_image_url ||
+          localPay?.qrisStaticImageUrl ||
+          localPay?.staticQrisImageUrl ||
+          outletPay?.qrisStaticImageUrl ||
+          outletPay?.staticQrisImageUrl ||
+          "",
+      ).trim();
+
+      setPaymentSettings((prev) => {
+        const next = {
+          cashEnabled: mergedPay.cashEnabled ?? true,
+          qrisEnabled: mergedPay.qrisEnabled ?? true,
+          cardEnabled: mergedPay.cardEnabled ?? true,
+          transferEnabled: mergedPay.transferEnabled ?? false,
+          qrisNmid: nextQrisNmid,
+          qrisStaticImageUrl: nextStaticImg,
+        };
+        if (
+          prev.cashEnabled === next.cashEnabled &&
+          prev.qrisEnabled === next.qrisEnabled &&
+          prev.cardEnabled === next.cardEnabled &&
+          prev.transferEnabled === next.transferEnabled &&
+          prev.qrisNmid === next.qrisNmid &&
+          prev.qrisStaticImageUrl === next.qrisStaticImageUrl
+        ) {
+          return prev;
+        }
+        return next;
+      });
     };
 
     syncSettings();
@@ -4524,6 +4599,15 @@ function PosPage({
       orderPayload,
     } = pendingOrder;
 
+    const chosenOutlet = (snapshot.outlets || []).find((o) => o.id === chosenOutletId);
+    const effectiveCashierName =
+      activeShift?.cashierName || activeCashierName || profile?.displayName || "Kasir";
+    const safeQrisTotal = parseNumberFromDots(orderTotal);
+    const safeQrisSubtotal = parseNumberFromDots(pendingOrder?.subtotal ?? safeQrisTotal);
+    const safeQrisDiscount = parseNumberFromDots(pendingOrder?.discountAmount ?? 0);
+    const safeQrisService = parseNumberFromDots(pendingOrder?.serviceChargeAmount ?? 0);
+    const safeQrisTax = parseNumberFromDots(pendingOrder?.taxAmount ?? 0);
+
     const orderItemsPayload = cartItems.map((item: CartItem) => {
       const optionsSummary = [
         item.variant_name || (item.selected_variant ? item.selected_variant.name : null),
@@ -4550,6 +4634,20 @@ function PosPage({
           modifiers: item.selected_modifiers || [],
           addons: item.selected_addons || [],
           notes: item.notes || "",
+          order_meta: {
+            outlet_id: chosenOutletId || null,
+            outlet_name: chosenOutlet?.name || null,
+            cashier_name: effectiveCashierName,
+            queue_name: pendingOrder?.customerQueueName || null,
+            customer_name: effectiveCustomerName || null,
+            order_type: pendingOrder?.orderType || "dine_in",
+            table_number: pendingOrder?.tableNumber || null,
+            ojol_order_code: pendingOrder?.ojolOrderCode || null,
+            subtotal: safeQrisSubtotal,
+            discount_amount: safeQrisDiscount,
+            service_charge: safeQrisService,
+            tax_amount: safeQrisTax,
+          },
         },
         quantity: item.quantity,
         unit_price: item.unit_price || item.price,
@@ -4589,30 +4687,49 @@ function PosPage({
       if (existingOrder?.id) {
         order = { id: existingOrder.id };
       } else {
+        const paidAtIso = new Date().toISOString();
         let res = await supabase
           .from("sales_orders")
           .insert({
             ...orderPayload,
+            total: safeQrisTotal,
             payment_method: "qris",
             status: "paid",
-            paid_at: new Date().toISOString(),
+            paid_at: paidAtIso,
           })
           .select("id")
           .single();
 
-        if (res.error && (res.error.message?.includes("outlet_id") || res.error.code === "PGRST204")) {
-          const fallbackPayload = { ...orderPayload };
-          delete fallbackPayload.outlet_id;
+        if (res.error) {
+          const coreQrisPayload: Record<string, any> = {
+            business_id: businessId,
+            order_number: orderNumber,
+            total: safeQrisTotal,
+            payment_method: "qris",
+            status: "paid",
+            channel: orderPayload?.channel || pendingOrder?.orderType || "dine_in",
+            paid_at: paidAtIso,
+          };
+          if (chosenOutletId && isValidUuid(chosenOutletId)) {
+            coreQrisPayload.outlet_id = chosenOutletId;
+          }
+          if (effectiveCustomerId && isValidUuid(effectiveCustomerId)) {
+            coreQrisPayload.customer_id = effectiveCustomerId;
+          }
           res = await supabase
             .from("sales_orders")
-            .insert({
-              ...fallbackPayload,
-              payment_method: "qris",
-              status: "paid",
-              paid_at: new Date().toISOString(),
-            })
+            .insert(coreQrisPayload as any)
             .select("id")
             .single();
+
+          if (res.error) {
+            delete coreQrisPayload.outlet_id;
+            res = await supabase
+              .from("sales_orders")
+              .insert(coreQrisPayload as any)
+              .select("id")
+              .single();
+          }
         }
 
         if (res.error || !res.data?.id) {
@@ -4667,7 +4784,18 @@ function PosPage({
         try {
           await recordOrderOutletMetadata(businessId, chosenOutletId, orderId, {
             userId: profile?.email || "staff",
-            displayName: profile?.displayName || "Kasir",
+            displayName: effectiveCashierName,
+            outletName: chosenOutlet?.name,
+            queueName: pendingOrder?.customerQueueName || null,
+            customerName: effectiveCustomerName || null,
+            orderType: pendingOrder?.orderType || "dine_in",
+            tableNumber: pendingOrder?.tableNumber || null,
+            ojolOrderCode: pendingOrder?.ojolOrderCode || null,
+            notes: orderPayload?.notes || null,
+            subtotal: safeQrisSubtotal,
+            discountAmount: safeQrisDiscount,
+            serviceChargeAmount: safeQrisService,
+            taxAmount: safeQrisTax,
           });
         } catch {}
       }
@@ -4773,20 +4901,19 @@ function PosPage({
       }
     }
 
-    const chosenOutlet = (snapshot.outlets || []).find((o) => o.id === chosenOutletId);
     const receiptData: ReceiptData = {
       orderNumber,
       outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
-      cashierName: activeCashierName || profile?.displayName || "Kasir",
+      cashierName: effectiveCashierName,
       paymentMethod: "QRIS",
       customerName: effectiveCustomerName,
       customerQueueName: qrisPendingOrder?.customerQueueName || undefined,
       ojolOrderCode: qrisPendingOrder?.ojolOrderCode || undefined,
       createdAt: new Date().toISOString(),
-      subtotal: qrisPendingOrder?.subtotal ?? orderTotal,
-      discountAmount: qrisPendingOrder?.discountAmount ?? 0,
-      serviceChargeAmount: qrisPendingOrder?.serviceChargeAmount ?? 0,
-      taxAmount: qrisPendingOrder?.taxAmount ?? 0,
+      subtotal: safeQrisSubtotal,
+      discountAmount: safeQrisDiscount,
+      serviceChargeAmount: safeQrisService,
+      taxAmount: safeQrisTax,
       orderType: qrisPendingOrder?.orderType ?? "dine_in",
       tableNumber: qrisPendingOrder?.tableNumber || undefined,
       items: cartItems.map((c: CartItem) => ({
@@ -4795,7 +4922,7 @@ function PosPage({
         price: c.unit_price || c.price,
         subtotal: (c.unit_price || c.price) * c.quantity,
       })),
-      total: orderTotal,
+      total: safeQrisTotal,
     };
 
     try {
@@ -4805,16 +4932,23 @@ function PosPage({
     setLastReceiptNotice(receiptData);
 
     // Construct local SalesOrder object and guarantee immediate appearance in Riwayat Order Hari Ini
-    const newSalesOrder: SalesOrder = {
+    const newSalesOrder: SalesOrder & Record<string, any> = {
       id: order?.id || `qris-${Date.now()}`,
       order_number: orderNumber,
-      total: orderTotal,
+      total: safeQrisTotal,
       payment_method: "qris",
       status: "paid",
       channel: orderPayload?.channel || pendingOrder?.orderType || "dine_in",
       created_at: receiptData.createdAt,
       customer_id: effectiveCustomerId,
       outlet_id: chosenOutletId,
+      outlet_name: chosenOutlet?.name,
+      cashier_name: effectiveCashierName,
+      customer_queue_name: qrisPendingOrder?.customerQueueName || null,
+      customer_name: effectiveCustomerName,
+      notes: orderPayload?.notes || null,
+      subtotal: safeQrisSubtotal,
+      discount_amount: safeQrisDiscount,
     };
 
     if (snapshot.orders) {
@@ -4836,36 +4970,12 @@ function PosPage({
       window.dispatchEvent(new CustomEvent("order:created", { detail: newSalesOrder }));
     }
 
-    // Print receipt automatically if configured
-    const savedPrinter = getSavedPrinterConfig();
-    if (savedPrinter.autoPrint !== false) {
-      printReceipt({
-        storeName: savedPrinter.storeName || snapshot.businessName || "KEBAB'S CHOICE",
-        outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
-        branchAddress: savedPrinter.branchAddress,
-        orderNumber,
-        cashierName: activeCashierName || profile?.displayName || "Kasir",
-        paymentMethod: "QRIS",
-        customerName: effectiveCustomerName,
-        orderType: qrisPendingOrder?.orderType ?? "dine_in",
-        tableNumber: qrisPendingOrder?.tableNumber || undefined,
-        createdAt: receiptData.createdAt,
-        date: new Date(receiptData.createdAt).toLocaleString("id-ID"),
-        items: receiptData.items.map((it: any) => ({
-          name: it.name,
-          quantity: it.quantity,
-          qty: it.quantity,
-          price: it.price,
-          subtotal: it.subtotal,
-        })),
-        subtotal: qrisPendingOrder?.subtotal ?? orderTotal,
-        discount: qrisPendingOrder?.discountAmount ?? 0,
-        serviceCharge: qrisPendingOrder?.serviceChargeAmount ?? 0,
-        tax: qrisPendingOrder?.taxAmount ?? 0,
-        total: orderTotal,
-        footerMessage: savedPrinter.footerMessage || "Terima kasih atas kunjungan Anda!",
-      }).catch(() => {});
-    }
+    // Tampilkan modal struk setelah pembayaran QRIS selesai (cetak struk hanya saat kasir klik "Cetak Struk")
+    setIsQrisModalOpen(false);
+    setQrisModalData(null);
+    setQrisPendingOrder(null);
+    setQrisStatus("PENDING");
+    setCompletedReceipt(receiptData);
 
     setCart([]);
     setIsPaymentModalOpen(false);
@@ -4877,9 +4987,12 @@ function PosPage({
     setNewCustomerName("");
     setNewCustomerPhone("");
     setCustomerMode("public");
+    setCashTendered(0);
+    setCashTenderedInput("");
+    setDiscountValue(0);
 
     toast.success("PEMBAYARAN QRIS LUNAS", {
-      description: `Order #${orderNumber} terverifikasi otomatis via Realtime Webhook & struk dicetak.`,
+      description: `Order #${orderNumber} berhasil tercatat. Klik "Cetak Struk" pada pratinjau struk bila diperlukan.`,
     });
 
     if (isOnline()) {
@@ -5000,66 +5113,94 @@ function PosPage({
       return;
     }
 
-    // Validate free-form cash tendered (0 / empty = Uang Pas)
-    if (paymentMethod === "cash" && cashTendered > 0 && cashTendered < total) {
+    // Sanitize all monetary numbers via parseNumberFromDots to prevent any NaN or dotted string misparse
+    const safeSubtotal = parseNumberFromDots(subtotal);
+    const safeDiscountAmount = parseNumberFromDots(discountAmount);
+    const safeServiceCharge = parseNumberFromDots(serviceChargeAmount);
+    const safeTaxAmount = parseNumberFromDots(taxAmount);
+    const safeTotal = parseNumberFromDots(total);
+    const safeCashTendered = parseNumberFromDots(cashTendered);
+
+    // Validate free-form cash tendered (0 / empty = Uang Pas) against discounted safeTotal
+    if (paymentMethod === "cash" && safeCashTendered > 0 && safeCashTendered < safeTotal) {
       toast.error("Uang diterima kurang dari total tagihan", {
-        description: `Total ${formatRupiah(total)} • Diterima ${formatRupiah(cashTendered)} • Kurang ${formatRupiah(total - cashTendered)}`,
+        description: `Total ${formatRupiah(safeTotal)} • Diterima ${formatRupiah(safeCashTendered)} • Kurang ${formatRupiah(safeTotal - safeCashTendered)}`,
       });
       return;
     }
+
+    const chosenOutlet = (snapshot.outlets || []).find((o) => o.id === chosenOutletId);
+    const effectiveCashierName =
+      activeShift?.cashierName || activeCashierName || profile?.displayName || "Kasir";
+    const trimmedQueueName = customerQueueName.trim() || newCustomerName.trim();
+    const trimmedCustomerPhone = newCustomerPhone.trim();
 
     // Persist the real sales channel (dine_in / take_away / delivery / gofood / grabfood / shopeefood)
     const orderChannel: string = orderType || "dine_in";
     let effectiveCustomerId: string | null = null;
     let effectiveCustomerName = "Pelanggan Umum";
 
-    if (customerMode === "member" && selectedCustomerId) {
+    if (selectedCustomerId) {
       effectiveCustomerId = selectedCustomerId;
-      effectiveCustomerName =
-        snapshot.customers.find((c) => c.id === selectedCustomerId)?.name || "Member CRM";
-    } else if (customerMode === "new" && newCustomerName.trim()) {
-      effectiveCustomerName = newCustomerName.trim();
+      const matchedMember = snapshot.customers.find((c) => c.id === selectedCustomerId);
+      effectiveCustomerName = trimmedQueueName || matchedMember?.name || "Member CRM";
+    } else if (trimmedQueueName) {
+      effectiveCustomerName = trimmedQueueName;
+      // Automatically record to CRM customers without blocking transaction if phone is empty
       try {
-        const { data: createdCust } = await supabase
-          .from("customers")
-          .insert({
-            business_id: snapshot.businessId,
-            name: effectiveCustomerName,
-            phone: newCustomerPhone.trim() || null,
-            visits: 1,
-            total_spend: total,
-            favorite_product: cart[0]?.name || null,
-            ai_insight: `Pelanggan baru POS: Transaksi ${formatRupiah(total)} pada ${new Date().toLocaleDateString("id-ID")}`,
-          })
-          .select("id, name")
-          .single();
-        if (createdCust) {
-          effectiveCustomerId = createdCust.id;
+        const existingByNameOrPhone = snapshot.customers.find(
+          (c) =>
+            (trimmedCustomerPhone &&
+              c.phone &&
+              c.phone.replace(/\D/g, "") === trimmedCustomerPhone.replace(/\D/g, "")) ||
+            c.name.trim().toLowerCase() === trimmedQueueName.toLowerCase(),
+        );
+        if (existingByNameOrPhone) {
+          effectiveCustomerId = existingByNameOrPhone.id;
+        } else if (isOnline()) {
+          const { data: createdCust } = await supabase
+            .from("customers")
+            .insert({
+              business_id: snapshot.businessId,
+              name: effectiveCustomerName,
+              phone: trimmedCustomerPhone || null,
+              visits: 1,
+              total_spend: safeTotal,
+              favorite_product: cart[0]?.name || null,
+              ai_insight: `Pelanggan POS: Transaksi ${formatRupiah(safeTotal)} pada ${new Date().toLocaleDateString("id-ID")}`,
+            })
+            .select("id, name, phone, visits, total_spend, favorite_product, ai_insight")
+            .maybeSingle();
+          if (createdCust) {
+            effectiveCustomerId = createdCust.id;
+            snapshot.customers = [customerFromRow(createdCust as any), ...(snapshot.customers || [])];
+          }
         }
       } catch (err) {
-        console.warn("[CRM] New customer insertion warning:", err);
+        console.warn("[CRM] Auto customer record warning (non-blocking):", err);
       }
     }
 
+    const paidAtIso = new Date().toISOString();
     const orderPayload: any = {
       business_id: snapshot.businessId,
       order_number: orderNumber,
-      subtotal,
-      discount_amount: discountAmount,
-      service_charge: serviceChargeAmount,
-      tax_amount: taxAmount,
-      total,
+      subtotal: safeSubtotal,
+      discount_amount: safeDiscountAmount,
+      service_charge: safeServiceCharge,
+      tax_amount: safeTaxAmount,
+      total: safeTotal,
       payment_method: paymentMethod,
       order_type: orderType,
       table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
       status: "paid",
       channel: orderChannel,
-      paid_at: new Date().toISOString(),
+      paid_at: paidAtIso,
       customer_name: effectiveCustomerName || null,
     };
-    if (customerQueueName || ojolOrderCode) {
+    if (trimmedQueueName || ojolOrderCode) {
       orderPayload.notes = [
-        customerQueueName ? `Antrean: ${customerQueueName}` : null,
+        trimmedQueueName ? `Antrean: ${trimmedQueueName}` : null,
         ojolOrderCode ? `Kode Ojol: ${ojolOrderCode}` : null,
       ]
         .filter(Boolean)
@@ -5075,7 +5216,6 @@ function PosPage({
 
     // Dynamic QRIS Interception (Tahap 4)
     if (paymentMethod === "qris") {
-      const chosenOutlet = (snapshot.outlets || []).find((o) => o.id === chosenOutletId);
       const merchantName = chosenOutlet?.name || "KEBABS CHOICE";
 
       try {
@@ -5083,7 +5223,7 @@ function PosPage({
           businessId: snapshot.businessId,
           outletId: chosenOutletId,
           orderNumber,
-          amount: total,
+          amount: safeTotal,
           customerName: effectiveCustomerName,
           merchantName,
           city: (chosenOutlet as any)?.city || "JAKARTA",
@@ -5094,15 +5234,15 @@ function PosPage({
           chosenOutletId,
           effectiveCustomerId,
           effectiveCustomerName,
-          customerQueueName,
+          customerQueueName: trimmedQueueName,
           ojolOrderCode,
-          subtotal,
-          discountAmount,
-          serviceChargeAmount,
-          taxAmount,
+          subtotal: safeSubtotal,
+          discountAmount: safeDiscountAmount,
+          serviceChargeAmount: safeServiceCharge,
+          taxAmount: safeTaxAmount,
           orderType,
           tableNumber,
-          total,
+          total: safeTotal,
           cartItems: [...cart],
           orderPayload,
         });
@@ -5134,6 +5274,15 @@ function PosPage({
         ? crypto.randomUUID()
         : `offline-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
+    const cashReceived =
+      paymentMethod === "cash"
+        ? safeCashTendered > 0
+          ? safeCashTendered
+          : safeTotal
+        : safeTotal;
+    const changeAmount =
+      paymentMethod === "cash" ? Math.max(0, cashReceived - safeTotal) : 0;
+
     // Build comprehensive order item payload
     const orderItemsPayload = cart.map((item) => {
       const optionsSummary = [
@@ -5161,6 +5310,23 @@ function PosPage({
           modifiers: item.selected_modifiers || [],
           addons: item.selected_addons || [],
           notes: item.notes || "",
+          order_meta: {
+            outlet_id: chosenOutletId || null,
+            outlet_name: chosenOutlet?.name || null,
+            cashier_name: effectiveCashierName,
+            queue_name: trimmedQueueName || null,
+            customer_name: effectiveCustomerName || null,
+            customer_phone: trimmedCustomerPhone || null,
+            order_type: orderType || "dine_in",
+            table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
+            ojol_order_code: ojolOrderCode || null,
+            subtotal: safeSubtotal,
+            discount_amount: safeDiscountAmount,
+            service_charge: safeServiceCharge,
+            tax_amount: safeTaxAmount,
+            cash_received: cashReceived,
+            change_amount: changeAmount,
+          },
         },
         quantity: item.quantity,
         unit_price: item.unit_price || item.price,
@@ -5179,23 +5345,20 @@ function PosPage({
         if (res.error) {
           console.warn("[POS] Initial sales_orders insert failed (possible 400 Bad Request), retrying with core columns:", res.error);
 
+          // Core columns strictly matching public.sales_orders schema in database
           const corePayload: any = {
             business_id: snapshot.businessId,
             order_number: orderNumber,
-            total,
-            subtotal,
-            discount_amount: discountAmount,
-            service_charge: serviceChargeAmount,
-            tax_amount: taxAmount,
+            total: safeTotal,
             payment_method: paymentMethod.toLowerCase(),
-            order_type: orderType,
-            table_number: orderType === "dine_in" && tableNumber ? tableNumber : null,
             status: "paid",
-            customer_name: effectiveCustomerName || null,
             channel: orderChannel,
+            paid_at: paidAtIso,
           };
-          if (chosenOutletId) corePayload.outlet_id = chosenOutletId;
-          if (effectiveCustomerId) corePayload.customer_id = effectiveCustomerId;
+          if (chosenOutletId && isValidUuid(chosenOutletId)) corePayload.outlet_id = chosenOutletId;
+          if (effectiveCustomerId && isValidUuid(effectiveCustomerId)) {
+            corePayload.customer_id = effectiveCustomerId;
+          }
 
           let retryRes = await supabase.from("sales_orders").insert(corePayload).select("id").single();
 
@@ -5302,12 +5465,26 @@ function PosPage({
         description: `Order #${orderNumber} tersimpan di IndexedDB & akan otomatis disinkronkan ke Supabase saat online.`,
       });
     } else if (order && order.id) {
-      // Persist single source of truth metadata for Outlet & Staff
+      // Persist single source of truth metadata for Outlet, Staff, Queue Name & Totals
       if (chosenOutletId && order.id) {
         try {
           await recordOrderOutletMetadata(snapshot.businessId, chosenOutletId, order.id, {
             userId: profile?.email || "staff",
-            displayName: profile?.displayName || "Kasir",
+            displayName: effectiveCashierName,
+            outletName: chosenOutlet?.name,
+            queueName: trimmedQueueName || null,
+            customerName: effectiveCustomerName,
+            customerPhone: trimmedCustomerPhone || null,
+            orderType,
+            tableNumber: orderType === "dine_in" && tableNumber ? tableNumber : null,
+            ojolOrderCode: ojolOrderCode || null,
+            notes: orderPayload.notes || null,
+            subtotal: safeSubtotal,
+            discountAmount: safeDiscountAmount,
+            serviceChargeAmount: safeServiceCharge,
+            taxAmount: safeTaxAmount,
+            cashReceived,
+            changeAmount,
           });
         } catch (metaErr) {
           console.warn("[POS] Warning recording outlet metadata:", metaErr);
@@ -5484,23 +5661,19 @@ function PosPage({
       }
     }
 
-    const chosenOutlet = (snapshot.outlets || []).find((o) => o.id === chosenOutletId);
-    const cashReceived = paymentMethod === "cash" ? (cashTendered && cashTendered > 0 ? cashTendered : total) : total;
-    const changeAmount = paymentMethod === "cash" ? Math.max(0, cashReceived - total) : 0;
-
     const receiptData: ReceiptData = {
       orderNumber,
       outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
-      cashierName: activeCashierName || profile?.displayName || "Kasir",
+      cashierName: effectiveCashierName,
       paymentMethod: paymentMethod.toUpperCase(),
       customerName: effectiveCustomerName,
-      customerQueueName: customerQueueName || undefined,
+      customerQueueName: trimmedQueueName || undefined,
       ojolOrderCode: ojolOrderCode || undefined,
       createdAt: new Date().toISOString(),
-      subtotal,
-      discountAmount,
-      serviceChargeAmount,
-      taxAmount,
+      subtotal: safeSubtotal,
+      discountAmount: safeDiscountAmount,
+      serviceChargeAmount: safeServiceCharge,
+      taxAmount: safeTaxAmount,
       orderType,
       tableNumber: orderType === "dine_in" && tableNumber ? tableNumber : undefined,
       items: cart.map((c) => ({
@@ -5509,7 +5682,7 @@ function PosPage({
         price: c.unit_price || c.price,
         subtotal: (c.unit_price || c.price) * c.quantity,
       })),
-      total,
+      total: safeTotal,
       cashReceived,
       changeAmount,
     };
@@ -5521,16 +5694,23 @@ function PosPage({
 
     // Construct local SalesOrder object and guarantee immediate appearance in Riwayat Order Hari Ini
     const localOrderId = order?.id || idempotencyKey || `ord-${Date.now()}`;
-    const newSalesOrder: SalesOrder = {
+    const newSalesOrder: SalesOrder & Record<string, any> = {
       id: localOrderId,
       order_number: orderNumber,
-      total,
+      total: safeTotal,
       payment_method: paymentMethod as any,
       status: "paid",
       channel: orderChannel,
       created_at: receiptData.createdAt,
       customer_id: effectiveCustomerId,
       outlet_id: chosenOutletId,
+      outlet_name: chosenOutlet?.name,
+      cashier_name: effectiveCashierName,
+      customer_queue_name: trimmedQueueName || null,
+      customer_name: effectiveCustomerName,
+      notes: orderPayload.notes || null,
+      subtotal: safeSubtotal,
+      discount_amount: safeDiscountAmount,
       cashReceived,
       changeAmount,
     };
@@ -5559,39 +5739,6 @@ function PosPage({
       kickCashDrawer().catch(() => {});
     }
 
-    // Auto print receipt if configured
-    const savedPrinter = getSavedPrinterConfig();
-    if (savedPrinter.autoPrint !== false) {
-      printReceipt({
-        storeName: savedPrinter.storeName || snapshot.businessName || "KEBAB'S CHOICE",
-        outletName: chosenOutlet ? chosenOutlet.name : "KebabsChoice Flagship",
-        branchAddress: savedPrinter.branchAddress,
-        orderNumber,
-        orderType,
-        tableNumber: orderType === "dine_in" && tableNumber ? tableNumber : undefined,
-        cashierName: activeCashierName || profile?.displayName || "Kasir",
-        paymentMethod: paymentMethod.toUpperCase(),
-        customerName: effectiveCustomerName,
-        createdAt: receiptData.createdAt,
-        date: new Date(receiptData.createdAt).toLocaleString("id-ID"),
-        items: receiptData.items.map((it) => ({
-          name: it.name,
-          quantity: it.quantity,
-          qty: it.quantity,
-          price: it.price,
-          subtotal: it.subtotal,
-        })),
-        subtotal,
-        discount: discountAmount,
-        serviceCharge: serviceChargeAmount,
-        tax: taxAmount,
-        total,
-        cashTendered: cashReceived,
-        change: changeAmount,
-        footerMessage: savedPrinter.footerMessage || "Terima kasih atas kunjungan Anda!",
-      }).catch(() => {});
-    }
-
     setCart([]);
     setIsPaymentModalOpen(false);
     setActiveCartPopover(null);
@@ -5607,7 +5754,7 @@ function PosPage({
     setDiscountValue(0);
 
     if (paymentMethod === "cash") {
-      toast.success(`Pembayaran Tunai Berhasil (${formatRupiah(total)})`, {
+      toast.success(`Pembayaran Tunai Berhasil (${formatRupiah(safeTotal)})`, {
         description: `Diterima: ${formatRupiah(cashReceived)} • Kembalian: ${formatRupiah(changeAmount)}`,
       });
     } else {
@@ -5627,7 +5774,7 @@ function PosPage({
     { label: string; dotClass: string; badgeClass: string; activeClass?: string }
   > = {
     take_away: {
-      label: "Bungkus",
+      label: "Take Away",
       dotClass: "bg-primary",
       badgeClass: "bg-primary/10 text-primary border-primary/25",
     },
@@ -6093,275 +6240,177 @@ function PosPage({
           </div>
         </div>
 
-        {/* 1 Baris Pill Kompak: Channel + Pelanggan + Diskon */}
-        <div className="py-2.5 border-b border-border/60 space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {/* Pill Channel */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveCartPopover((prev) => (prev === "channel" ? null : "channel"))
-              }
-              className={cn(
-                "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-                activeCartPopover === "channel"
-                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                  : activeChannelMeta.badgeClass,
-              )}
-            >
-              <span
+        {/* Channel Pesanan (Langsung Tampil Terbuka) + Pelanggan & Antrean + Diskon */}
+        <div className="py-2.5 border-b border-border/60 space-y-2.5">
+          {/* 1. Pilihan Channel Pesanan — Langsung Tampil Terbuka (Tanpa Toggle Tersembunyi) */}
+          <div className="grid grid-cols-3 gap-1.5 py-0.5">
+            {(
+              [
+                { id: "dine_in", label: "Dine In" },
+                { id: "take_away", label: "Take Away" },
+                { id: "delivery", label: "Delivery" },
+                {
+                  id: "gofood",
+                  label: "GoFood",
+                  activeClass:
+                    "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600",
+                },
+                {
+                  id: "grabfood",
+                  label: "GrabFood",
+                  activeClass: "bg-green-600 hover:bg-green-700 text-white border-green-600",
+                },
+                {
+                  id: "shopeefood",
+                  label: "ShopeeFood",
+                  activeClass:
+                    "bg-primary hover:bg-primary/90 text-primary-foreground border-primary",
+                },
+              ] as Array<{ id: PosOrderType; label: string; activeClass?: string }>
+            ).map((tItem) => (
+              <button
+                key={tItem.id}
+                type="button"
+                onClick={() => {
+                  setOrderType(tItem.id);
+                  if (["gofood", "grabfood", "shopeefood"].includes(tItem.id)) {
+                    if (paymentMethod === "cash") setPaymentMethod("ewallet");
+                  }
+                }}
                 className={cn(
-                  "w-2 h-2 rounded-full inline-block shrink-0",
-                  activeCartPopover === "channel" ? "bg-primary-foreground" : activeChannelMeta.dotClass,
+                  "h-8 min-w-0 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1.5",
+                  orderType === tItem.id
+                    ? tItem.activeClass ||
+                      "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
                 )}
-              />
-              <span>{activeChannelMeta.label}</span>
-              {orderType === "dine_in" && tableNumber && (
-                <span className="opacity-80">#{tableNumber}</span>
-              )}
-              <ChevronDown className="size-3 opacity-75" />
-            </button>
-
-            {/* Pill Pelanggan */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveCartPopover((prev) => (prev === "customer" ? null : "customer"))
-              }
-              className={cn(
-                "inline-flex h-8 max-w-[145px] items-center gap-1 rounded-full border px-2.5 text-xs font-bold transition-all cursor-pointer",
-                activeCartPopover === "customer"
-                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                  : customerMode !== "public"
-                    ? "bg-muted text-foreground/75 border-border"
-                    : "bg-secondary/80 text-foreground border-border hover:bg-secondary",
-              )}
-            >
-              <UserRound className="size-3 shrink-0" />
-              <span className="truncate">{activeCustomerLabel}</span>
-              <ChevronDown className="size-3 shrink-0 opacity-75" />
-            </button>
-
-            {/* Pill Diskon */}
-            <button
-              type="button"
-              onClick={() =>
-                setActiveCartPopover((prev) => (prev === "discount" ? null : "discount"))
-              }
-              className={cn(
-                "inline-flex h-8 items-center gap-1 rounded-full border px-2.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap",
-                activeCartPopover === "discount"
-                  ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                  : discountAmount > 0
-                    ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
-                    : "bg-secondary/80 text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
-              )}
-            >
-              <Percent className="size-3 shrink-0" />
-              <span>
-                {discountAmount > 0
-                  ? discountType === "percent"
-                    ? `-${discountValue}%`
-                    : `-${formatRupiah(discountAmount)}`
-                  : "Diskon"}
-              </span>
-            </button>
+              >
+                {tItem.label}
+              </button>
+            ))}
           </div>
 
-          {/* Drawer Channel (hanya muncul saat pill Channel diklik) */}
-          {activeCartPopover === "channel" && (
-            <div className="rounded-2xl border border-border bg-secondary/35 p-2.5 space-y-2 animate-in fade-in duration-150">
-              <div className="grid grid-cols-3 gap-1.5 py-0.5">
-                {(
-                  [
-                    { id: "take_away", label: "Bungkus" },
-                    { id: "dine_in", label: "Dine In" },
-                    { id: "delivery", label: "Delivery" },
-                    {
-                      id: "gofood",
-                      label: "GoFood",
-                      activeClass:
-                        "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600",
-                    },
-                    {
-                      id: "grabfood",
-                      label: "GrabFood",
-                      activeClass: "bg-green-600 hover:bg-green-700 text-white border-green-600",
-                    },
-                    {
-                      id: "shopeefood",
-                      label: "ShopeeFood",
-                      activeClass:
-                        "bg-primary hover:bg-primary/90 text-white border-primary",
-                    },
-                  ] as Array<{ id: PosOrderType; label: string; activeClass?: string }>
-                ).map((tItem) => (
-                  <button
-                    key={tItem.id}
-                    type="button"
-                    onClick={() => {
-                      setOrderType(tItem.id);
-                      if (["gofood", "grabfood", "shopeefood"].includes(tItem.id)) {
-                        if (paymentMethod === "cash") setPaymentMethod("ewallet");
+          {/* Input Kondisional: Kode Ojol atau No. Meja */}
+          {["gofood", "grabfood", "shopeefood"].includes(orderType) && (
+            <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-2.5 py-1.5">
+              <span className="text-xs font-black uppercase text-primary shrink-0">
+                Kode Ojol:
+              </span>
+              <input
+                type="text"
+                placeholder={
+                  orderType === "gofood"
+                    ? "Cth: GF-412"
+                    : orderType === "grabfood"
+                      ? "Cth: GR-882"
+                      : "Cth: SF-109"
+                }
+                value={ojolOrderCode}
+                onChange={(e) => setOjolOrderCode(e.target.value)}
+                className="flex-1 h-7 rounded-lg bg-transparent px-1 text-xs font-black uppercase focus:outline-none placeholder:normal-case placeholder:font-normal"
+              />
+            </div>
+          )}
+
+          {orderType === "dine_in" && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-semibold text-muted-foreground shrink-0">
+                No. Meja:
+              </span>
+              <input
+                type="text"
+                placeholder="Cth: 04 (Opsional)"
+                value={tableNumber}
+                onChange={(e) => setTableNumber(e.target.value)}
+                className="h-8 flex-1 rounded-xl border border-border bg-background px-2.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+          )}
+
+          {/* 2. Bagian Pelanggan Sederhana: Pilih Member Terdaftar + Nama Antrean/Pelanggan + No. Telepon (Opsional) + Diskon */}
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5">
+              <div className="relative flex-1 min-w-0">
+                <select
+                  aria-label="Pilih Member Terdaftar"
+                  value={selectedCustomerId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setSelectedCustomerId(nextId);
+                    if (nextId) {
+                      setCustomerMode("member");
+                      const found = snapshot.customers.find((c) => c.id === nextId);
+                      if (found) {
+                        if (!customerQueueName.trim()) setCustomerQueueName(found.name);
+                        setNewCustomerPhone(found.phone || "");
                       }
-                    }}
-                    className={cn(
-                      "h-9 min-w-0 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1.5",
-                      orderType === tItem.id
-                        ? tItem.activeClass ||
-                          "bg-primary text-primary-foreground border-primary shadow-xs"
-                        : "bg-background border-border text-muted-foreground hover:bg-secondary",
-                    )}
-                  >
-                    {tItem.label}
-                  </button>
-                ))}
-              </div>
-
-              {["gofood", "grabfood", "shopeefood"].includes(orderType) && (
-                <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-2.5 py-1.5">
-                  <span className="text-xs font-black uppercase text-primary shrink-0">
-                    Kode Ojol:
-                  </span>
-                  <input
-                    type="text"
-                    placeholder={
-                      orderType === "gofood"
-                        ? "Cth: GF-412"
-                        : orderType === "grabfood"
-                          ? "Cth: GR-882"
-                          : "Cth: SF-109"
+                    } else {
+                      setCustomerMode("public");
                     }
-                    value={ojolOrderCode}
-                    onChange={(e) => setOjolOrderCode(e.target.value)}
-                    className="flex-1 h-7 rounded-lg bg-transparent px-1 text-xs font-black uppercase focus:outline-none placeholder:normal-case placeholder:font-normal"
-                  />
-                </div>
-              )}
+                  }}
+                  className="w-full h-8 rounded-xl border border-border bg-secondary/70 px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
+                >
+                  <option value="">Pilih Member Terdaftar (Opsional)</option>
+                  {snapshot.customers.map((c) => {
+                    const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
+                    return (
+                      <option key={c.id} value={c.id}>
+                        {c.name} ({pts} Poin · {c.visits}x)
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                {orderType === "dine_in" && (
-                  <div>
-                    <label className="text-xs font-semibold text-muted-foreground block mb-0.5">
-                      No. Meja
-                    </label>
-                    <input
-                      type="text"
-                      placeholder="Cth: 04"
-                      value={tableNumber}
-                      onChange={(e) => setTableNumber(e.target.value)}
-                      className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
+              {/* Pill Diskon */}
+              <button
+                type="button"
+                onClick={() =>
+                  setActiveCartPopover((prev) => (prev === "discount" ? null : "discount"))
+                }
+                className={cn(
+                  "inline-flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+                  activeCartPopover === "discount"
+                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                    : discountAmount > 0
+                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                      : "bg-secondary/80 text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
                 )}
-                <div className={orderType === "dine_in" ? "" : "col-span-2"}>
-                  <label className="text-xs font-semibold text-muted-foreground block mb-0.5">
-                    Nama / No. Antrean
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Nama / Antrean (opsional)"
-                    value={customerQueueName}
-                    onChange={(e) => setCustomerQueueName(e.target.value)}
-                    className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-semibold focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-              </div>
+              >
+                <Percent className="size-3 shrink-0" />
+                <span>
+                  {discountAmount > 0
+                    ? discountType === "percent"
+                      ? `-${discountValue}%`
+                      : `-${formatRupiah(discountAmount)}`
+                    : "Diskon"}
+                </span>
+              </button>
             </div>
-          )}
 
-          {/* Drawer Pelanggan (hanya muncul saat pill Pelanggan diklik) */}
-          {activeCartPopover === "customer" && (
-            <div className="rounded-2xl border border-border bg-secondary/35 p-2.5 space-y-2 animate-in fade-in duration-150">
-              <div className="grid grid-cols-3 gap-1 rounded-xl bg-background p-1 text-xs font-bold border border-border/60">
-                <button
-                  type="button"
-                  onClick={() => setCustomerMode("public")}
-                  className={cn(
-                    "rounded-lg py-1.5 transition-all text-center cursor-pointer",
-                    customerMode === "public"
-                      ? "bg-primary text-primary-foreground shadow-xs font-black"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  Umum
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCustomerMode("member")}
-                  className={cn(
-                    "rounded-lg py-1.5 transition-all text-center cursor-pointer",
-                    customerMode === "member"
-                      ? "bg-primary text-primary-foreground shadow-xs font-black"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  Member
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCustomerMode("new")}
-                  className={cn(
-                    "rounded-lg py-1.5 transition-all text-center cursor-pointer",
-                    customerMode === "new"
-                      ? "bg-primary text-primary-foreground shadow-xs font-black"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  Baru
-                </button>
-              </div>
-
-              {customerMode === "member" && (
-                <div className="space-y-2">
-                  <select
-                    value={selectedCustomerId}
-                    onChange={(e) => setSelectedCustomerId(e.target.value)}
-                    className="w-full h-9 rounded-xl border border-border bg-background px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
-                  >
-                    <option value="">-- Pilih Member Terdaftar --</option>
-                    {snapshot.customers.map((c) => {
-                      const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
-                      return (
-                        <option key={c.id} value={c.id}>
-                          {c.name} ({pts} Poin · {c.visits}x · {formatRupiah(c.total_spend)})
-                        </option>
-                      );
-                    })}
-                  </select>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCustomerMode("new")}
-                    className="w-full h-8 rounded-xl text-xs font-bold border-dashed border-primary/40 text-primary hover:bg-primary/10 gap-1"
-                  >
-                    <UserRound className="size-3.5" />
-                    + Daftar Member Cepat (10 Detik)
-                  </Button>
-                </div>
-              )}
-
-              {customerMode === "new" && (
-                <div className="space-y-2">
-                  <Input
-                    value={newCustomerName}
-                    onChange={(e) => setNewCustomerName(e.target.value)}
-                    placeholder="Nama Lengkap Pelanggan Baru *"
-                    className="h-9 rounded-xl text-xs bg-background"
-                  />
-                  <Input
-                    value={newCustomerPhone}
-                    onChange={(e) => setNewCustomerPhone(e.target.value)}
-                    placeholder="No. WhatsApp / HP (Opsional)"
-                    className="h-9 rounded-xl text-xs bg-background"
-                  />
-                </div>
-              )}
+            {/* Input Nama Antrean / Pelanggan + No. Telepon / WhatsApp (Opsional) Langsung di Bawahnya */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+              <input
+                type="text"
+                aria-label="Nama Antrean / Pelanggan"
+                title="Nama Antrean / Pelanggan (Otomatis Daftar Member Cepat CRM)"
+                placeholder="Nama Antrean / Pelanggan"
+                value={customerQueueName}
+                onChange={(e) => setCustomerQueueName(e.target.value)}
+                className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+              <input
+                type="tel"
+                aria-label="No. Telepon / WhatsApp (Opsional)"
+                placeholder="No. Telepon / WA (Opsional)"
+                value={newCustomerPhone}
+                onChange={(e) => setNewCustomerPhone(e.target.value)}
+                className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              />
             </div>
-          )}
+          </div>
 
-          {/* Drawer Diskon (hanya muncul saat pill Diskon diklik) */}
+          {/* Drawer Diskon (muncul saat pill Diskon diklik) */}
           {activeCartPopover === "discount" && (
             <div className="rounded-2xl border border-border bg-secondary/35 p-2.5 space-y-2 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
@@ -6424,49 +6473,6 @@ function PosPage({
             </div>
           )}
         </div>
-
-        {/* Pemberitahuan Struk Terakhir Kompak */}
-        {lastReceiptNotice && (
-          <div className="mt-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs flex items-center justify-between gap-2">
-            <div className="min-w-0">
-              <p className="font-black text-emerald-700 dark:text-emerald-400 truncate">
-                Struk #{lastReceiptNotice.orderNumber} • {formatRupiah(lastReceiptNotice.total)}
-              </p>
-              {lastReceiptNotice.paymentMethod.toUpperCase() === "CASH" && (
-                <p className="text-[11px] font-semibold text-emerald-600/90 dark:text-emerald-300/90">
-                  Kembali:{" "}
-                  {formatRupiah(
-                    lastReceiptNotice.changeAmount ??
-                      Math.max(
-                        0,
-                        (lastReceiptNotice.cashReceived ?? lastReceiptNotice.total) -
-                          lastReceiptNotice.total,
-                      ),
-                  )}
-                </p>
-              )}
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 px-2 text-xs font-bold rounded-lg border-emerald-500/30 bg-background/80 text-emerald-700 dark:text-emerald-300 gap-1"
-                onClick={() => setCompletedReceipt(lastReceiptNotice)}
-              >
-                <Printer className="size-3" />
-                Struk
-              </Button>
-              <button
-                type="button"
-                onClick={() => setLastReceiptNotice(null)}
-                className="p-1 text-muted-foreground hover:text-foreground rounded-md cursor-pointer"
-                title="Tutup"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-          </div>
-        )}
 
         {/* Daftar Item Pesanan (Ruang Lega & Fleksibel) */}
         <div className="flex-1 min-h-[200px] overflow-y-auto py-3 space-y-2.5 pr-1">
@@ -6870,16 +6876,59 @@ function PosPage({
                 </div>
               )}
 
-              {/* QRIS Info Card (terhubung langsung ke Modal QRIS Aman Tahap 1) */}
+              {/* QRIS Info Card: Tampilkan QRIS Statis langsung jika diunggah, atau peringatan + shortcut jika belum dikonfigurasi */}
               {paymentMethod === "qris" && (
-                <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 text-center space-y-1.5">
-                  <QrCode className="mx-auto size-9 text-primary" />
-                  <p className="text-sm font-black text-foreground">Pembayaran QRIS Resmi</p>
-                  <p className="text-xs text-muted-foreground">
-                    Kode QR dinamis/statis outlet sebesar{" "}
-                    <strong className="text-foreground">{formatRupiah(total)}</strong> akan dibuka
-                    dengan verifikasi real-time.
-                  </p>
+                <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 text-center space-y-2.5">
+                  {paymentSettings.qrisStaticImageUrl ? (
+                    <>
+                      <p className="text-xs font-black uppercase tracking-wider text-primary">
+                        QRIS Statis Resmi Toko • Tagihan {formatRupiah(total)}
+                      </p>
+                      <div className="mx-auto size-52 overflow-hidden rounded-2xl border border-border bg-white p-2.5 shadow-xs flex items-center justify-center">
+                        <img
+                          src={paymentSettings.qrisStaticImageUrl}
+                          alt="QRIS Statis Resmi Toko"
+                          className="h-full w-full object-contain"
+                        />
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        Pelanggan dapat memindai gambar QRIS Statis di atas sebesar{" "}
+                        <strong className="text-foreground">{formatRupiah(total)}</strong>.
+                      </p>
+                    </>
+                  ) : paymentSettings.qrisNmid ? (
+                    <>
+                      <QrCode className="mx-auto size-9 text-primary" />
+                      <p className="text-sm font-black text-foreground">Pembayaran QRIS Dinamis Resmi</p>
+                      <p className="text-xs text-muted-foreground">
+                        Kode QRIS dinamis outlet (NMID: <span className="font-mono font-bold">{paymentSettings.qrisNmid}</span>) sebesar{" "}
+                        <strong className="text-foreground">{formatRupiah(total)}</strong> akan dibuka dengan verifikasi real-time.
+                      </p>
+                    </>
+                  ) : (
+                    <div className="space-y-2.5 py-1">
+                      <QrCode className="mx-auto size-9 text-muted-foreground" />
+                      <p className="text-sm font-black text-foreground">
+                        QRIS Belum Dikonfigurasi
+                      </p>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        Unggah gambar QRIS Statis resmi toko atau isi NMID QRIS di halaman Pengaturan Pembayaran terlebih dahulu.
+                      </p>
+                      {(isOwner || normalizedRole === "manager") && (
+                        <div className="pt-1">
+                          <Link
+                            to="/payment"
+                            data-route="/settings/payment"
+                            onClick={() => setIsPaymentModalOpen(false)}
+                            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-xl bg-primary px-4 text-xs font-bold text-primary-foreground shadow-brand hover:opacity-95 transition-all"
+                          >
+                            <SlidersHorizontal className="size-3.5" />
+                            <span>Buka Pengaturan Pembayaran</span>
+                          </Link>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -7248,7 +7297,7 @@ function PosPage({
                 </label>
                 <textarea
                   rows={2}
-                  placeholder="cth: Bungkus dipisah, sambal jangan terlalu berminyak, dsb."
+                  placeholder="cth: Saus dipisah, sambal jangan terlalu berminyak, dsb."
                   value={orderNotes}
                   onChange={(e) => setOrderNotes(e.target.value)}
                   className="w-full rounded-2xl border border-input bg-background p-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
@@ -7456,10 +7505,21 @@ function PosPage({
                       className="h-full w-full object-contain"
                     />
                   ) : (
-                    <p className="px-4 text-center text-[11px] font-semibold text-muted-foreground">
-                      QRIS toko belum diunggah. Atur QRIS Statis atau NMID resmi di Pengaturan
-                      Pembayaran outlet.
-                    </p>
+                    <div className="px-4 text-center space-y-2">
+                      <p className="text-xs font-semibold text-muted-foreground">
+                        QRIS toko belum dikonfigurasi. Unggah gambar QRIS Statis atau atur NMID resmi di Pengaturan Pembayaran.
+                      </p>
+                      {(isOwner || normalizedRole === "manager") && (
+                        <Link
+                          to="/payment"
+                          data-route="/settings/payment"
+                          onClick={() => setIsQrisModalOpen(false)}
+                          className="inline-flex h-8 items-center justify-center gap-1 rounded-xl bg-primary px-3 text-xs font-bold text-primary-foreground shadow-xs"
+                        >
+                          Buka Pengaturan Pembayaran
+                        </Link>
+                      )}
+                    </div>
                   )}
                   {!qrisModalData.qr_image_url && qrisDisplayQrSrc && (
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
@@ -8017,7 +8077,71 @@ function OrdersPage({
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
-  const activeOutlets = snapshot.outlets?.filter((o) => o.active !== false) || [];
+  const [dbOutlets, setDbOutlets] = useState<OutletItem[]>(() => snapshot.outlets || []);
+
+  useEffect(() => {
+    const incomingOutlets = snapshot.outlets || [];
+    if (incomingOutlets.length > 0) {
+      setDbOutlets((prev) => {
+        const map = new Map<string, OutletItem>();
+        prev.forEach((o) => map.set(o.id, o));
+        incomingOutlets.forEach((o) => map.set(o.id, o));
+        const merged = Array.from(map.values());
+        if (merged.length === prev.length && merged.every((item, idx) => item.id === prev[idx]?.id)) {
+          return prev;
+        }
+        return merged;
+      });
+    }
+    if (!snapshot.businessId) return;
+    let isCancelled = false;
+    Promise.resolve(
+      supabase
+        .from("outlets")
+        .select("*")
+        .eq("business_id", snapshot.businessId)
+        .order("created_at", { ascending: true }),
+    )
+      .then(({ data }) => {
+        if (isCancelled || !data || data.length === 0) return;
+        const fetched: OutletItem[] = data.map((o: any) => ({
+          id: o.id,
+          name: o.name,
+          code: o.code || "",
+          address: o.address || "",
+          active: o.active !== false && o.is_active !== false,
+          settings: (o.settings as any) || {},
+        }));
+        setDbOutlets((prev) => {
+          const map = new Map<string, OutletItem>();
+          prev.forEach((o) => map.set(o.id, o));
+          fetched.forEach((o) => map.set(o.id, o));
+          const merged = Array.from(map.values());
+          if (
+            merged.length === prev.length &&
+            merged.every(
+              (item, idx) =>
+                item.id === prev[idx]?.id &&
+                item.name === prev[idx]?.name &&
+                JSON.stringify(item.settings?.order_metadata || {}) ===
+                  JSON.stringify(prev[idx]?.settings?.order_metadata || {}),
+            )
+          ) {
+            return prev;
+          }
+          return merged;
+        });
+      })
+      .catch(() => {});
+    return () => {
+      isCancelled = true;
+    };
+  }, [snapshot.businessId, snapshot.outlets]);
+
+  const activeOutlets = useMemo(
+    () => dbOutlets.filter((o) => o.active !== false),
+    [dbOutlets],
+  );
   const assignedOutletId =
     snapshot.assignedOutletId ||
     (activeOutlets.length > 0 && activeOutlets[0] ? activeOutlets[0].id : "all");
@@ -8030,9 +8154,11 @@ function OrdersPage({
       const lockedId =
         snapshot.assignedOutletId ||
         (activeOutlets.length > 0 && activeOutlets[0] ? activeOutlets[0].id : "all");
-      setSelectedOutletFilter(lockedId);
+      if (selectedOutletFilter !== lockedId) {
+        setSelectedOutletFilter(lockedId);
+      }
     }
-  }, [isOwner, snapshot.assignedOutletId, activeOutlets]);
+  }, [isOwner, snapshot.assignedOutletId, activeOutlets, selectedOutletFilter]);
   const [searchQuery, setSearchQuery] = useState("");
   const [receiptModalData, setReceiptModalData] = useState<ReceiptData | null>(null);
 
@@ -8133,20 +8259,103 @@ function OrdersPage({
   const [actionReason, setActionReason] = useState("");
   const [isActionSubmitting, setIsActionSubmitting] = useState(false);
 
+  const outletNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    dbOutlets.forEach((out) => {
+      if (out.id && out.name) map[out.id] = out.name;
+    });
+    return map;
+  }, [dbOutlets]);
+
   const orderMetadataMap = useMemo(() => {
-    const map: Record<string, { outlet_id: string; outlet_name: string; staff_name?: string }> = {};
-    (snapshot.outlets || []).forEach((out) => {
+    const map: Record<
+      string,
+      {
+        outlet_id?: string;
+        outlet_name?: string;
+        staff_name?: string;
+        queue_name?: string | null;
+        customer_name?: string | null;
+        order_type?: string | null;
+        table_number?: string | null;
+        ojol_order_code?: string | null;
+        notes?: string | null;
+        subtotal?: number;
+        discount_amount?: number;
+        service_charge?: number;
+        tax_amount?: number;
+        cash_received?: number;
+        change_amount?: number;
+      }
+    > = {};
+
+    // 1. From outlets.settings.order_metadata
+    dbOutlets.forEach((out) => {
       const meta = ((out as any).settings as any)?.order_metadata || {};
       Object.entries(meta).forEach(([ordId, data]: [string, any]) => {
         map[ordId] = {
-          outlet_id: out.id,
-          outlet_name: out.name,
+          ...(map[ordId] || {}),
+          ...data,
+          outlet_id: data?.outlet_id || out.id,
+          outlet_name: data?.outlet_name || out.name,
           staff_name: data?.staff_name || data?.displayName || "Kasir",
         };
       });
     });
+
+    // 2. From snapshot.orderItems selected_options.order_meta (if present)
+    ((snapshot as any).orderItems || []).forEach((it: any) => {
+      const itemMeta = it?.selected_options?.order_meta;
+      if (it?.order_id && itemMeta && typeof itemMeta === "object") {
+        const existing = map[it.order_id] || {};
+        map[it.order_id] = {
+          ...existing,
+          outlet_id: existing.outlet_id || itemMeta.outlet_id,
+          outlet_name:
+            existing.outlet_name ||
+            itemMeta.outlet_name ||
+            (itemMeta.outlet_id ? outletNameById[itemMeta.outlet_id] : undefined),
+          staff_name: existing.staff_name || itemMeta.cashier_name || "Kasir",
+          queue_name: existing.queue_name || itemMeta.queue_name || null,
+          customer_name: existing.customer_name || itemMeta.customer_name || null,
+          order_type: existing.order_type || itemMeta.order_type || null,
+          table_number: existing.table_number || itemMeta.table_number || null,
+          ojol_order_code: existing.ojol_order_code || itemMeta.ojol_order_code || null,
+          subtotal: existing.subtotal ?? itemMeta.subtotal,
+          discount_amount: existing.discount_amount ?? itemMeta.discount_amount,
+          service_charge: existing.service_charge ?? itemMeta.service_charge,
+          tax_amount: existing.tax_amount ?? itemMeta.tax_amount,
+          cash_received: existing.cash_received ?? itemMeta.cash_received,
+          change_amount: existing.change_amount ?? itemMeta.change_amount,
+        };
+      }
+    });
+
+    // 3. From localStorage order_metadata_cache (instant POS -> HQ sync)
+    if (typeof window !== "undefined") {
+      try {
+        const rawCache = localStorage.getItem("kebabschoicepos_order_metadata_cache");
+        if (rawCache) {
+          const parsedCache = JSON.parse(rawCache);
+          Object.entries(parsedCache).forEach(([ordId, data]: [string, any]) => {
+            const existing = map[ordId] || {};
+            map[ordId] = {
+              ...existing,
+              ...data,
+              outlet_id: data?.outlet_id || existing.outlet_id,
+              outlet_name:
+                data?.outlet_name ||
+                existing.outlet_name ||
+                (data?.outlet_id ? outletNameById[data.outlet_id] : undefined),
+              staff_name: data?.staff_name || existing.staff_name || "Kasir",
+            };
+          });
+        }
+      } catch {}
+    }
+
     return map;
-  }, [snapshot.outlets]);
+  }, [dbOutlets, outletNameById, snapshot]);
 
   const customerMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -8156,13 +8365,53 @@ function OrdersPage({
     return map;
   }, [snapshot.customers]);
 
+  const resolveOrderDisplayMeta = (ord: SalesOrder & Record<string, any>) => {
+    const meta = orderMetadataMap[ord.id];
+    const resolvedOutletId = ord.outlet_id || meta?.outlet_id || null;
+    const outletName =
+      (resolvedOutletId && outletNameById[resolvedOutletId]) ||
+      meta?.outlet_name ||
+      ord.outlet_name ||
+      "Outlet Utama";
+    const staffName = meta?.staff_name || ord.cashier_name || ord.staff_name || "Kasir";
+    const notesStr = String(ord.notes || meta?.notes || "");
+    const parsedQueueFromNotes = notesStr.match(/Antrean:\s*([^|]+)/i)?.[1]?.trim() || null;
+    const queueName =
+      meta?.queue_name ||
+      ord.customer_queue_name ||
+      ord.queue_name ||
+      parsedQueueFromNotes ||
+      null;
+    const crmMemberName = ord.customer_id ? customerMap[ord.customer_id] || null : null;
+    const fallbackCustName =
+      meta?.customer_name ||
+      ord.customer_name ||
+      queueName ||
+      null;
+    const custName =
+      crmMemberName ||
+      (fallbackCustName && fallbackCustName !== "Pelanggan Umum" ? fallbackCustName : null);
+
+    return {
+      resolvedOutletId,
+      outletName,
+      staffName,
+      queueName,
+      custName,
+      subtotal: Number(meta?.subtotal ?? ord.subtotal ?? ord.total) || 0,
+      discountAmount: Number(meta?.discount_amount ?? ord.discount_amount ?? 0) || 0,
+      taxAmount: Number(meta?.tax_amount ?? ord.tax_amount ?? 0) || 0,
+    };
+  };
+
   const filteredOrders = useMemo(() => {
     return localOrders.filter((ord) => {
+      const displayMeta = resolveOrderDisplayMeta(ord as any);
       if (selectedOutletFilter !== "all") {
-        const meta = orderMetadataMap[ord.id];
-        if (ord.outlet_id && ord.outlet_id !== selectedOutletFilter) return false;
-        if (!ord.outlet_id && meta && meta.outlet_id !== selectedOutletFilter) return false;
-        if (!ord.outlet_id && !meta) {
+        if (displayMeta.resolvedOutletId && displayMeta.resolvedOutletId !== selectedOutletFilter) {
+          return false;
+        }
+        if (!displayMeta.resolvedOutletId) {
           const defaultOutlet =
             snapshot.assignedOutletId || (activeOutlets.length > 0 ? activeOutlets[0]?.id : "all");
           if (selectedOutletFilter !== defaultOutlet && selectedOutletFilter !== "all") return false;
@@ -8176,8 +8425,11 @@ function OrdersPage({
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         const numMatch = ord.order_number?.toLowerCase().includes(q);
-        const custName = ord.customer_id ? customerMap[ord.customer_id]?.toLowerCase() : "";
-        return Boolean(numMatch || custName?.includes(q));
+        const custMatch = displayMeta.custName?.toLowerCase().includes(q);
+        const queueMatch = displayMeta.queueName?.toLowerCase().includes(q);
+        const outletMatch = displayMeta.outletName?.toLowerCase().includes(q);
+        const staffMatch = displayMeta.staffName?.toLowerCase().includes(q);
+        return Boolean(numMatch || custMatch || queueMatch || outletMatch || staffMatch);
       }
       return true;
     });
@@ -8188,6 +8440,7 @@ function OrdersPage({
     searchQuery,
     orderMetadataMap,
     customerMap,
+    outletNameById,
     snapshot.assignedOutletId,
     activeOutlets,
   ]);
@@ -8216,10 +8469,10 @@ function OrdersPage({
     ];
 
     const rows = filteredOrders.map((ord, idx) => {
-      const meta = orderMetadataMap[ord.id];
-      const outletName = meta?.outlet_name || "Outlet Utama";
-      const staffName = meta?.staff_name || "Kasir";
-      const custName = ord.customer_id ? customerMap[ord.customer_id] || "-" : "-";
+      const displayMeta = resolveOrderDisplayMeta(ord as any);
+      const outletName = displayMeta.outletName;
+      const staffName = displayMeta.staffName;
+      const custName = displayMeta.queueName || displayMeta.custName || "-";
       const orderDate = ord.created_at ? new Date(ord.created_at).toLocaleString("id-ID") : "-";
 
       return [
@@ -8710,7 +8963,7 @@ function OrdersPage({
                   <option value="all">
                     {t("orders.all_outlets_option", "Semua Cabang Outlet")}
                   </option>
-                  {(snapshot.outlets || []).map((o) => (
+                  {activeOutlets.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
@@ -8719,7 +8972,7 @@ function OrdersPage({
               ) : (
                 <div className="flex items-center gap-1.5 font-semibold text-sm leading-tight text-foreground mt-0.5">
                   <span>
-                    {snapshot.outlets?.find((o) => o.id === selectedOutletFilter)?.name ||
+                    {dbOutlets.find((o) => o.id === selectedOutletFilter)?.name ||
                       "Outlet Kasir"}
                   </span>
                   <span className="text-xs text-muted-foreground flex items-center gap-0.5 font-normal">
@@ -8831,7 +9084,7 @@ function OrdersPage({
           <p className="text-xl font-bold text-foreground mt-1">
             {selectedOutletFilter === "all"
               ? t("orders.all_connected", "Semua Cabang Terhubung")
-              : snapshot.outlets?.find((o) => o.id === selectedOutletFilter)?.name || "Aktif"}
+              : dbOutlets.find((o) => o.id === selectedOutletFilter)?.name || "Aktif"}
           </p>
         </div>
       </div>
@@ -8854,10 +9107,11 @@ function OrdersPage({
         ) : (
           <div className="space-y-3">
             {filteredOrders.map((order) => {
-              const meta = orderMetadataMap[order.id];
-              const outletName = meta?.outlet_name || "Outlet Utama";
-              const staffName = meta?.staff_name || "Kasir";
-              const custName = order.customer_id ? customerMap[order.customer_id] : null;
+              const displayMeta = resolveOrderDisplayMeta(order as any);
+              const outletName = displayMeta.outletName;
+              const staffName = displayMeta.staffName;
+              const queueName = displayMeta.queueName;
+              const custName = displayMeta.custName;
 
               const isRefunded = order.status === "refunded";
               const isVoid = order.status === "void" || order.status === "cancelled";
@@ -8899,9 +9153,14 @@ function OrdersPage({
                         <UserRound className="size-3.5 text-muted-foreground" />
                         {staffName}
                       </span>
-                      {custName && (
+                      {queueName && (
+                        <span className="rounded-md bg-primary/10 text-primary px-2 py-0.5 text-xs font-bold">
+                          Antrean: {queueName}
+                        </span>
+                      )}
+                      {custName && custName !== queueName && (
                         <span className="rounded-md bg-muted text-foreground/80 px-2 py-0.5 text-xs font-bold">
-                          Member: {custName}
+                          Pelanggan: {custName}
                         </span>
                       )}
                       {order.created_at && (
@@ -8944,7 +9203,8 @@ function OrdersPage({
                             outletName,
                             cashierName: staffName,
                             paymentMethod: (order.payment_method || "CASH").toUpperCase(),
-                            customerName: custName,
+                            customerName: custName || queueName,
+                            customerQueueName: queueName,
                             createdAt: order.created_at || new Date().toISOString(),
                             items: [
                               {
@@ -9017,187 +9277,218 @@ function OrdersPage({
             </div>
 
             {/* Metadata Info Grid */}
-            <div className="mt-4 grid grid-cols-2 gap-3 text-xs bg-secondary/50 rounded-2xl p-4 border border-border/60">
-              <div>
-                <span className="text-muted-foreground block text-xs font-bold uppercase">
-                  Tanggal & Waktu
-                </span>
-                <span className="font-semibold text-foreground">
-                  {selectedDetailOrder.created_at
-                    ? new Date(selectedDetailOrder.created_at).toLocaleString("id-ID")
-                    : "-"}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block text-xs font-bold uppercase">
-                  Outlet Cabang
-                </span>
-                <span className="font-semibold text-foreground">
-                  {orderMetadataMap[selectedDetailOrder.id]?.outlet_name || "Outlet Utama"}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block text-xs font-bold uppercase">
-                  Kasir / Operator
-                </span>
-                <span className="font-semibold text-foreground">
-                  {orderMetadataMap[selectedDetailOrder.id]?.staff_name || "Kasir POS"}
-                </span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block text-xs font-bold uppercase">
-                  Pelanggan
-                </span>
-                <span className="font-semibold text-foreground">
-                  {selectedDetailOrder.customer_id
-                    ? customerMap[selectedDetailOrder.customer_id] || "Member CRM"
-                    : "Pelanggan Umum"}
-                </span>
-              </div>
-            </div>
+            {(() => {
+              const detailDisplayMeta = resolveOrderDisplayMeta(selectedDetailOrder as any);
+              const firstItemMeta = detailItems[0]?.selected_options?.order_meta;
+              const detailOutletName =
+                firstItemMeta?.outlet_name ||
+                (firstItemMeta?.outlet_id && outletNameById[firstItemMeta.outlet_id]) ||
+                detailDisplayMeta.outletName;
+              const detailStaffName =
+                firstItemMeta?.cashier_name || detailDisplayMeta.staffName || "Kasir POS";
+              const detailQueueName =
+                firstItemMeta?.queue_name || detailDisplayMeta.queueName || null;
+              const detailCustName =
+                detailDisplayMeta.custName ||
+                firstItemMeta?.customer_name ||
+                detailQueueName ||
+                "Pelanggan Umum";
+              const detailSubtotal =
+                Number(firstItemMeta?.subtotal ?? detailDisplayMeta.subtotal) ||
+                Number(selectedDetailOrder.total) ||
+                0;
+              const detailDiscount =
+                Number(firstItemMeta?.discount_amount ?? detailDisplayMeta.discountAmount) || 0;
+              const detailTax =
+                Number(firstItemMeta?.tax_amount ?? detailDisplayMeta.taxAmount) || 0;
 
-            {/* Otorisasi Supervisor Info (jika di-refund atau di-void) */}
-            {(selectedDetailOrder.status === "refunded" ||
-              selectedDetailOrder.status === "void" ||
-              selectedDetailOrder.status === "cancelled") && (
-              <div className="mt-3 rounded-2xl border border-border bg-muted p-3 text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-foreground/75">
-                  <ShieldAlert className="size-4 shrink-0" />
-                  <span>
-                    Informasi Otorisasi{" "}
-                    {selectedDetailOrder.status === "refunded" ? "Refund" : "Void"}
-                  </span>
-                </div>
-                {selectedDetailOrder.authorized_by && (
-                  <p className="mt-1 text-[11px] text-muted-foreground">
-                    Diotorisasi oleh:{" "}
-                    <strong className="text-foreground">{selectedDetailOrder.authorized_by}</strong>
-                  </p>
-                )}
-                {selectedDetailOrder.actionReason && (
-                  <p className="mt-0.5 text-[11px] text-muted-foreground">
-                    Alasan:{" "}
-                    <span className="italic text-foreground">
-                      {selectedDetailOrder.actionReason}
-                    </span>
-                  </p>
-                )}
-              </div>
-            )}
+              return (
+                <>
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-xs bg-secondary/50 rounded-2xl p-4 border border-border/60">
+                    <div>
+                      <span className="text-muted-foreground block text-xs font-bold uppercase">
+                        Tanggal & Waktu
+                      </span>
+                      <span className="font-semibold text-foreground">
+                        {selectedDetailOrder.created_at
+                          ? new Date(selectedDetailOrder.created_at).toLocaleString("id-ID")
+                          : "-"}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-xs font-bold uppercase">
+                        Outlet Cabang
+                      </span>
+                      <span className="font-semibold text-foreground">{detailOutletName}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-xs font-bold uppercase">
+                        Kasir / Operator
+                      </span>
+                      <span className="font-semibold text-foreground">{detailStaffName}</span>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground block text-xs font-bold uppercase">
+                        Nama Antrean / Pelanggan
+                      </span>
+                      <span className="font-semibold text-foreground">
+                        {detailQueueName
+                          ? `${detailQueueName}${detailCustName && detailCustName !== detailQueueName ? ` (${detailCustName})` : ""}`
+                          : detailCustName}
+                      </span>
+                    </div>
+                  </div>
 
-            {/* Items List */}
-            <div className="mt-5 space-y-2">
-              <span className="text-xs font-black uppercase tracking-wider text-muted-foreground block">
-                Daftar Menu & Kustomisasi:
-              </span>
-              {isLoadingDetailItems ? (
-                <div className="p-4 text-center text-xs text-muted-foreground">
-                  Memuat rincian pesanan...
-                </div>
-              ) : (
-                <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                  {detailItems.map((item, idx) => (
-                    <div
-                      key={idx}
-                      className="rounded-xl border border-border/80 bg-background/80 p-3 text-xs space-y-1"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="font-bold text-foreground">{item.name}</span>
-                        <span className="font-black text-primary shrink-0">
-                          {formatRupiah(item.subtotal || item.unit_price * item.quantity)}
+                  {/* Otorisasi Supervisor Info (jika di-refund atau di-void) */}
+                  {(selectedDetailOrder.status === "refunded" ||
+                    selectedDetailOrder.status === "void" ||
+                    selectedDetailOrder.status === "cancelled") && (
+                    <div className="mt-3 rounded-2xl border border-border bg-muted p-3 text-xs">
+                      <div className="flex items-center gap-1.5 font-bold text-foreground/75">
+                        <ShieldAlert className="size-4 shrink-0" />
+                        <span>
+                          Informasi Otorisasi{" "}
+                          {selectedDetailOrder.status === "refunded" ? "Refund" : "Void"}
                         </span>
                       </div>
-                      {item.variant_name && (
-                        <p className="text-[11px] text-muted-foreground">
-                          Varian:{" "}
-                          <span className="font-semibold text-foreground">{item.variant_name}</span>
+                      {selectedDetailOrder.authorized_by && (
+                        <p className="mt-1 text-[11px] text-muted-foreground">
+                          Diotorisasi oleh:{" "}
+                          <strong className="text-foreground">
+                            {selectedDetailOrder.authorized_by}
+                          </strong>
                         </p>
                       )}
-                      {item.selected_options?.modifiers?.length > 0 && (
-                        <p className="text-[11px] text-muted-foreground">
-                          Level/Opsi:{" "}
-                          <span className="font-semibold text-foreground">
-                            {item.selected_options.modifiers.join(", ")}
+                      {selectedDetailOrder.actionReason && (
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          Alasan:{" "}
+                          <span className="italic text-foreground">
+                            {selectedDetailOrder.actionReason}
                           </span>
                         </p>
                       )}
-                      {item.selected_options?.addons?.length > 0 && (
-                        <p className="text-[11px] text-muted-foreground">
-                          Topping:{" "}
-                          <span className="font-semibold text-foreground">
-                            {item.selected_options.addons.map((a: any) => a.name).join(", ")}
-                          </span>
-                        </p>
-                      )}
-                      {item.notes && (
-                        <p className="text-[10px] italic text-foreground/75">
-                          Catatan: {item.notes}
-                        </p>
-                      )}
-                      <div className="text-[11px] text-muted-foreground pt-1 flex justify-between border-t border-border/40">
-                        <span>Jumlah: {item.quantity} porsi</span>
-                        <span>@ {formatRupiah(item.unit_price)}</span>
-                      </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
+                  )}
 
-            {/* Total Summary */}
-            <div className="mt-5 rounded-2xl bg-secondary/80 p-4 space-y-1.5 text-xs">
-              <div className="flex justify-between text-muted-foreground">
-                <span>Subtotal</span>
-                <span>{formatRupiah(selectedDetailOrder.total)}</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Diskon Promo</span>
-                <span>Rp 0</span>
-              </div>
-              <div className="flex justify-between text-muted-foreground">
-                <span>Pajak (PB1)</span>
-                <span>Rp 0</span>
-              </div>
-              <div className="flex justify-between text-base font-black text-foreground pt-2 border-t border-border">
-                <span>Total Tagihan</span>
-                <span className="text-primary">{formatRupiah(selectedDetailOrder.total)}</span>
-              </div>
-              <div className="flex justify-between text-[11px] text-muted-foreground pt-1">
-                <span>Metode Pembayaran</span>
-                <span className="font-black uppercase text-foreground">
-                  {selectedDetailOrder.payment_method}
-                </span>
-              </div>
-            </div>
+                  {/* Items List */}
+                  <div className="mt-5 space-y-2">
+                    <span className="text-xs font-black uppercase tracking-wider text-muted-foreground block">
+                      Daftar Menu & Kustomisasi:
+                    </span>
+                    {isLoadingDetailItems ? (
+                      <div className="p-4 text-center text-xs text-muted-foreground">
+                        Memuat rincian pesanan...
+                      </div>
+                    ) : (
+                      <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
+                        {detailItems.map((item, idx) => (
+                          <div
+                            key={idx}
+                            className="rounded-xl border border-border/80 bg-background/80 p-3 text-xs space-y-1"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <span className="font-bold text-foreground">{item.name}</span>
+                              <span className="font-black text-primary shrink-0">
+                                {formatRupiah(item.subtotal || item.unit_price * item.quantity)}
+                              </span>
+                            </div>
+                            {item.variant_name && (
+                              <p className="text-[11px] text-muted-foreground">
+                                Varian:{" "}
+                                <span className="font-semibold text-foreground">
+                                  {item.variant_name}
+                                </span>
+                              </p>
+                            )}
+                            {item.selected_options?.modifiers?.length > 0 && (
+                              <p className="text-[11px] text-muted-foreground">
+                                Level/Opsi:{" "}
+                                <span className="font-semibold text-foreground">
+                                  {item.selected_options.modifiers.join(", ")}
+                                </span>
+                              </p>
+                            )}
+                            {item.selected_options?.addons?.length > 0 && (
+                              <p className="text-[11px] text-muted-foreground">
+                                Topping:{" "}
+                                <span className="font-semibold text-foreground">
+                                  {item.selected_options.addons.map((a: any) => a.name).join(", ")}
+                                </span>
+                              </p>
+                            )}
+                            {item.notes && (
+                              <p className="text-[10px] italic text-foreground/75">
+                                Catatan: {item.notes}
+                              </p>
+                            )}
+                            <div className="text-[11px] text-muted-foreground pt-1 flex justify-between border-t border-border/40">
+                              <span>Jumlah: {item.quantity} porsi</span>
+                              <span>@ {formatRupiah(item.unit_price)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
 
-            {/* Action Buttons: Cetak Struk, Refund, Void */}
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
-              <Button
-                variant="outline"
-                className="rounded-xl font-bold text-xs gap-1.5"
-                onClick={() => {
-                  setReceiptModalData({
-                    orderNumber: selectedDetailOrder.order_number,
-                    outletName:
-                      orderMetadataMap[selectedDetailOrder.id]?.outlet_name || "Outlet Utama",
-                    cashierName:
-                      orderMetadataMap[selectedDetailOrder.id]?.staff_name || "Kasir POS",
-                    paymentMethod: (selectedDetailOrder.payment_method || "CASH").toUpperCase(),
-                    customerName: selectedDetailOrder.customer_id
-                      ? customerMap[selectedDetailOrder.customer_id]
-                      : "Pelanggan Umum",
-                    createdAt: selectedDetailOrder.created_at || new Date().toISOString(),
-                    items: detailItems.map((it) => ({
-                      name: it.name,
-                      quantity: it.quantity,
-                      price: it.unit_price,
-                      subtotal: it.subtotal || it.unit_price * it.quantity,
-                    })),
-                    total: selectedDetailOrder.total,
-                  });
-                  setSelectedDetailOrder(null);
-                }}
-              >
+                  {/* Total Summary */}
+                  <div className="mt-5 rounded-2xl bg-secondary/80 p-4 space-y-1.5 text-xs">
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span className="tabular-nums">{formatRupiah(detailSubtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Diskon Promo</span>
+                      <span className="tabular-nums">
+                        {detailDiscount > 0 ? `-${formatRupiah(detailDiscount)}` : "Rp 0"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-muted-foreground">
+                      <span>Pajak (PB1)</span>
+                      <span className="tabular-nums">{formatRupiah(detailTax)}</span>
+                    </div>
+                    <div className="flex justify-between text-base font-black text-foreground pt-2 border-t border-border">
+                      <span>Total Tagihan</span>
+                      <span className="text-primary tabular-nums">
+                        {formatRupiah(selectedDetailOrder.total)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-[11px] text-muted-foreground pt-1">
+                      <span>Metode Pembayaran</span>
+                      <span className="font-black uppercase text-foreground">
+                        {selectedDetailOrder.payment_method}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Action Buttons: Cetak Struk, Refund, Void */}
+                  <div className="mt-6 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
+                    <Button
+                      variant="outline"
+                      className="rounded-xl font-bold text-xs gap-1.5"
+                      onClick={() => {
+                        setReceiptModalData({
+                          orderNumber: selectedDetailOrder.order_number,
+                          outletName: detailOutletName,
+                          cashierName: detailStaffName,
+                          paymentMethod: (selectedDetailOrder.payment_method || "CASH").toUpperCase(),
+                          customerName: detailCustName,
+                          customerQueueName: detailQueueName,
+                          createdAt: selectedDetailOrder.created_at || new Date().toISOString(),
+                          subtotal: detailSubtotal,
+                          discountAmount: detailDiscount,
+                          taxAmount: detailTax,
+                          items: detailItems.map((it) => ({
+                            name: it.name,
+                            quantity: it.quantity,
+                            price: it.unit_price,
+                            subtotal: it.subtotal || it.unit_price * it.quantity,
+                          })),
+                          total: selectedDetailOrder.total,
+                        });
+                        setSelectedDetailOrder(null);
+                      }}
+                    >
                 <Printer className="size-3.5" />
                 Cetak Struk
               </Button>
@@ -9229,6 +9520,9 @@ function OrdersPage({
                 )}
               </div>
             </div>
+                </>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -9874,57 +10168,52 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
 
   const getResolvedCashierName = (): string => {
     if (typeof window !== "undefined") {
-      const activeCashier = localStorage.getItem("kebabschoicepos_active_cashier_name");
-      if (activeCashier && activeCashier.trim()) {
-        const trimmed = activeCashier.trim();
-        const lower = trimmed.toLowerCase();
-        if (
-          lower === "kadut" ||
-          lower.startsWith("pos outlet -") ||
-          lower.includes("terminal outlet") ||
-          lower.includes("akun login outlet")
-        ) {
-          localStorage.removeItem("kebabschoicepos_active_cashier_name");
-        } else {
-          return trimmed;
-        }
-      }
       try {
         const currentOid =
           localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
           localStorage.getItem("kebabschoicepos_active_outlet_id") ||
           snapshot.assignedOutletId;
         const outletKey = getOutletShiftKey(currentOid);
-        const rawShift = (outletKey && localStorage.getItem(outletKey)) || localStorage.getItem("kebabschoicepos_active_shift");
-        if (rawShift) {
-          const parsed = JSON.parse(rawShift);
-          if (parsed.cashierName && parsed.cashierName.trim()) {
-            const shiftName = parsed.cashierName.trim();
-            const lowerShift = shiftName.toLowerCase();
-            if (
-              lowerShift !== "kadut" &&
-              !lowerShift.startsWith("pos outlet -") &&
-              !lowerShift.includes("terminal outlet") &&
-              !lowerShift.includes("akun login outlet")
-            ) {
-              return shiftName;
-            }
+        const rawShift =
+          (outletKey && localStorage.getItem(outletKey)) ||
+          localStorage.getItem("kebabschoicepos_active_shift");
+        if (!rawShift) {
+          return "";
+        }
+        const parsed = JSON.parse(rawShift);
+        if (parsed?.status !== "open") {
+          return "";
+        }
+        const activeCashier = localStorage.getItem("kebabschoicepos_active_cashier_name");
+        if (activeCashier && activeCashier.trim()) {
+          const trimmed = activeCashier.trim();
+          const lower = trimmed.toLowerCase();
+          if (
+            lower !== "kadut" &&
+            !lower.startsWith("pos outlet -") &&
+            !lower.includes("terminal outlet") &&
+            !lower.includes("akun login outlet")
+          ) {
+            return trimmed;
           }
         }
-      } catch {}
+        if (parsed.cashierName && parsed.cashierName.trim()) {
+          const shiftName = parsed.cashierName.trim();
+          const lowerShift = shiftName.toLowerCase();
+          if (
+            lowerShift !== "kadut" &&
+            !lowerShift.startsWith("pos outlet -") &&
+            !lowerShift.includes("terminal outlet") &&
+            !lowerShift.includes("akun login outlet")
+          ) {
+            return shiftName;
+          }
+        }
+      } catch {
+        return "";
+      }
     }
-    const profName = profile?.displayName || "";
-    const profLower = profName.toLowerCase();
-    if (
-      profName &&
-      profLower !== "kadut" &&
-      !profLower.startsWith("pos outlet -") &&
-      !profLower.includes("terminal outlet") &&
-      !profLower.includes("akun login outlet")
-    ) {
-      return profName;
-    }
-    return "Kasir";
+    return "";
   };
 
   const [activeCashierName, setActiveCashierName] = useState<string>(getResolvedCashierName);
@@ -9976,6 +10265,11 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
           setActiveCashierName(row.cashier_name);
           localStorage.setItem("kebabschoicepos_active_cashier_name", row.cashier_name);
         }
+      } else {
+        localStorage.removeItem(`kebabschoicepos_active_shift_${out.id}`);
+        localStorage.removeItem("kebabschoicepos_active_shift");
+        localStorage.removeItem("kebabschoicepos_active_cashier_name");
+        setActiveCashierName("");
       }
     } catch (err) {
       console.warn("[handleSelectBranchForPos] Failed to sync open shift:", err);
@@ -9993,14 +10287,23 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
 
   useEffect(() => {
     const handleCashierChange = (e: any) => {
-      if (e.detail?.cashierName) {
-        setActiveCashierName(e.detail.cashierName);
+      if (e?.detail && "cashierName" in e.detail) {
+        setActiveCashierName(e.detail.cashierName || "");
       } else {
         setActiveCashierName(getResolvedCashierName());
       }
     };
+    const handleShiftSync = () => {
+      setActiveCashierName(getResolvedCashierName());
+    };
     window.addEventListener("pos:cashier-changed", handleCashierChange);
-    return () => window.removeEventListener("pos:cashier-changed", handleCashierChange);
+    window.addEventListener("pos:shift-updated", handleShiftSync);
+    window.addEventListener("outlet:changed", handleShiftSync);
+    return () => {
+      window.removeEventListener("pos:cashier-changed", handleCashierChange);
+      window.removeEventListener("pos:shift-updated", handleShiftSync);
+      window.removeEventListener("outlet:changed", handleShiftSync);
+    };
   }, []);
 
   const handleSelectCashier = (newName: string) => {

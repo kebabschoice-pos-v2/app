@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { CreditCard, Banknote, QrCode, Smartphone, Building, Check } from "lucide-react";
+import { CreditCard, Banknote, QrCode, Smartphone, Building, Check, Upload, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
@@ -9,6 +9,7 @@ export function PaymentSettingsPage() {
   const [cashEnabled, setCashEnabled] = useState(true);
   const [qrisEnabled, setQrisEnabled] = useState(true);
   const [qrisNmid, setQrisNmid] = useState("");
+  const [qrisStaticImageUrl, setQrisStaticImageUrl] = useState("");
   const [cardEnabled, setCardEnabled] = useState(true);
   const [transferEnabled, setTransferEnabled] = useState(false);
   const [bankName, setBankName] = useState("BCA");
@@ -24,6 +25,12 @@ export function PaymentSettingsPage() {
           if (typeof parsed.cashEnabled === "boolean") setCashEnabled(parsed.cashEnabled);
           if (typeof parsed.qrisEnabled === "boolean") setQrisEnabled(parsed.qrisEnabled);
           if (parsed.qrisNmid) setQrisNmid(parsed.qrisNmid);
+          const localStaticImg =
+            parsed.qrisStaticImageUrl ||
+            parsed.staticQrisImageUrl ||
+            parsed.static_qris_image_url ||
+            parsed.qrisImageUrl;
+          if (localStaticImg) setQrisStaticImageUrl(localStaticImg);
           if (typeof parsed.cardEnabled === "boolean") setCardEnabled(parsed.cardEnabled);
           if (typeof parsed.transferEnabled === "boolean") setTransferEnabled(parsed.transferEnabled);
           if (parsed.bankName) setBankName(parsed.bankName);
@@ -32,7 +39,7 @@ export function PaymentSettingsPage() {
         }
 
         // Check Supabase outlets.settings.payment_settings
-        const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(5);
+        const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(10);
         if (outletsData && Array.isArray(outletsData)) {
           for (const out of outletsData) {
             const payConf = (out.settings as any)?.payment_settings;
@@ -40,6 +47,12 @@ export function PaymentSettingsPage() {
               if (typeof payConf.cashEnabled === "boolean") setCashEnabled(payConf.cashEnabled);
               if (typeof payConf.qrisEnabled === "boolean") setQrisEnabled(payConf.qrisEnabled);
               if (payConf.qrisNmid) setQrisNmid(payConf.qrisNmid);
+              const remoteStaticImg =
+                payConf.qrisStaticImageUrl ||
+                payConf.staticQrisImageUrl ||
+                payConf.static_qris_image_url ||
+                payConf.qrisImageUrl;
+              if (remoteStaticImg) setQrisStaticImageUrl(remoteStaticImg);
               if (typeof payConf.cardEnabled === "boolean") setCardEnabled(payConf.cardEnabled);
               if (typeof payConf.transferEnabled === "boolean") setTransferEnabled(payConf.transferEnabled);
               if (payConf.bankName) setBankName(payConf.bankName);
@@ -56,11 +69,31 @@ export function PaymentSettingsPage() {
     loadSettings();
   }, []);
 
+  const handleUploadQrisImage = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Pilih file gambar (PNG / JPG / WEBP) untuk QRIS Statis.");
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (result) {
+        setQrisStaticImageUrl(result);
+        toast.success("Gambar QRIS Statis siap disimpan — klik Simpan Metode Pembayaran.");
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSave = async () => {
     const data = {
       cashEnabled,
       qrisEnabled,
-      qrisNmid,
+      qrisNmid: qrisNmid.trim(),
+      qrisStaticImageUrl: qrisStaticImageUrl.trim(),
+      staticQrisImageUrl: qrisStaticImageUrl.trim(),
       cardEnabled,
       transferEnabled,
       bankName,
@@ -77,10 +110,14 @@ export function PaymentSettingsPage() {
             out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
               ? (out.settings as Record<string, any>)
               : {};
+          const prevPay =
+            curr.payment_settings && typeof curr.payment_settings === "object"
+              ? curr.payment_settings
+              : {};
           await supabase
             .from("outlets")
             .update({
-              settings: { ...curr, payment_settings: data } as any,
+              settings: { ...curr, payment_settings: { ...prevPay, ...data } } as any,
             })
             .eq("id", out.id);
         }
@@ -175,10 +212,54 @@ export function PaymentSettingsPage() {
                 </p>
               </div>
               <div>
-                <label className="text-xs font-bold text-foreground/80">Mode Tampilan di POS</label>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  QRIS statis dan barcode otomatis tampil saat tombol QRIS dipilih di checkout.
-                </p>
+                <label className="text-xs font-bold text-foreground/80">
+                  Gambar QRIS Statis Resmi Toko (Opsional)
+                </label>
+                <div className="mt-1.5 space-y-2.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <label className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-border bg-secondary/70 hover:bg-secondary px-3 text-xs font-bold text-foreground cursor-pointer transition-colors">
+                      <Upload className="size-3.5 text-primary" />
+                      <span>{qrisStaticImageUrl ? "Ganti Gambar QRIS" : "Unggah Gambar QRIS Statis"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleUploadQrisImage}
+                        className="sr-only"
+                      />
+                    </label>
+                    {qrisStaticImageUrl && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setQrisStaticImageUrl("")}
+                        className="h-9 rounded-xl text-xs font-bold text-destructive hover:text-destructive gap-1"
+                      >
+                        <Trash2 className="size-3.5" />
+                        <span>Hapus</span>
+                      </Button>
+                    )}
+                  </div>
+                  {qrisStaticImageUrl ? (
+                    <div className="flex items-center gap-3 rounded-xl border border-border bg-muted/30 p-2.5">
+                      <img
+                        src={qrisStaticImageUrl}
+                        alt="Pratinjau QRIS Statis Toko"
+                        className="size-20 rounded-lg border border-border bg-white object-contain p-1 shrink-0"
+                      />
+                      <div className="text-xs space-y-1">
+                        <p className="font-bold text-foreground">QRIS Statis Aktif</p>
+                        <p className="text-muted-foreground">
+                          Gambar QRIS Statis ini akan langsung ditampilkan beserta nominal tagihan saat kasir memilih metode QRIS di `/pos`.
+                        </p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      Unggah foto/gambar QRIS Statis toko Anda agar langsung tampil beserta nominal tagihan saat pembayaran QRIS dipilih di POS.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
           )}

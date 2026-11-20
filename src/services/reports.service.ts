@@ -1026,31 +1026,80 @@ export async function getComprehensiveAnalytics(
 }
 
 /**
- * Record a transaction's metadata (outlet_id, staff_id, staff_name) into outlet settings
+ * Record a transaction's metadata (outlet_id, outlet_name, staff_id, staff_name, queue_name, customer_name, totals)
+ * into outlet settings and local metadata cache for instant cross-page consistency.
  */
 export async function recordOrderOutletMetadata(
   businessId: string,
   outletId: string,
   orderId: string,
-  staffInfo: { userId?: string; displayName?: string },
+  staffInfo: {
+    userId?: string;
+    displayName?: string;
+    outletName?: string;
+    queueName?: string | null;
+    customerName?: string | null;
+    customerPhone?: string | null;
+    orderType?: string | null;
+    tableNumber?: string | null;
+    ojolOrderCode?: string | null;
+    notes?: string | null;
+    subtotal?: number;
+    discountAmount?: number;
+    serviceChargeAmount?: number;
+    taxAmount?: number;
+    cashReceived?: number;
+    changeAmount?: number;
+  },
 ): Promise<void> {
+  const metaRecord = {
+    business_id: businessId,
+    outlet_id: outletId,
+    outlet_name: staffInfo.outletName || undefined,
+    staff_id: staffInfo.userId || null,
+    staff_name: staffInfo.displayName || "Kasir",
+    queue_name: staffInfo.queueName || null,
+    customer_name: staffInfo.customerName || null,
+    customer_phone: staffInfo.customerPhone || null,
+    order_type: staffInfo.orderType || null,
+    table_number: staffInfo.tableNumber || null,
+    ojol_order_code: staffInfo.ojolOrderCode || null,
+    notes: staffInfo.notes || null,
+    subtotal: typeof staffInfo.subtotal === "number" ? staffInfo.subtotal : undefined,
+    discount_amount:
+      typeof staffInfo.discountAmount === "number" ? staffInfo.discountAmount : undefined,
+    service_charge:
+      typeof staffInfo.serviceChargeAmount === "number" ? staffInfo.serviceChargeAmount : undefined,
+    tax_amount: typeof staffInfo.taxAmount === "number" ? staffInfo.taxAmount : undefined,
+    cash_received: typeof staffInfo.cashReceived === "number" ? staffInfo.cashReceived : undefined,
+    change_amount: typeof staffInfo.changeAmount === "number" ? staffInfo.changeAmount : undefined,
+    created_at: new Date().toISOString(),
+  };
+
+  if (typeof window !== "undefined") {
+    try {
+      const rawCache = localStorage.getItem("kebabschoicepos_order_metadata_cache");
+      const cache = rawCache ? JSON.parse(rawCache) : {};
+      cache[orderId] = { ...(cache[orderId] || {}), ...metaRecord };
+      localStorage.setItem("kebabschoicepos_order_metadata_cache", JSON.stringify(cache));
+    } catch {}
+  }
+
   try {
     const { data: outletRows } = await supabase
       .from("outlets")
-      .select("id, settings")
+      .select("id, name, settings")
       .eq("id", outletId)
       .limit(1);
 
     const firstOutlet = outletRows?.[0];
     if (firstOutlet) {
-      const o = firstOutlet;
+      const o = firstOutlet as any;
       const settings = (o.settings as any) || {};
       const orderMeta = settings.order_metadata || {};
       orderMeta[orderId] = {
-        outlet_id: outletId,
-        staff_id: staffInfo.userId || null,
-        staff_name: staffInfo.displayName || "Kasir",
-        created_at: new Date().toISOString(),
+        ...metaRecord,
+        outlet_name: staffInfo.outletName || o.name || undefined,
       };
 
       await supabase

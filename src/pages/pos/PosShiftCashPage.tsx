@@ -29,6 +29,7 @@ import { cacheOutletCatalog, isOnline } from "@/services/offline-sync.service";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
 import { getTodayOutletRoster, getStaffShifts, type StaffShift } from "@/services/hr.service";
 import { getStaffList, type StaffItem } from "@/services/staff.service";
+import { formatRupiahInput, parseNumberFromDots } from "@/lib/input-formatters";
 import { cn } from "@/lib/utils";
 
 interface CashMovement {
@@ -98,8 +99,19 @@ export function PosShiftCashPage() {
 
   // Opening shift modal/form states
   const [cashierName, setCashierName] = useState("Kasir");
-  const [outletName, setOutletName] = useState("Outlet");
-  const [startingCashInput, setStartingCashInput] = useState("200000");
+  const [outletName, setOutletName] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("kebabschoicepos_active_outlet");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.name) return String(parsed.name);
+        }
+      } catch {}
+    }
+    return "Outlet Utama";
+  });
+  const [startingCashInput, setStartingCashInput] = useState("200.000");
   const [teamMembersInput, setTeamMembersInput] = useState("");
   const [todayRoster, setTodayRoster] = useState<{
     morningStaff: string[];
@@ -108,6 +120,66 @@ export function PosShiftCashPage() {
   } | null>(null);
   const [branchStaffList, setBranchStaffList] = useState<StaffItem[]>([]);
   const [masterShifts, setMasterShifts] = useState<StaffShift[]>([]);
+
+  // Available companion crew options: all branch crew & today's roster EXCEPT the selected cashier
+  const availableCompanionCrew = useMemo(() => {
+    const activeCashierLower = cashierName.trim().toLowerCase();
+    const seen = new Set<string>();
+    const list: Array<{ name: string; role?: string; shiftTag?: "Pagi" | "Malam" }> = [];
+
+    const addCandidate = (rawName: string, role?: string) => {
+      const clean = String(rawName || "").trim();
+      if (!clean) return;
+      const lower = clean.toLowerCase();
+      if (lower === activeCashierLower || seen.has(lower)) return;
+      seen.add(lower);
+      const isMorning = todayRoster?.morningStaff.includes(clean);
+      const isNight = todayRoster?.nightStaff.includes(clean);
+      list.push({
+        name: clean,
+        role,
+        shiftTag: isMorning ? "Pagi" : isNight ? "Malam" : undefined,
+      });
+    };
+
+    branchStaffList.forEach((st) => addCandidate(st.name, st.role));
+    (todayRoster?.morningStaff || []).forEach((n) => addCandidate(n));
+    (todayRoster?.nightStaff || []).forEach((n) => addCandidate(n));
+    return list;
+  }, [branchStaffList, todayRoster, cashierName]);
+
+  // Parsed companion crew array (always excluding the selected cashier)
+  const selectedCompanionList = useMemo(() => {
+    const activeCashierLower = cashierName.trim().toLowerCase();
+    return teamMembersInput
+      .split(",")
+      .map((s) => s.trim())
+      .filter((s) => Boolean(s) && s.toLowerCase() !== activeCashierLower);
+  }, [teamMembersInput, cashierName]);
+
+  // Ensure selected cashier is automatically removed from companion crew when cashier changes
+  useEffect(() => {
+    const activeCashierLower = cashierName.trim().toLowerCase();
+    if (!activeCashierLower) return;
+    setTeamMembersInput((prev) => {
+      if (!prev.trim()) return prev;
+      const filtered = prev
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => Boolean(s) && s.toLowerCase() !== activeCashierLower);
+      const joined = filtered.join(", ");
+      return joined === prev ? prev : joined;
+    });
+  }, [cashierName]);
+
+  const toggleCompanionMember = (memberName: string) => {
+    const targetLower = memberName.trim().toLowerCase();
+    const exists = selectedCompanionList.some((n) => n.toLowerCase() === targetLower);
+    const nextList = exists
+      ? selectedCompanionList.filter((n) => n.toLowerCase() !== targetLower)
+      : [...selectedCompanionList, memberName.trim()];
+    setTeamMembersInput(nextList.join(", "));
+  };
 
   useEffect(() => {
     getStaffShifts().then(setMasterShifts).catch(() => {});
@@ -187,10 +259,40 @@ export function PosShiftCashPage() {
         }
         if (resolvedBid) setBusinessId(resolvedBid);
 
-        // Resolve Active Outlet using strict 5-tier isolation
+        // Resolve Active Outlet using strict 5-tier isolation + localStorage active branch override
         const resolvedStaffOutlet = await resolveActiveStaffOutlet(data.user.id);
-        const resolvedOid = resolvedStaffOutlet.outletId || "default";
-        const resolvedOname = resolvedStaffOutlet.outletName || "Outlet Utama";
+        let resolvedOid = resolvedStaffOutlet.outletId || "default";
+        let resolvedOname = resolvedStaffOutlet.outletName || "Outlet Utama";
+
+        if (typeof window !== "undefined") {
+          try {
+            const activeOutletRaw = localStorage.getItem("kebabschoicepos_active_outlet");
+            if (activeOutletRaw) {
+              const parsedOut = JSON.parse(activeOutletRaw);
+              if (parsedOut?.id && parsedOut.id !== "all") resolvedOid = parsedOut.id;
+              if (parsedOut?.name) resolvedOname = parsedOut.name;
+            }
+            const selectedOid =
+              localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+              localStorage.getItem("kebabschoicepos_active_outlet_id");
+            if (selectedOid && selectedOid !== "all" && selectedOid !== "default") {
+              resolvedOid = selectedOid;
+            }
+          } catch {}
+        }
+
+        if (resolvedBid && resolvedOid && resolvedOid !== "default" && resolvedOid !== "all") {
+          try {
+            const { data: outRow } = await supabase
+              .from("outlets")
+              .select("id, name")
+              .eq("id", resolvedOid)
+              .maybeSingle();
+            if (outRow?.name) {
+              resolvedOname = outRow.name;
+            }
+          } catch {}
+        }
 
         setOutletId(resolvedOid);
         setOutletName(resolvedOname);
@@ -506,7 +608,7 @@ export function PosShiftCashPage() {
 
   // Handle Open Shift (DB Persistence + LocalStorage)
   const handleOpenShift = async () => {
-    const startCash = Number(startingCashInput.replace(/\D/g, "")) || 0;
+    const startCash = parseNumberFromDots(startingCashInput);
     if (startCash < 0) {
       toast.error("Modal awal tidak valid");
       return;
@@ -650,7 +752,7 @@ export function PosShiftCashPage() {
       return;
     }
 
-    const amount = Number(movementAmount.replace(/\D/g, "")) || 0;
+    const amount = parseNumberFromDots(movementAmount);
     if (amount <= 0) {
       toast.error("Nominal harus lebih dari Rp 0");
       return;
@@ -717,7 +819,7 @@ export function PosShiftCashPage() {
   const handleCloseShift = async () => {
     if (!activeShift) return;
 
-    const actual = Number(actualCashInput.replace(/\D/g, "")) || 0;
+    const actual = parseNumberFromDots(actualCashInput);
     const diff = actual - expectedEndingCash;
     const endTime = new Date().toISOString();
 
@@ -915,7 +1017,7 @@ export function PosShiftCashPage() {
                               "text-[9px] px-1 py-0.2 rounded font-black",
                               isSelected
                                 ? "bg-white/20 text-white"
-                                : "bg-sky-500/20 text-sky-600 dark:text-sky-400",
+                                : "bg-muted text-foreground/75",
                             )}
                           >
                             Malam
@@ -946,9 +1048,10 @@ export function PosShiftCashPage() {
                 <Store className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
                 <Input
                   value={outletName}
-                  onChange={(e) => setOutletName(e.target.value)}
+                  readOnly
+                  aria-readonly="true"
                   placeholder="Outlet Cabang"
-                  className="pl-10 rounded-xl"
+                  className="pl-10 rounded-xl bg-muted/50 font-bold text-foreground cursor-not-allowed"
                 />
               </div>
             </div>
@@ -956,23 +1059,75 @@ export function PosShiftCashPage() {
             <div>
               <Label className="text-xs font-bold text-foreground flex items-center justify-between">
                 <span>Kru Pendamping / Tim Shift (Opsional)</span>
-                <span className="text-[10px] text-muted-foreground">Koki, Grill, Dapur</span>
+                <span className="text-xs text-muted-foreground">
+                  Pilih multi-kru selain {cashierName || "kasir bertugas"}
+                </span>
               </Label>
-              <div className="relative mt-1">
-                <Users className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
-                <Input
-                  value={teamMembersInput}
-                  onChange={(e) => setTeamMembersInput(e.target.value)}
-                  placeholder="Contoh: Budi (Grill), Siti (Prep)"
-                  className="pl-10 rounded-xl"
-                />
-              </div>
+
+              {/* Multi-Select Companion Crew Chips (Otomatis mengecualikan kasir yang sedang dipilih) */}
+              {availableCompanionCrew.length > 0 ? (
+                <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-2xl border border-border bg-muted/25 p-2.5">
+                  {availableCompanionCrew.map((crew) => {
+                    const isPicked = selectedCompanionList.some(
+                      (n) => n.toLowerCase() === crew.name.toLowerCase(),
+                    );
+                    return (
+                      <button
+                        key={crew.name}
+                        type="button"
+                        onClick={() => toggleCompanionMember(crew.name)}
+                        className={cn(
+                          "px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5",
+                          isPicked
+                            ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                            : "bg-card hover:bg-secondary text-foreground border-border/80",
+                        )}
+                      >
+                        <Users className="size-3 shrink-0" />
+                        <span>{crew.name}</span>
+                        {crew.shiftTag && (
+                          <span
+                            className={cn(
+                              "text-[9px] px-1 py-0.2 rounded font-black",
+                              isPicked
+                                ? "bg-white/20 text-white"
+                                : "bg-muted text-foreground/75",
+                            )}
+                          >
+                            {crew.shiftTag}
+                          </span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-1.5 rounded-2xl border border-dashed border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
+                  Tidak ada kru pendamping lain di luar kasir bertugas ({cashierName}).
+                </div>
+              )}
+
+              {selectedCompanionList.length > 0 && (
+                <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground px-1">
+                  <span>
+                    Terpilih:{" "}
+                    <strong className="text-foreground">{selectedCompanionList.join(", ")}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setTeamMembersInput("")}
+                    className="text-xs font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Reset Kru
+                  </button>
+                </div>
+              )}
 
               {/* Jadwal Tim Cabang Hari Ini (Sinkron HR) Card */}
-              <div className="mt-2.5 rounded-2xl border border-primary/20 bg-primary/5 p-3.5 space-y-2.5">
+              <div className="mt-2.5 rounded-2xl border border-border bg-muted/30 p-3.5 space-y-2.5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5">
-                    <Calendar className="size-3.5 text-primary" />
+                    <Calendar className="size-3.5 text-foreground/70" />
                     <span className="text-xs font-bold text-foreground">
                       Jadwal Tim Cabang Hari Ini (Sinkron HR)
                     </span>
@@ -990,7 +1145,7 @@ export function PosShiftCashPage() {
                   {/* Shift Pagi */}
                   <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-[11px] text-rose-600 dark:text-rose-400">
+                      <span className="font-bold text-[11px] text-foreground">
                         Shift Pagi {morningHours}
                       </span>
                       <Button
@@ -1000,8 +1155,12 @@ export function PosShiftCashPage() {
                         className="h-5 px-2 text-[10px] font-bold rounded-md"
                         onClick={() => {
                           if (todayRoster?.morningStaff && todayRoster.morningStaff.length > 0) {
-                            setTeamMembersInput(todayRoster.morningStaff.join(", "));
-                            toast.success("Kru Shift Pagi dimasukkan ke tim shift");
+                            const activeLower = cashierName.trim().toLowerCase();
+                            const companions = todayRoster.morningStaff.filter(
+                              (n) => n.trim().toLowerCase() !== activeLower,
+                            );
+                            setTeamMembersInput(companions.join(", "));
+                            toast.success("Kru pendamping Shift Pagi dipilih");
                           }
                         }}
                       >
@@ -1018,7 +1177,7 @@ export function PosShiftCashPage() {
                   {/* Shift Malam */}
                   <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
                     <div className="flex items-center justify-between">
-                      <span className="font-bold text-[11px] text-sky-600 dark:text-sky-400">
+                      <span className="font-bold text-[11px] text-foreground">
                         Shift Malam {nightHours}
                       </span>
                       <Button
@@ -1028,8 +1187,12 @@ export function PosShiftCashPage() {
                         className="h-5 px-2 text-[10px] font-bold rounded-md"
                         onClick={() => {
                           if (todayRoster?.nightStaff && todayRoster.nightStaff.length > 0) {
-                            setTeamMembersInput(todayRoster.nightStaff.join(", "));
-                            toast.success("Kru Shift Malam dimasukkan ke tim shift");
+                            const activeLower = cashierName.trim().toLowerCase();
+                            const companions = todayRoster.nightStaff.filter(
+                              (n) => n.trim().toLowerCase() !== activeLower,
+                            );
+                            setTeamMembersInput(companions.join(", "));
+                            toast.success("Kru pendamping Shift Malam dipilih");
                           }
                         }}
                       >
@@ -1069,14 +1232,33 @@ export function PosShiftCashPage() {
                   Rp
                 </span>
                 <Input
-                  type="number"
+                  type="text"
+                  inputMode="numeric"
                   value={startingCashInput}
-                  onChange={(e) => setStartingCashInput(e.target.value)}
-                  placeholder="200000"
-                  className="pl-10 rounded-xl font-bold text-base"
+                  onChange={(e) => setStartingCashInput(formatRupiahInput(e.target.value))}
+                  placeholder="200.000"
+                  className="pl-10 rounded-xl font-bold text-base tabular-nums"
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1">
+              <div className="mt-2 grid grid-cols-4 gap-1.5">
+                {[100000, 200000, 300000, 500000].map((preset) => {
+                  const formattedPreset = formatRupiahInput(preset);
+                  const isCurrent = parseNumberFromDots(startingCashInput) === preset;
+                  return (
+                    <Button
+                      key={preset}
+                      type="button"
+                      size="sm"
+                      variant={isCurrent ? "default" : "outline"}
+                      onClick={() => setStartingCashInput(formattedPreset)}
+                      className="h-8 rounded-xl text-xs font-bold tabular-nums px-2"
+                    >
+                      {formattedPreset}
+                    </Button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-1.5">
                 Modal uang kecil pecahan untuk kembalian pelanggan.
               </p>
             </div>
@@ -1188,11 +1370,12 @@ export function PosShiftCashPage() {
                 <div>
                   <Label className="text-xs font-bold text-foreground">Nominal (Rp)</Label>
                   <Input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={movementAmount}
-                    onChange={(e) => setMovementAmount(e.target.value)}
-                    placeholder="Contoh: 50000"
-                    className="mt-1 rounded-xl font-bold"
+                    onChange={(e) => setMovementAmount(formatRupiahInput(e.target.value))}
+                    placeholder="Contoh: 50.000"
+                    className="mt-1 rounded-xl font-bold tabular-nums"
                   />
                 </div>
 
@@ -1322,48 +1505,45 @@ export function PosShiftCashPage() {
               </Button>
             </div>
 
-            {/* Blind Count Notice */}
-            {!isCountRevealed ? (
-              <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4 flex items-center gap-3">
-                <ShieldCheck className="size-6 text-primary shrink-0" />
-                <div className="text-xs">
-                  <p className="font-black text-foreground">Blind Cash Count Mode Aktif</p>
-                  <p className="text-muted-foreground text-[11px] mt-0.5">
-                    Kalkulasi sistem disembunyikan. Hitung seluruh fisik uang kertas dan koin di laci kasir secara jujur.
-                  </p>
-                </div>
+            {/* Ringkasan Perhitungan Kas Sistem (Modal Awal + Tunai + Kas Masuk - Kas Keluar) */}
+            <div className="rounded-2xl bg-secondary/60 p-4 space-y-2 text-xs font-semibold">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Saldo Awal (Modal):</span>
+                <span className="tabular-nums font-bold text-foreground">
+                  {formatRupiah(activeShift.startingCash)}
+                </span>
               </div>
-            ) : (
-              /* Calculations Breakdown Revealed After Count */
-              <div className="rounded-2xl bg-secondary/60 p-4 space-y-2 text-xs font-semibold animate-in fade-in duration-300">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Saldo Awal (Modal):</span>
-                  <span>{formatRupiah(activeShift.startingCash)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Penjualan Tunai POS:</span>
-                  <span className="text-success">+{formatRupiah(effectiveCashSales)}</span>
-                </div>
-                {liveNonCashSales > 0 && (
-                  <div className="flex justify-between text-[11px] text-muted-foreground">
-                    <span>Penjualan Non-Tunai (QRIS/EDC):</span>
-                    <span>{formatRupiah(liveNonCashSales)}</span>
-                  </div>
-                )}
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total Cash In:</span>
-                  <span className="text-success">+{formatRupiah(totalCashIn)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Total Cash Out:</span>
-                  <span className="text-destructive">-{formatRupiah(totalCashOut)}</span>
-                </div>
-                <div className="border-t border-border pt-2 flex justify-between font-bold text-sm">
-                  <span className="text-foreground">Ekspektasi Sistem:</span>
-                  <span className="text-primary font-black">{formatRupiah(expectedEndingCash)}</span>
-                </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Penjualan Tunai POS:</span>
+                <span className="tabular-nums font-bold text-foreground">
+                  +{formatRupiah(effectiveCashSales)}
+                </span>
               </div>
-            )}
+              {liveNonCashSales > 0 && (
+                <div className="flex justify-between text-[11px] text-muted-foreground">
+                  <span>Penjualan Non-Tunai (QRIS/EDC):</span>
+                  <span className="tabular-nums">{formatRupiah(liveNonCashSales)}</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total Kas Masuk (Cash In):</span>
+                <span className="tabular-nums font-bold text-foreground">
+                  +{formatRupiah(totalCashIn)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Total Kas Keluar (Cash Out):</span>
+                <span className="tabular-nums font-bold text-foreground">
+                  -{formatRupiah(totalCashOut)}
+                </span>
+              </div>
+              <div className="border-t border-border pt-2 flex justify-between font-bold text-sm">
+                <span className="text-foreground">Ekspektasi Kas Sistem:</span>
+                <span className="text-primary font-black tabular-nums">
+                  {formatRupiah(expectedEndingCash)}
+                </span>
+              </div>
+            </div>
 
             {/* Actual Cash Input */}
             <div className="space-y-3">
@@ -1385,44 +1565,69 @@ export function PosShiftCashPage() {
                     Rp
                   </span>
                   <Input
-                    type="number"
+                    type="text"
+                    inputMode="numeric"
                     value={actualCashInput}
                     onChange={(e) => {
-                      setActualCashInput(e.target.value);
-                      if (isCountRevealed) setIsCountRevealed(false);
+                      setActualCashInput(formatRupiahInput(e.target.value));
                     }}
-                    placeholder="Masukkan total uang riil di laci kas"
-                    className="pl-10 rounded-xl font-black text-base"
+                    placeholder="Contoh: 200.000"
+                    className="pl-10 rounded-xl font-black text-base tabular-nums"
                     autoFocus
                   />
+                </div>
+                <div className="mt-2 grid grid-cols-4 gap-1.5">
+                  {[
+                    { label: "Sesuai Sistem", val: expectedEndingCash },
+                    { label: "100.000", val: 100000 },
+                    { label: "200.000", val: 200000 },
+                    { label: "500.000", val: 500000 },
+                  ].map((preset) => (
+                    <Button
+                      key={preset.label}
+                      type="button"
+                      size="sm"
+                      variant={
+                        actualCashInput !== "" &&
+                        parseNumberFromDots(actualCashInput) === preset.val
+                          ? "default"
+                          : "outline"
+                      }
+                      onClick={() => setActualCashInput(formatRupiahInput(preset.val))}
+                      className="h-8 rounded-xl text-xs font-bold tabular-nums px-1.5"
+                    >
+                      {preset.label}
+                    </Button>
+                  ))}
                 </div>
               </div>
 
               {/* Reveal Result & Discrepancy Status */}
-              {isCountRevealed && actualCashInput !== "" && (
+              {actualCashInput !== "" && (
                 <div
                   className={`p-3.5 rounded-2xl border text-xs font-bold space-y-1 ${
-                    Number(actualCashInput) - expectedEndingCash === 0
+                    parseNumberFromDots(actualCashInput) - expectedEndingCash === 0
                       ? "bg-success-soft text-success border-success/30"
-                      : Number(actualCashInput) - expectedEndingCash > 0
+                      : parseNumberFromDots(actualCashInput) - expectedEndingCash > 0
                         ? "bg-muted text-foreground/75 border-border"
                         : "bg-destructive/10 text-destructive border-destructive/30"
                   }`}
                 >
                   <div className="flex items-center justify-between">
                     <span className="uppercase tracking-wider text-[10px]">
-                      {Number(actualCashInput) - expectedEndingCash === 0
-                        ? "Status: PAS / IMPAS"
-                        : Number(actualCashInput) - expectedEndingCash > 0
+                      {parseNumberFromDots(actualCashInput) - expectedEndingCash === 0
+                        ? "Status: PAS / IMPAS (Selisih Rp 0)"
+                        : parseNumberFromDots(actualCashInput) - expectedEndingCash > 0
                           ? "▲ Status: SELISIH LEBIH (OVERAGE)"
                           : "▼ Status: SELISIH KURANG (SHORTAGE)"}
                     </span>
-                    <span className="font-black text-sm">
-                      {formatRupiah(Number(actualCashInput) - expectedEndingCash)}
+                    <span className="font-black text-sm tabular-nums">
+                      {formatRupiah(parseNumberFromDots(actualCashInput) - expectedEndingCash)}
                     </span>
                   </div>
-                  <p className="text-[10px] font-normal opacity-80">
-                    Fisik: {formatRupiah(Number(actualCashInput))} vs Sistem: {formatRupiah(expectedEndingCash)}
+                  <p className="text-[10px] font-normal opacity-80 tabular-nums">
+                    Fisik: {formatRupiah(parseNumberFromDots(actualCashInput))} vs Sistem:{" "}
+                    {formatRupiah(expectedEndingCash)}
                   </p>
                 </div>
               )}
@@ -1450,32 +1655,14 @@ export function PosShiftCashPage() {
                 Batal
               </Button>
 
-              {!isCountRevealed ? (
-                <Button
-                  type="button"
-                  className="rounded-xl font-black shadow-brand"
-                  disabled={!actualCashInput}
-                  onClick={() => {
-                    if (!actualCashInput) {
-                      toast.error("Masukkan jumlah uang fisik terlebih dahulu");
-                      return;
-                    }
-                    setIsCountRevealed(true);
-                  }}
-                >
-                  <Eye className="size-4 mr-1.5" />
-                  Verifikasi Uang Fisik
-                </Button>
-              ) : (
-                <Button
-                  variant="destructive"
-                  className="rounded-xl font-black shadow-sm"
-                  onClick={handleCloseShift}
-                  disabled={!actualCashInput}
-                >
-                  Konfirmasi & Tutup Shift Resmi
-                </Button>
-              )}
+              <Button
+                variant="destructive"
+                className="rounded-xl font-black shadow-sm"
+                onClick={handleCloseShift}
+                disabled={!actualCashInput}
+              >
+                Konfirmasi & Tutup Shift Resmi
+              </Button>
             </div>
           </div>
         </div>

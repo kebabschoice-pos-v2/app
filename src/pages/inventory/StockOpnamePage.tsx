@@ -27,7 +27,10 @@ import {
   type StockOpnameRecord,
   type StockOpnameItemDetail,
 } from "@/services/inventory.service";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getBusinessOutlets, type MenuOutletInfo } from "@/services/menu.service";
+import { isOutletDeletedOrArchived } from "@/services/outlet.service";
 import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 export function StockOpnamePage() {
@@ -61,16 +64,27 @@ export function StockOpnamePage() {
   async function loadData() {
     setLoading(true);
     try {
+      await resolveAuthenticatedUser().catch(() => null);
       const [opn, itm, outl] = await Promise.all([
         getStockOpnames(),
         getInventoryItems(),
         getBusinessOutlets(),
       ]);
+      const activeOutls = (outl || []).filter((o) => !isOutletDeletedOrArchived(o));
+      const activeOutletIds = new Set(activeOutls.map((o) => o.id));
+      const activeItems =
+        activeOutletIds.size > 0
+          ? (itm || []).filter((i) => !i.outlet_id || activeOutletIds.has(i.outlet_id))
+          : itm || [];
       setOpnames(opn);
-      setInventoryItems(itm);
-      setOutlets(outl);
-      if (outl.length > 0 && !selectedOutletId && outl[0]) {
-        setSelectedOutletId(outl[0].id);
+      setInventoryItems(activeItems);
+      setOutlets(activeOutls);
+      if (
+        activeOutls.length > 0 &&
+        (!selectedOutletId || !activeOutletIds.has(selectedOutletId)) &&
+        activeOutls[0]
+      ) {
+        setSelectedOutletId(activeOutls[0].id);
       }
     } catch (err: any) {
       toast.error("Gagal memuat data stock opname", { description: err.message });
@@ -81,6 +95,23 @@ export function StockOpnamePage() {
 
   useEffect(() => {
     loadData();
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener("inventory:updated", handleSync);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("inventory:updated", handleSync);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      subscription.unsubscribe();
+    };
   }, []);
 
   function buildAuditItemsForOutlet(targetOutletId: string) {

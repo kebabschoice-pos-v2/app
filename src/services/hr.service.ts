@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getStaffList, type StaffItem, isOutletDeviceAccount } from "./staff.service";
 import { getOutletList, resolveCurrentBusinessIds, type OutletItem } from "./outlet.service";
 
@@ -191,12 +192,12 @@ async function resolveBusinessId(explicitBusinessId?: string): Promise<string> {
     return explicitBusinessId;
   }
 
-  const { data: authData } = await supabase.auth.getUser();
-  if (authData?.user) {
+  const authUser = await resolveAuthenticatedUser();
+  if (authUser) {
     const { data: owned } = await supabase
       .from("businesses")
       .select("id")
-      .eq("owner_id", authData.user.id)
+      .eq("owner_id", authUser.id)
       .order("created_at", { ascending: true })
       .limit(1)
       .maybeSingle();
@@ -206,7 +207,7 @@ async function resolveBusinessId(explicitBusinessId?: string): Promise<string> {
     const { data: member } = await supabase
       .from("business_members")
       .select("business_id")
-      .eq("user_id", authData.user.id)
+      .eq("user_id", authUser.id)
       .limit(1)
       .maybeSingle();
 

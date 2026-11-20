@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   Boxes,
   Plus,
@@ -58,7 +59,11 @@ import {
   getMenuItems,
   convertRecipeToInventoryQuantity,
 } from "@/services/menu.service";
-import { getOutletList, type OutletItem } from "@/services/outlet.service";
+import {
+  getOutletList,
+  isOutletDeletedOrArchived,
+  type OutletItem,
+} from "@/services/outlet.service";
 import {
   formatNumberWithDots,
   formatRupiahInput,
@@ -194,6 +199,7 @@ export function InventoryManagement() {
     }, 3000);
 
     try {
+      await resolveAuthenticatedUser().catch(() => null);
       const activeBranchId =
         selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
       const activeBizId =
@@ -201,7 +207,7 @@ export function InventoryManagement() {
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "";
 
-      // Stage 1 (Fast critical path): Fetch core inventory items, suppliers, and outlets
+      // Stage 1 (Fast critical path): Fetch core inventory items, suppliers, and active outlets
       // so the Bahan Baku table and KPI cards render immediately without blocking on secondary queries.
       const [itms, supps, outls, bizOutlets] = await Promise.all([
         getInventoryItems(activeBizId || undefined),
@@ -212,44 +218,52 @@ export function InventoryManagement() {
         ),
       ]);
 
-      // Merge active outlets with item outlet references
+      // Single source of truth for active (non-archived) outlets — never resurrect archived/shadow branches
       const mergedOutletsMap = new Map<string, OutletItem>();
       for (const o of outls || []) {
-        if (o?.id) mergedOutletsMap.set(o.id, o);
+        if (o?.id && !isOutletDeletedOrArchived(o)) mergedOutletsMap.set(o.id, o);
       }
       for (const bo of bizOutlets || []) {
-        if (bo?.id && !mergedOutletsMap.has(bo.id)) {
+        if (bo?.id && !isOutletDeletedOrArchived(bo) && !mergedOutletsMap.has(bo.id)) {
           mergedOutletsMap.set(bo.id, {
             id: bo.id,
             name: bo.name,
           } as OutletItem);
         }
       }
-      for (const it of itms || []) {
-        if (it?.outlet_id && it?.outlet_name && !mergedOutletsMap.has(it.outlet_id)) {
-          mergedOutletsMap.set(it.outlet_id, {
-            id: it.outlet_id,
-            name: it.outlet_name,
-          } as OutletItem);
-        }
-      }
 
-      // Compute KPI metrics directly from fetched items (eliminates redundant double getInventoryItems call)
+      const activeOutletsList = Array.from(mergedOutletsMap.values());
+      const activeOutletIds = new Set(activeOutletsList.map((o) => o.id));
+      // Exclude items belonging to archived/deleted outlets so Total Nilai Stok HQ only counts active branches
+      const activeItems =
+        activeOutletIds.size > 0
+          ? (itms || []).filter((it) => !it.outlet_id || activeOutletIds.has(it.outlet_id))
+          : itms || [];
+
+      // Compute KPI metrics directly from active items (eliminates redundant double getInventoryItems call)
       const computedMetrics = {
-        totalItems: itms.length,
-        totalStockValue: itms.reduce(
+        totalItems: activeItems.length,
+        totalStockValue: activeItems.reduce(
           (sum, it) => sum + (Number(it.stock) || 0) * (Number(it.cost_price) || 0),
           0,
         ),
-        lowStockCount: itms.filter((it) => it.status === "menipis").length,
-        outOfStockCount: itms.filter((it) => it.status === "habis").length,
+        lowStockCount: activeItems.filter((it) => it.status === "menipis").length,
+        outOfStockCount: activeItems.filter((it) => it.status === "habis").length,
       };
 
       // Commit core table & KPI state immediately and stop table loading spinner
-      setItems(itms);
+      setItems(activeItems);
       setSuppliers(supps);
       setMetrics(computedMetrics);
-      setOutlets(Array.from(mergedOutletsMap.values()));
+      setOutlets(activeOutletsList);
+      if (
+        selectedOutlet !== "all" &&
+        selectedOutlet !== "central" &&
+        activeOutletIds.size > 0 &&
+        !activeOutletIds.has(selectedOutlet)
+      ) {
+        setSelectedOutlet("all");
+      }
       clearTimeout(safetyTimer);
       setLoading(false);
 
@@ -441,9 +455,19 @@ export function InventoryManagement() {
     };
     window.addEventListener("inventory:updated", handleUpdate);
     window.addEventListener("pos:menu-updated", handleUpdate);
+    window.addEventListener("app:snapshot-ready", handleUpdate);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
     return () => {
       window.removeEventListener("inventory:updated", handleUpdate);
       window.removeEventListener("pos:menu-updated", handleUpdate);
+      window.removeEventListener("app:snapshot-ready", handleUpdate);
+      subscription.unsubscribe();
     };
   }, []);
 

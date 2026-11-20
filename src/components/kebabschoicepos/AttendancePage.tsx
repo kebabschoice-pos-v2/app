@@ -19,6 +19,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   recordAttendance,
   getAttendanceList,
@@ -167,6 +169,7 @@ export function AttendancePage({
   async function loadData() {
     try {
       setLoading(true);
+      await resolveAuthenticatedUser().catch(() => null);
       const now = new Date();
 
       // Resolve active outlet dynamically from profile / session
@@ -297,14 +300,35 @@ export function AttendancePage({
     }
   }
 
+  const snapshotOutletsCount = Array.isArray(snapshot?.outlets) ? snapshot.outlets.length : 0;
+
   useEffect(() => {
     loadData();
     const handleShiftsUpdate = () => {
       getStaffShifts(activeOutlet.id).then(setShifts).catch(() => {});
     };
+    const handleSync = () => {
+      loadData();
+    };
     window.addEventListener("hr:shifts-updated", handleShiftsUpdate);
-    return () => window.removeEventListener("hr:shifts-updated", handleShiftsUpdate);
-  }, [activeOutlet.id]);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    window.addEventListener("outlet:changed", handleSync);
+    window.addEventListener("outlet:staff-updated", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("hr:shifts-updated", handleShiftsUpdate);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      window.removeEventListener("outlet:changed", handleSync);
+      window.removeEventListener("outlet:staff-updated", handleSync);
+      subscription.unsubscribe();
+    };
+  }, [activeOutlet.id, snapshot?.businessId, snapshotOutletsCount]);
 
   // Camera Management
   async function startCamera() {

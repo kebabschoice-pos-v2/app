@@ -17,6 +17,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { formatRupiah } from "@/components/kebabschoicepos/data";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   getWasteRecords,
   recordWaste,
@@ -24,6 +26,11 @@ import {
   type WasteRecordDetail,
   type InventoryItemDetail,
 } from "@/services/inventory.service";
+import {
+  getOutletList,
+  isOutletDeletedOrArchived,
+  type OutletItem,
+} from "@/services/outlet.service";
 import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 const WASTE_REASONS = ["Expired", "Rusak", "Salah produksi", "Tumpah", "Lainnya"];
@@ -31,15 +38,18 @@ const WASTE_REASONS = ["Expired", "Rusak", "Salah produksi", "Tumpah", "Lainnya"
 export function WastePage() {
   const [wasteList, setWasteList] = useState<WasteRecordDetail[]>([]);
   const [items, setItems] = useState<InventoryItemDetail[]>([]);
+  const [outlets, setOutlets] = useState<OutletItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
   // Search & Filter
   const [search, setSearch] = useState("");
   const [selectedReason, setSelectedReason] = useState("all");
+  const [selectedOutletFilter, setSelectedOutletFilter] = useState("all");
 
   // Modal State
   const [modalOpen, setModalOpen] = useState(false);
+  const [modalOutletId, setModalOutletId] = useState("");
   const [selectedItemId, setSelectedItemId] = useState("");
   const [wasteQty, setWasteQty] = useState<number>(1);
   const [wasteQtyInput, setWasteQtyInput] = useState<string>("1");
@@ -50,9 +60,28 @@ export function WastePage() {
   async function loadData() {
     setLoading(true);
     try {
-      const [wastes, itms] = await Promise.all([getWasteRecords(), getInventoryItems()]);
+      await resolveAuthenticatedUser().catch(() => null);
+      const [wastes, itms, outls] = await Promise.all([
+        getWasteRecords(),
+        getInventoryItems(),
+        getOutletList().catch(() => [] as OutletItem[]),
+      ]);
+      const activeOutls = (outls || []).filter((o) => !isOutletDeletedOrArchived(o));
+      const activeOutletIds = new Set(activeOutls.map((o) => o.id));
+      const activeItms =
+        activeOutletIds.size > 0
+          ? (itms || []).filter((i) => !i.outlet_id || activeOutletIds.has(i.outlet_id))
+          : itms || [];
       setWasteList(wastes);
-      setItems(itms);
+      setItems(activeItms);
+      setOutlets(activeOutls);
+      if (
+        activeOutls.length > 0 &&
+        (!modalOutletId || !activeOutletIds.has(modalOutletId)) &&
+        activeOutls[0]
+      ) {
+        setModalOutletId(activeOutls[0].id);
+      }
     } catch (err: any) {
       toast.error("Gagal memuat data waste", { description: err.message });
     } finally {
@@ -62,11 +91,75 @@ export function WastePage() {
 
   useEffect(() => {
     loadData();
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener("inventory:updated", handleSync);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("inventory:updated", handleSync);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      subscription.unsubscribe();
+    };
   }, []);
 
+  // Filter raw materials strictly for the branch selected inside the Waste modal (no duplicates)
+  function getItemsForWasteOutlet(targetOutletId: string): InventoryItemDetail[] {
+    const exactMatch = targetOutletId
+      ? items.filter((i) => i.outlet_id === targetOutletId)
+      : [];
+    const fallbackMatch =
+      exactMatch.length > 0 ? exactMatch : items.filter((i) => !i.outlet_id);
+    const source = fallbackMatch.length > 0 ? fallbackMatch : items;
+
+    const dedup = new Map<string, InventoryItemDetail>();
+    for (const it of source) {
+      const key = (it.name || "").trim().toLowerCase() || it.id;
+      const existing = dedup.get(key);
+      if (!existing) {
+        dedup.set(key, it);
+      } else if (
+        targetOutletId &&
+        it.outlet_id === targetOutletId &&
+        existing.outlet_id !== targetOutletId
+      ) {
+        dedup.set(key, it);
+      }
+    }
+    return Array.from(dedup.values());
+  }
+
+  const modalOutletItems = useMemo(
+    () => getItemsForWasteOutlet(modalOutletId),
+    [items, modalOutletId],
+  );
+
+  function handleModalOutletChange(nextOutletId: string) {
+    setModalOutletId(nextOutletId);
+    const nextItems = getItemsForWasteOutlet(nextOutletId);
+    const currentItem = items.find((i) => i.id === selectedItemId);
+    const sameNameMatch = currentItem
+      ? nextItems.find(
+          (i) => i.name.trim().toLowerCase() === currentItem.name.trim().toLowerCase(),
+        )
+      : null;
+    setSelectedItemId(sameNameMatch?.id || nextItems[0]?.id || "");
+    setWasteUnitMode("primary");
+  }
+
   const selectedItemDetail = useMemo(() => {
-    return items.find((i) => i.id === selectedItemId);
-  }, [items, selectedItemId]);
+    return (
+      modalOutletItems.find((i) => i.id === selectedItemId) ||
+      items.find((i) => i.id === selectedItemId)
+    );
+  }, [modalOutletItems, items, selectedItemId]);
 
   const effectivePrimaryQty = useMemo(() => {
     const raw = Number(wasteQty) || 0;
@@ -101,8 +194,12 @@ export function WastePage() {
     return Math.round(effectivePrimaryQty * trueUnitCost);
   }, [selectedItemDetail, effectivePrimaryQty, items]);
 
-  // Normalize waste records with real inventory unit_cost whenever stored cost_loss was zero or computed from stale Rp 1.000
+  // Normalize waste records with real inventory unit_cost & outlet metadata
   const normalizedWasteList = useMemo(() => {
+    const outletNameById = new Map<string, string>();
+    for (const o of outlets) {
+      outletNameById.set(o.id, o.outlet_name || o.name);
+    }
     return wasteList.map((w) => {
       const matched =
         items.find((i) => i.id === w.inventory_item_id) ||
@@ -115,22 +212,35 @@ export function WastePage() {
         unitCost > 0 && (storedLoss <= 0 || (staleLossFrom1000 && unitCost > 1000))
           ? Math.round(qty * unitCost)
           : storedLoss;
+      const resolvedOutletId = w.outlet_id || matched?.outlet_id || null;
+      const resolvedOutletName =
+        w.outlet_name ||
+        (resolvedOutletId ? outletNameById.get(resolvedOutletId) : null) ||
+        matched?.outlet_name ||
+        null;
       return {
         ...w,
+        outlet_id: resolvedOutletId,
+        outlet_name: resolvedOutletName,
         cost_loss: effectiveLoss,
       };
     });
-  }, [wasteList, items]);
+  }, [wasteList, items, outlets]);
+
+  const outletScopedWaste = useMemo(() => {
+    if (selectedOutletFilter === "all") return normalizedWasteList;
+    return normalizedWasteList.filter((w) => w.outlet_id === selectedOutletFilter);
+  }, [normalizedWasteList, selectedOutletFilter]);
 
   // Metrics
   const totalLoss = useMemo(() => {
-    return normalizedWasteList.reduce((sum, w) => sum + (w.cost_loss || 0), 0);
-  }, [normalizedWasteList]);
+    return outletScopedWaste.reduce((sum, w) => sum + (w.cost_loss || 0), 0);
+  }, [outletScopedWaste]);
 
   const topReason = useMemo(() => {
-    if (normalizedWasteList.length === 0) return "-";
+    if (outletScopedWaste.length === 0) return "-";
     const counts: Record<string, number> = {};
-    normalizedWasteList.forEach((w) => {
+    outletScopedWaste.forEach((w) => {
       counts[w.reason] = (counts[w.reason] || 0) + 1;
     });
     let maxReason = "";
@@ -142,23 +252,31 @@ export function WastePage() {
       }
     });
     return maxReason || "-";
-  }, [normalizedWasteList]);
+  }, [outletScopedWaste]);
 
   // Filtered List
   const filteredWaste = useMemo(() => {
-    return normalizedWasteList.filter((w) => {
+    return outletScopedWaste.filter((w) => {
       const matchSearch =
         w.item_name.toLowerCase().includes(search.toLowerCase()) ||
+        (w.outlet_name && w.outlet_name.toLowerCase().includes(search.toLowerCase())) ||
         (w.notes && w.notes.toLowerCase().includes(search.toLowerCase()));
       const matchReason = selectedReason === "all" || w.reason === selectedReason;
       return matchSearch && matchReason;
     });
-  }, [normalizedWasteList, search, selectedReason]);
+  }, [outletScopedWaste, search, selectedReason]);
 
   function handleOpenModal() {
-    setSelectedItemId(items[0]?.id || "");
+    const initialOutletId =
+      selectedOutletFilter !== "all"
+        ? selectedOutletFilter
+        : modalOutletId || outlets[0]?.id || "";
+    setModalOutletId(initialOutletId);
+    const scopedItems = getItemsForWasteOutlet(initialOutletId);
+    setSelectedItemId(scopedItems[0]?.id || "");
     setWasteQty(1);
     setWasteQtyInput("1");
+    setWasteUnitMode("primary");
     setWasteReason("Expired");
     setWasteNotes("");
     setModalOpen(true);
@@ -166,6 +284,10 @@ export function WastePage() {
 
   async function handleRecordWaste(e: React.FormEvent) {
     e.preventDefault();
+    if (outlets.length > 0 && !modalOutletId) {
+      toast.error("Pilih cabang / outlet terlebih dahulu");
+      return;
+    }
     if (!selectedItemId) {
       toast.error("Pilih bahan baku terlebih dahulu");
       return;
@@ -177,6 +299,7 @@ export function WastePage() {
 
     setSubmitting(true);
     try {
+      const selectedOutletObj = outlets.find((o) => o.id === modalOutletId);
       const detailedNote =
         wasteUnitMode === "recipe" && selectedItemDetail?.yield_unit
           ? `${wasteQty} ${selectedItemDetail.yield_unit} (${effectivePrimaryQty.toFixed(4)} ${selectedItemDetail.unit})${wasteNotes ? ` • ${wasteNotes}` : ""}`
@@ -184,6 +307,12 @@ export function WastePage() {
 
       await recordWaste({
         inventory_item_id: selectedItemId,
+        outlet_id: modalOutletId || selectedItemDetail?.outlet_id || null,
+        outlet_name:
+          selectedOutletObj?.outlet_name ||
+          selectedOutletObj?.name ||
+          selectedItemDetail?.outlet_name ||
+          null,
         quantity: Number(effectivePrimaryQty),
         reason: wasteReason as any,
         cost_loss: estimatedLoss,
@@ -260,7 +389,7 @@ export function WastePage() {
               <AlertOctagon className="size-4" />
             </div>
           </div>
-          <p className="mt-3 text-2xl font-black">{wasteList.length}</p>
+          <p className="mt-3 text-2xl font-black">{outletScopedWaste.length}</p>
           <p className="mt-1 text-[11px] text-muted-foreground">Pencatatan barang terbuang</p>
         </div>
 
@@ -289,7 +418,20 @@ export function WastePage() {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={selectedOutletFilter}
+              onChange={(e) => setSelectedOutletFilter(e.target.value)}
+              aria-label="Filter cabang waste"
+              className="h-11 rounded-2xl border border-input bg-background px-3 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            >
+              <option value="all">Semua Cabang</option>
+              {outlets.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.outlet_name || o.name}
+                </option>
+              ))}
+            </select>
             <select
               value={selectedReason}
               onChange={(e) => setSelectedReason(e.target.value)}
@@ -347,7 +489,14 @@ export function WastePage() {
                           timeStyle: "short",
                         })}
                       </td>
-                      <td className="py-2.5 px-3 font-bold text-foreground">{w.item_name}</td>
+                      <td className="py-2.5 px-3 font-bold text-foreground">
+                        <span>{w.item_name}</span>
+                        {w.outlet_name && (
+                          <span className="block text-[11px] font-medium text-muted-foreground">
+                            {w.outlet_name}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 px-3 whitespace-nowrap">
                         <span className="rounded-full bg-rose-500/10 px-2.5 py-0.5 text-[11px] font-bold text-rose-600">
                           {w.reason}
@@ -401,6 +550,29 @@ export function WastePage() {
 
             <form onSubmit={handleRecordWaste} className="space-y-4">
               <div>
+                <label className="text-xs font-bold text-muted-foreground">
+                  Cabang / Outlet *
+                </label>
+                <select
+                  value={modalOutletId}
+                  onChange={(e) => handleModalOutletChange(e.target.value)}
+                  required={outlets.length > 0}
+                  aria-label="Pilih cabang outlet waste"
+                  className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {outlets.length === 0 ? (
+                    <option value="">Gudang Pusat</option>
+                  ) : (
+                    outlets.map((o) => (
+                      <option key={o.id} value={o.id}>
+                        {o.outlet_name || o.name}
+                      </option>
+                    ))
+                  )}
+                </select>
+              </div>
+
+              <div>
                 <label className="text-xs font-bold text-muted-foreground">Bahan Baku *</label>
                 <select
                   value={selectedItemId}
@@ -410,7 +582,7 @@ export function WastePage() {
                   className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
                   <option value="">Pilih bahan baku...</option>
-                  {items.map((i) => (
+                  {modalOutletItems.map((i) => (
                     <option key={i.id} value={i.id}>
                       {i.name} (Stok: {i.stock} {i.unit} • Modal: {formatRupiah(i.cost_price)}/
                       {i.unit})

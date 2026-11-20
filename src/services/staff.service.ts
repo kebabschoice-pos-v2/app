@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 
 export interface StaffItem {
   id: string;
@@ -72,12 +73,12 @@ async function getAuthHeader(): Promise<HeadersInit> {
  * Direct Supabase query fallback in case API route cannot be reached in certain environments
  */
 async function queryStaffListDirect(): Promise<StaffItem[]> {
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData?.user) {
+  const authUser = await resolveAuthenticatedUser();
+  if (!authUser) {
     return [];
   }
 
-  const callerId = authData.user.id;
+  const callerId = authUser.id;
   console.log("CURRENT USER ID:", callerId);
 
   // 1. Find ALL businesses owned OR membered by this user
@@ -215,7 +216,7 @@ async function queryStaffListDirect(): Promise<StaffItem[]> {
       name: staffProfile?.full_name || profile?.display_name || "Staff",
       email:
         m.user_id === callerId
-          ? authData.user.email || "owner@kebabschoice.com"
+          ? authUser.email || "owner@kebabschoice.com"
           : "staff@kebabschoice.com",
       avatar_url: staffProfile?.avatar_url || profile?.avatar_url || null,
       role: m.role as any,
@@ -246,11 +247,11 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
   try {
     let userBizIds: string[] = [];
     try {
-      const { data: authData } = await supabase.auth.getUser();
-      if (authData?.user) {
+      const authUser = await resolveAuthenticatedUser();
+      if (authUser) {
         const [{ data: owned }, { data: members }] = await Promise.all([
-          supabase.from("businesses").select("id").eq("owner_id", authData.user.id),
-          supabase.from("business_members").select("business_id").eq("user_id", authData.user.id),
+          supabase.from("businesses").select("id").eq("owner_id", authUser.id),
+          supabase.from("business_members").select("business_id").eq("user_id", authUser.id),
         ]);
         const s = new Set<string>();
         for (const b of owned || []) if (b?.id) s.add(b.id);
@@ -274,6 +275,7 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
           out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
             ? (out.settings as any)
             : {};
+        if (settings.archived === true || settings.deleted_at) continue;
         const roster: any[] = Array.isArray(settings.outlet_staff_roster)
           ? settings.outlet_staff_roster
           : [];

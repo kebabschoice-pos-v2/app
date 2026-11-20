@@ -28,7 +28,10 @@ import {
   type StockTransferItemDetail,
   type InventoryItemDetail,
 } from "@/services/inventory.service";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getBusinessOutlets, type MenuOutletInfo } from "@/services/menu.service";
+import { isOutletDeletedOrArchived } from "@/services/outlet.service";
 import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 export function StockTransferPage() {
@@ -68,21 +71,41 @@ export function StockTransferPage() {
   async function loadData() {
     setLoading(true);
     try {
+      await resolveAuthenticatedUser().catch(() => null);
       const [trfs, itms, outls] = await Promise.all([
         getStockTransfers(),
         getInventoryItems(),
         getBusinessOutlets(),
       ]);
+      const activeOutls = (outls || []).filter((o) => !isOutletDeletedOrArchived(o));
+      const activeOutletIds = new Set(activeOutls.map((o) => o.id));
+      const activeItms =
+        activeOutletIds.size > 0
+          ? (itms || []).filter((i) => !i.outlet_id || activeOutletIds.has(i.outlet_id))
+          : itms || [];
       setTransfers(trfs);
-      setInventoryItems(itms);
-      setOutlets(outls);
+      setInventoryItems(activeItms);
+      setOutlets(activeOutls);
 
-      if (outls.length >= 2 && outls[0] && outls[1]) {
-        setOriginOutletId(outls[0].id);
-        setDestinationOutletId(outls[1].id);
-      } else if (outls.length === 1 && outls[0]) {
-        setOriginOutletId(outls[0].id);
-        setDestinationOutletId(outls[0].id);
+      if (activeOutls.length >= 2 && activeOutls[0] && activeOutls[1]) {
+        const nextOrigin =
+          originOutletId && activeOutletIds.has(originOutletId)
+            ? originOutletId
+            : activeOutls[0].id;
+        const nextDest =
+          destinationOutletId &&
+          activeOutletIds.has(destinationOutletId) &&
+          destinationOutletId !== nextOrigin
+            ? destinationOutletId
+            : activeOutls.find((o) => o.id !== nextOrigin)?.id || "";
+        setOriginOutletId(nextOrigin);
+        setDestinationOutletId(nextDest);
+      } else if (activeOutls.length === 1 && activeOutls[0]) {
+        setOriginOutletId(activeOutls[0].id);
+        setDestinationOutletId("");
+      } else {
+        setOriginOutletId("");
+        setDestinationOutletId("");
       }
     } catch (err: any) {
       toast.error("Gagal memuat transfer stok", { description: err.message });
@@ -93,7 +116,104 @@ export function StockTransferPage() {
 
   useEffect(() => {
     loadData();
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener("inventory:updated", handleSync);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("inventory:updated", handleSync);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      subscription.unsubscribe();
+    };
   }, []);
+
+  // Exclude selected origin outlet from destination dropdown so transfer to same branch is impossible
+  const destinationOutlets = useMemo(
+    () => outlets.filter((o) => o.id !== originOutletId),
+    [outlets, originOutletId],
+  );
+
+  // Filter raw materials strictly by origin outlet (actual sender stock, zero identical duplicates)
+  function getItemsForOriginOutlet(targetOriginId: string): InventoryItemDetail[] {
+    const exactMatch = targetOriginId
+      ? inventoryItems.filter((i) => i.outlet_id === targetOriginId)
+      : [];
+    const fallbackMatch =
+      exactMatch.length > 0
+        ? exactMatch
+        : inventoryItems.filter((i) => !i.outlet_id);
+    const source = fallbackMatch.length > 0 ? fallbackMatch : inventoryItems;
+
+    const dedup = new Map<string, InventoryItemDetail>();
+    for (const it of source) {
+      const key = (it.name || "").trim().toLowerCase() || it.id;
+      const existing = dedup.get(key);
+      if (!existing) {
+        dedup.set(key, it);
+      } else if (
+        targetOriginId &&
+        it.outlet_id === targetOriginId &&
+        existing.outlet_id !== targetOriginId
+      ) {
+        dedup.set(key, it);
+      }
+    }
+    return Array.from(dedup.values());
+  }
+
+  const originOutletItems = useMemo(
+    () => getItemsForOriginOutlet(originOutletId),
+    [inventoryItems, originOutletId],
+  );
+
+  function handleOriginOutletChange(nextOriginId: string) {
+    setOriginOutletId(nextOriginId);
+    // Ensure destination outlet is never the same as origin outlet
+    if (!destinationOutletId || destinationOutletId === nextOriginId) {
+      const nextDest = outlets.find((o) => o.id !== nextOriginId)?.id || "";
+      setDestinationOutletId(nextDest);
+    }
+    // Re-sync line items to sender branch's stock items
+    const nextItems = getItemsForOriginOutlet(nextOriginId);
+    if (nextItems.length === 0) {
+      setTransferItems([]);
+      return;
+    }
+    setTransferItems((prev) => {
+      if (prev.length === 0) {
+        const first = nextItems[0]!;
+        return [
+          {
+            inventory_item_id: first.id,
+            item_name: first.name,
+            quantity: 5,
+            unit: first.unit,
+          },
+        ];
+      }
+      return prev.map((row) => {
+        const sameId = nextItems.find((i) => i.id === row.inventory_item_id);
+        const sameName = nextItems.find(
+          (i) => i.name.trim().toLowerCase() === row.item_name.trim().toLowerCase(),
+        );
+        const target = sameId || sameName || nextItems[0]!;
+        return {
+          ...row,
+          inventory_item_id: target.id,
+          item_name: target.name,
+          unit: target.unit,
+        };
+      });
+    });
+  }
 
   function handleOpenCreateModal() {
     if (inventoryItems.length === 0) {
@@ -101,14 +221,24 @@ export function StockTransferPage() {
       return;
     }
 
+    const initialOriginId = originOutletId || outlets[0]?.id || "";
+    const initialDestId =
+      destinationOutletId && destinationOutletId !== initialOriginId
+        ? destinationOutletId
+        : outlets.find((o) => o.id !== initialOriginId)?.id || "";
+    setOriginOutletId(initialOriginId);
+    setDestinationOutletId(initialDestId);
+
     if (outlets.length < 2) {
-      toast.warning("Hanya ada 1 outlet terdaftar.", {
-        description: "Transfer tetap dapat disimulasikan antar divisi internal.",
+      toast.warning("Hanya ada 1 outlet aktif terdaftar.", {
+        description:
+          "Tambahkan cabang lain di Manajemen Outlet terlebih dahulu untuk melakukan transfer antar cabang.",
       });
     }
 
     setTransferNotes("");
-    const firstItem = inventoryItems[0];
+    const scopedItems = getItemsForOriginOutlet(initialOriginId);
+    const firstItem = scopedItems[0];
     if (firstItem) {
       setTransferItems([
         {
@@ -118,12 +248,14 @@ export function StockTransferPage() {
           unit: firstItem.unit,
         },
       ]);
+    } else {
+      setTransferItems([]);
     }
     setCreateModalOpen(true);
   }
 
   function handleAddLineItem() {
-    const defaultItem = inventoryItems[0];
+    const defaultItem = originOutletItems[0];
     if (!defaultItem) return;
     setTransferItems((prev) => [
       ...prev,
@@ -146,7 +278,9 @@ export function StockTransferPage() {
       const cur = copy[index];
       if (!cur) return prev;
       if (field === "inventory_item_id") {
-        const found = inventoryItems.find((i) => i.id === value);
+        const found =
+          originOutletItems.find((i) => i.id === value) ||
+          inventoryItems.find((i) => i.id === value);
         if (found) {
           copy[index] = {
             ...cur,
@@ -171,10 +305,12 @@ export function StockTransferPage() {
       toast.error("Tambahkan minimal 1 item untuk ditransfer");
       return;
     }
-    if (originOutletId && destinationOutletId && originOutletId === destinationOutletId) {
-      if (!confirm("Outlet asal dan tujuan sama. Lanjutkan transfer internal?")) {
-        return;
-      }
+    if (!destinationOutletId || originOutletId === destinationOutletId) {
+      toast.error("Outlet tujuan harus berbeda dengan outlet asal", {
+        description:
+          "Pilih cabang tujuan yang berbeda atau tambahkan cabang baru di Manajemen Outlet.",
+      });
+      return;
     }
 
     setSubmitting(true);
@@ -569,7 +705,7 @@ export function StockTransferPage() {
                   <label className="text-xs font-bold text-muted-foreground">Outlet Asal *</label>
                   <select
                     value={originOutletId}
-                    onChange={(e) => setOriginOutletId(e.target.value)}
+                    onChange={(e) => handleOriginOutletChange(e.target.value)}
                     aria-label="Outlet asal transfer stok"
                     className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
@@ -587,13 +723,21 @@ export function StockTransferPage() {
                     value={destinationOutletId}
                     onChange={(e) => setDestinationOutletId(e.target.value)}
                     aria-label="Outlet tujuan transfer stok"
-                    className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    required
+                    disabled={destinationOutlets.length === 0}
+                    className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-60"
                   >
-                    {outlets.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
+                    {destinationOutlets.length === 0 ? (
+                      <option value="">
+                        -- Belum ada cabang tujuan lain (Minimal 2 cabang aktif) --
                       </option>
-                    ))}
+                    ) : (
+                      destinationOutlets.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.name}
+                        </option>
+                      ))
+                    )}
                   </select>
                 </div>
               </div>
@@ -640,7 +784,7 @@ export function StockTransferPage() {
                               aria-label={`Bahan baku transfer baris ${idx + 1}`}
                               className="w-full rounded-xl border border-input bg-background p-2 text-xs font-medium focus-visible:outline-none"
                             >
-                              {inventoryItems.map((inv) => (
+                              {originOutletItems.map((inv) => (
                                 <option key={inv.id} value={inv.id}>
                                   {inv.name} (Tersedia: {inv.stock} {inv.unit})
                                 </option>

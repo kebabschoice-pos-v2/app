@@ -33,7 +33,10 @@ import {
   type SupplierItem,
   type InventoryItemDetail,
 } from "@/services/inventory.service";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getBusinessOutlets, type MenuOutletInfo } from "@/services/menu.service";
+import { isOutletDeletedOrArchived } from "@/services/outlet.service";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -82,18 +85,29 @@ export function PurchaseOrderPage() {
   async function loadData() {
     setLoading(true);
     try {
+      await resolveAuthenticatedUser().catch(() => null);
       const [pos, supps, itms, outls] = await Promise.all([
         getPurchaseOrders(),
         getSuppliers(),
         getInventoryItems(),
         getBusinessOutlets(),
       ]);
+      const activeOutls = (outls || []).filter((o) => !isOutletDeletedOrArchived(o));
+      const activeOutletIds = new Set(activeOutls.map((o) => o.id));
+      const activeItms =
+        activeOutletIds.size > 0
+          ? (itms || []).filter((i) => !i.outlet_id || activeOutletIds.has(i.outlet_id))
+          : itms || [];
       setPurchaseOrders(pos);
       setSuppliers(supps);
-      setInventoryItems(itms);
-      setOutlets(outls);
-      if (outls.length > 0 && !selectedOutletId && outls[0]) {
-        setSelectedOutletId(outls[0].id);
+      setInventoryItems(activeItms);
+      setOutlets(activeOutls);
+      if (
+        activeOutls.length > 0 &&
+        (!selectedOutletId || !activeOutletIds.has(selectedOutletId)) &&
+        activeOutls[0]
+      ) {
+        setSelectedOutletId(activeOutls[0].id);
       }
     } catch (err: any) {
       toast.error("Gagal memuat Purchase Orders", { description: err.message });
@@ -104,20 +118,117 @@ export function PurchaseOrderPage() {
 
   useEffect(() => {
     loadData();
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener("inventory:updated", handleSync);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("inventory:updated", handleSync);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      subscription.unsubscribe();
+    };
   }, []);
+
+  const outletNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const o of outlets) {
+      map.set(o.id, o.name);
+    }
+    return map;
+  }, [outlets]);
+
+  // Filter raw materials strictly for the selected destination outlet (no identical duplicates)
+  function getItemsForOutlet(targetOutletId: string): InventoryItemDetail[] {
+    const exactMatch = targetOutletId
+      ? inventoryItems.filter((i) => i.outlet_id === targetOutletId)
+      : [];
+    const fallbackMatch =
+      exactMatch.length > 0
+        ? exactMatch
+        : inventoryItems.filter((i) => !i.outlet_id);
+    const source = fallbackMatch.length > 0 ? fallbackMatch : inventoryItems;
+
+    const dedup = new Map<string, InventoryItemDetail>();
+    for (const it of source) {
+      const key = `${(it.name || "").trim().toLowerCase() || it.id}`;
+      const existing = dedup.get(key);
+      if (!existing) {
+        dedup.set(key, it);
+      } else if (
+        targetOutletId &&
+        it.outlet_id === targetOutletId &&
+        existing.outlet_id !== targetOutletId
+      ) {
+        dedup.set(key, it);
+      }
+    }
+    return Array.from(dedup.values());
+  }
+
+  const availableItemsForSelectedOutlet = useMemo(
+    () => getItemsForOutlet(selectedOutletId),
+    [inventoryItems, selectedOutletId],
+  );
+
+  function handleOutletChange(nextOutletId: string) {
+    setSelectedOutletId(nextOutletId);
+    const nextItems = getItemsForOutlet(nextOutletId);
+    if (nextItems.length === 0) {
+      setPoItems([]);
+      return;
+    }
+    setPoItems((prev) => {
+      if (prev.length === 0) {
+        const first = nextItems[0]!;
+        return [
+          {
+            inventory_item_id: first.id,
+            item_name: first.name,
+            unit: first.unit,
+            quantity: 10,
+            unit_cost: first.cost_price || 0,
+          },
+        ];
+      }
+      return prev.map((row) => {
+        const sameId = nextItems.find((i) => i.id === row.inventory_item_id);
+        const sameName = nextItems.find(
+          (i) => i.name.trim().toLowerCase() === row.item_name.trim().toLowerCase(),
+        );
+        const target = sameId || sameName || nextItems[0]!;
+        return {
+          ...row,
+          inventory_item_id: target.id,
+          item_name: target.name,
+          unit: target.unit,
+          unit_cost: target.cost_price || row.unit_cost || 0,
+        };
+      });
+    });
+  }
 
   function handleOpenCreateModal() {
     const randomSuffix = Math.floor(100 + Math.random() * 900);
     const dateCode = new Date().toISOString().slice(2, 10).replace(/-/g, "");
+    const initialOutletId = selectedOutletId || outlets[0]?.id || "";
     setPoNumber(`PO-${dateCode}-${randomSuffix}`);
     setSelectedSupplierId(suppliers[0]?.id || "");
-    setSelectedOutletId(outlets[0]?.id || "");
+    setSelectedOutletId(initialOutletId);
     setOrderDate(new Date().toISOString().split("T")[0] ?? "");
     setExpectedDate("");
     setPoNotes("");
 
-    // Initialize with 1 item row if available
-    const firstItem = inventoryItems[0];
+    // Initialize with 1 item row belonging to the selected outlet
+    const outletScopedItems = getItemsForOutlet(initialOutletId);
+    const firstItem = outletScopedItems[0];
     if (firstItem) {
       setPoItems([
         {
@@ -136,7 +247,7 @@ export function PurchaseOrderPage() {
   }
 
   function handleAddLineItem() {
-    const defaultItem = inventoryItems[0];
+    const defaultItem = availableItemsForSelectedOutlet[0];
     if (!defaultItem) return;
     setPoItems((prev) => [
       ...prev,
@@ -160,7 +271,9 @@ export function PurchaseOrderPage() {
       const cur = copy[index];
       if (!cur) return prev;
       if (field === "inventory_item_id") {
-        const found = inventoryItems.find((i) => i.id === value);
+        const found =
+          availableItemsForSelectedOutlet.find((i) => i.id === value) ||
+          inventoryItems.find((i) => i.id === value);
         if (found) {
           copy[index] = {
             ...cur,
@@ -570,7 +683,7 @@ export function PurchaseOrderPage() {
                 <label className="text-xs font-bold text-muted-foreground">Outlet Tujuan *</label>
                 <select
                   value={selectedOutletId}
-                  onChange={(e) => setSelectedOutletId(e.target.value)}
+                  onChange={(e) => handleOutletChange(e.target.value)}
                   aria-label="Pilih outlet tujuan PO"
                   className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >
@@ -652,11 +765,17 @@ export function PurchaseOrderPage() {
                               aria-label={`Bahan baku baris ${idx + 1}`}
                               className="w-full rounded-xl border border-input bg-background p-2 text-xs font-medium focus-visible:outline-none"
                             >
-                              {inventoryItems.map((inv) => (
-                                <option key={inv.id} value={inv.id}>
-                                  {inv.name} (Stok: {inv.stock} {inv.unit})
-                                </option>
-                              ))}
+                              {availableItemsForSelectedOutlet.map((inv) => {
+                                const branchLabel =
+                                  inv.outlet_id && inv.outlet_id !== selectedOutletId
+                                    ? ` [${inv.outlet_name || outletNameById.get(inv.outlet_id) || "Cabang"}]`
+                                    : "";
+                                return (
+                                  <option key={inv.id} value={inv.id}>
+                                    {inv.name}{branchLabel} (Stok: {inv.stock} {inv.unit})
+                                  </option>
+                                );
+                              })}
                             </select>
                           </td>
                           <td className="py-2 px-3 text-right">

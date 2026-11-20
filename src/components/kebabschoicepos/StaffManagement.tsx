@@ -47,6 +47,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   getManagerPermissions,
   saveManagerPermissions,
@@ -228,6 +229,7 @@ export function StaffManagement() {
   async function loadData() {
     try {
       setLoading(true);
+      await resolveAuthenticatedUser().catch(() => null);
       const [staffData, outletData, profilesData, attData, shiftData, prData] = await Promise.all([
         getStaffList().catch(() => [] as StaffItem[]),
         getOutletList().catch(() => [] as OutletItem[]),
@@ -354,12 +356,12 @@ export function StaffManagement() {
       }
 
       try {
-        const { data: authData } = await supabase.auth.getUser();
-        if (authData?.user) {
-          if (authData.user.email) {
-            setOwnerEmail(authData.user.email);
+        const authUser = await resolveAuthenticatedUser();
+        if (authUser) {
+          if (authUser.email) {
+            setOwnerEmail(authUser.email);
           }
-          const role = await getUserRole(authData.user.id);
+          const role = await getUserRole(authUser.id);
           setCurrentUserRole(role);
           if (role === "cashier" && (activeTab === "payroll" || (activeTab as string) === "manager_permissions")) {
             setActiveTab("staff");
@@ -394,7 +396,7 @@ export function StaffManagement() {
   useEffect(() => {
     const safetyTimer = setTimeout(() => {
       setLoading(false);
-    }, 1500);
+    }, 3000);
 
     loadData().finally(() => {
       clearTimeout(safetyTimer);
@@ -404,10 +406,25 @@ export function StaffManagement() {
     const handleShiftsUpdate = () => {
       getStaffShifts().then(setShifts).catch(() => {});
     };
+    const handleSync = () => {
+      loadData();
+    };
     window.addEventListener("hr:shifts-updated", handleShiftsUpdate);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    window.addEventListener("outlet:staff-updated", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
     return () => {
       clearTimeout(safetyTimer);
       window.removeEventListener("hr:shifts-updated", handleShiftsUpdate);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      window.removeEventListener("outlet:staff-updated", handleSync);
+      subscription.unsubscribe();
     };
   }, [payrollMonth, payrollYear]);
 

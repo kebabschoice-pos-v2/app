@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
+import { isOutletDeletedOrArchived } from "@/services/outlet.service";
 import {
   UtensilsCrossed,
   Plus,
@@ -355,6 +358,7 @@ export function MenuManagement() {
   async function loadData() {
     try {
       setLoading(true);
+      await resolveAuthenticatedUser().catch(() => null);
       const role =
         typeof window !== "undefined"
           ? localStorage.getItem("kebabschoicepos_user_role") || "owner"
@@ -388,16 +392,38 @@ export function MenuManagement() {
 
       if (perms) setManagerPermissions(perms);
       setCategories(fetchedCategories);
-      setOutlets(fetchedOutlets);
-      setInventoryIngredients(fetchedIngredients);
+      const activeOutlets = (fetchedOutlets || []).filter((o) => !isOutletDeletedOrArchived(o));
+      const activeOutletIds = new Set(activeOutlets.map((o) => o.id));
+      setOutlets(activeOutlets);
+      const activeIngredients =
+        activeOutletIds.size > 0
+          ? (fetchedIngredients || []).filter(
+              (ing) => !ing.outlet_id || activeOutletIds.has(ing.outlet_id),
+            )
+          : fetchedIngredients || [];
+      setInventoryIngredients(activeIngredients);
       const normalizedItems = (fetchedItems || []).map((m) => {
         let p = Number(m.price) || 0;
         if (p <= 0 && /kebab uji test/i.test(m.name || "")) {
           p = 15000;
         }
+        const matchedCat = fetchedCategories.find(
+          (c) =>
+            (m.category_id && c.id === m.category_id) ||
+            (m.category_name &&
+              c.name.trim().toLowerCase() === m.category_name.trim().toLowerCase()),
+        );
+        const filteredAssignments = Array.isArray(m.outlet_assignments)
+          ? activeOutletIds.size > 0
+            ? m.outlet_assignments.filter((oa) => activeOutletIds.has(oa.outlet_id))
+            : m.outlet_assignments
+          : [];
         return {
           ...m,
           price: p,
+          category_id: matchedCat?.id ?? m.category_id ?? null,
+          category_name: matchedCat?.name || (m.category_name || "").trim(),
+          outlet_assignments: filteredAssignments,
         };
       });
       setItems(normalizedItems);
@@ -417,11 +443,66 @@ export function MenuManagement() {
     };
     window.addEventListener("inventory:updated", handleSync);
     window.addEventListener("pos:menu-updated", handleSync);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
     return () => {
       window.removeEventListener("inventory:updated", handleSync);
       window.removeEventListener("pos:menu-updated", handleSync);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      subscription.unsubscribe();
     };
   }, []);
+
+  // Deduplicate BOM ingredient options across multiple active branches by normalized master name
+  // so multi-branch setups never show identical duplicate rows in the Recipe BOM dropdown.
+  const deduplicatedIngredients = useMemo(() => {
+    const groups = new Map<
+      string,
+      {
+        primary: InventoryIngredient;
+        totalStock: number;
+        branchIds: Set<string>;
+        allIds: Set<string>;
+      }
+    >();
+
+    for (const inv of inventoryIngredients) {
+      const key = (inv.name || "").trim().toLowerCase() || inv.id;
+      const existing = groups.get(key);
+      const stockNum = Number(inv.stock) || 0;
+      const branchKey = inv.outlet_id || "hq";
+      if (!existing) {
+        groups.set(key, {
+          primary: inv,
+          totalStock: stockNum,
+          branchIds: new Set([branchKey]),
+          allIds: new Set([inv.id]),
+        });
+      } else {
+        existing.totalStock += stockNum;
+        existing.branchIds.add(branchKey);
+        existing.allIds.add(inv.id);
+        const curCost = Number(existing.primary.cost_price) || 0;
+        const nextCost = Number(inv.cost_price) || 0;
+        if (nextCost > curCost || (nextCost === curCost && stockNum > (Number(existing.primary.stock) || 0))) {
+          existing.primary = inv;
+        }
+      }
+    }
+
+    return Array.from(groups.values()).map((g) => ({
+      ...g.primary,
+      totalStock: Number(g.totalStock.toFixed(2)),
+      branchCount: g.branchIds.size,
+      allIds: Array.from(g.allIds),
+    }));
+  }, [inventoryIngredients]);
 
   // Format IDR helper
   function formatIDR(amount: number) {
@@ -504,8 +585,14 @@ export function MenuManagement() {
   function handleOpenEditItem(item: MenuItem) {
     setEditingItemId(item.id);
     setName(item.name);
-    setCategoryId(item.category_id || "");
-    setCategoryName(item.category_name || "");
+    const matchedCat = categories.find(
+      (c) =>
+        (item.category_id && c.id === item.category_id) ||
+        (item.category_name &&
+          c.name.trim().toLowerCase() === item.category_name.trim().toLowerCase()),
+    );
+    setCategoryId(matchedCat?.id || "");
+    setCategoryName(matchedCat?.name || (item.category_name || "").trim());
     setDescription(item.description || "");
     setSku(item.sku || "");
     const initialPrice =
@@ -1390,13 +1477,12 @@ export function MenuManagement() {
   }
 
   // Sync category filter tabs with actual categories present on menu items
-  // (e.g. ensure actual "Umum" items appear with accurate counts and hide orphan 0-count tabs like "makanan 0")
   const syncedFilterCategories = useMemo(() => {
     const byLowerName = new Map<string, { id: string; name: string; count: number }>();
 
     // First register all actual categories present on loaded menu items
     for (const item of items) {
-      const effectiveName = (item.category_name || "").trim() || "Umum";
+      const effectiveName = (item.category_name || "").trim() || "Tanpa Kategori";
       const lower = effectiveName.toLowerCase();
       const matchedCat = categories.find(
         (c) => c.id === item.category_id || c.name.trim().toLowerCase() === lower,
@@ -1429,7 +1515,7 @@ export function MenuManagement() {
   // Filtered List
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      const effectiveCatName = (item.category_name || "").trim() || "Umum";
+      const effectiveCatName = (item.category_name || "").trim() || "Tanpa Kategori";
       const q = search.toLowerCase();
       const matchesSearch =
         (item.name || "").toLowerCase().includes(q) ||
@@ -1727,7 +1813,7 @@ export function MenuManagement() {
                     <div className="absolute top-2.5 right-2.5">
                       <span className="inline-flex items-center gap-1 rounded-full bg-black/60 px-2.5 py-0.5 text-xs font-bold text-white backdrop-blur-md">
                         <Tag className="size-2.5" />
-                        {item.category_name || "Umum"}
+                        {(item.category_name || "").trim() || "Tanpa Kategori"}
                       </span>
                     </div>
                   </div>
@@ -1921,7 +2007,7 @@ export function MenuManagement() {
                       <td className="px-3 py-3">
                         <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold">
                           <Tag className="size-3" />
-                          {item.category_name || "Umum"}
+                          {(item.category_name || "").trim() || "Tanpa Kategori"}
                         </span>
                       </td>
                       <td className="px-3 py-3 font-black text-primary">{formatIDR(item.price)}</td>
@@ -2213,11 +2299,31 @@ export function MenuManagement() {
                           </div>
                           <div className="relative">
                             <select
-                              value={categoryId}
+                              value={
+                                categoryId
+                                  ? categoryId
+                                  : categoryName.trim() &&
+                                      !categories.some(
+                                        (cat) =>
+                                          cat.name.trim().toLowerCase() ===
+                                          categoryName.trim().toLowerCase(),
+                                      )
+                                    ? `__legacy__:${categoryName.trim()}`
+                                    : ""
+                              }
                               onChange={(e) => {
-                                setCategoryId(e.target.value);
-                                const c = categories.find((cat) => cat.id === e.target.value);
-                                setCategoryName(c ? c.name : "");
+                                const val = e.target.value;
+                                if (!val) {
+                                  setCategoryId("");
+                                  setCategoryName("");
+                                } else if (val.startsWith("__legacy__:")) {
+                                  setCategoryId("");
+                                  setCategoryName(val.slice("__legacy__:".length));
+                                } else {
+                                  setCategoryId(val);
+                                  const c = categories.find((cat) => cat.id === val);
+                                  setCategoryName(c ? c.name : "");
+                                }
                               }}
                               className="h-10 w-full appearance-none rounded-2xl border border-input bg-background pl-3.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-primary shadow-xs font-medium cursor-pointer"
                             >
@@ -2226,11 +2332,24 @@ export function MenuManagement() {
                                   -- Belum ada kategori (Klik + Tambah Kategori) --
                                 </option>
                               ) : (
-                                categories.map((c) => (
-                                  <option key={c.id} value={c.id}>
-                                    {c.name}
-                                  </option>
-                                ))
+                                <>
+                                  <option value="">Tanpa Kategori</option>
+                                  {categoryName.trim() &&
+                                    !categories.some(
+                                      (cat) =>
+                                        cat.name.trim().toLowerCase() ===
+                                        categoryName.trim().toLowerCase(),
+                                    ) && (
+                                      <option value={`__legacy__:${categoryName.trim()}`}>
+                                        {categoryName.trim()}
+                                      </option>
+                                    )}
+                                  {categories.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                      {c.name}
+                                    </option>
+                                  ))}
+                                </>
                               )}
                             </select>
                             <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3.5 text-muted-foreground">
@@ -3371,7 +3490,19 @@ export function MenuManagement() {
                       ) : (
                         <div className="space-y-3">
                           {recipeItems.map((r, idx) => {
+                            const matchedDeduped =
+                              deduplicatedIngredients.find(
+                                (inv) =>
+                                  (r.inventory_item_id &&
+                                    (inv.id === r.inventory_item_id ||
+                                      inv.allIds.includes(r.inventory_item_id))) ||
+                                  (inv.name &&
+                                    r.ingredient_name &&
+                                    inv.name.toLowerCase().trim() ===
+                                      r.ingredient_name.toLowerCase().trim()),
+                              );
                             const matchedInv =
+                              matchedDeduped ||
                               inventoryIngredients.find((inv) => inv.id === r.inventory_item_id) ||
                               inventoryIngredients.find(
                                 (inv) =>
@@ -3386,10 +3517,11 @@ export function MenuManagement() {
                                 className="rounded-2xl border border-border bg-background p-3 space-y-2 shadow-xs"
                               >
                                 <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                                  {/* Inventory Selector Dropdown */}
+                                  {/* Inventory Selector Dropdown (Deduplicated across active branches) */}
                                   <div className="flex-1">
                                     <select
                                       value={
+                                        matchedDeduped?.id ||
                                         r.inventory_item_id ||
                                         (r.ingredient_name ? "__custom__" : "")
                                       }
@@ -3401,9 +3533,9 @@ export function MenuManagement() {
                                         if (val === "__custom__") {
                                           cur.inventory_item_id = null;
                                         } else {
-                                          const matched = inventoryIngredients.find(
-                                            (inv) => inv.id === val,
-                                          );
+                                          const matched =
+                                            deduplicatedIngredients.find((inv) => inv.id === val) ||
+                                            inventoryIngredients.find((inv) => inv.id === val);
                                           if (matched) {
                                             cur.inventory_item_id = matched.id;
                                             cur.ingredient_name = matched.name;
@@ -3436,11 +3568,15 @@ export function MenuManagement() {
                                       <option value="">
                                         -- Pilih Bahan Baku dari Inventaris --
                                       </option>
-                                      {inventoryIngredients.length > 0 ? (
+                                      {deduplicatedIngredients.length > 0 ? (
                                         <optgroup label="Bahan Baku di Inventaris">
-                                          {inventoryIngredients.map((inv) => (
+                                          {deduplicatedIngredients.map((inv) => (
                                             <option key={inv.id} value={inv.id}>
-                                              {inv.name} (Stok: {inv.stock} {inv.unit})
+                                              {inv.name} (Stok: {inv.totalStock} {inv.unit}
+                                              {inv.branchCount > 1
+                                                ? ` · ${inv.branchCount} cabang`
+                                                : ""}
+                                              )
                                             </option>
                                           ))}
                                         </optgroup>

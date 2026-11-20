@@ -1,9 +1,11 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   convertRecipeToInventoryQuantity,
   resolveActiveBusinessId,
   resolveAllUserBusinessIds,
 } from "./menu.service";
+import { isOutletDeletedOrArchived } from "./outlet.service";
 import { resolveInventoryIngredientParams } from "@/lib/bom-analytics";
 
 async function insertStockMovementClientDb(mov: Record<string, any>) {
@@ -565,6 +567,7 @@ export async function getInventoryDashboardMetrics(businessId?: string): Promise
  * Queries real table inventory_items (never 404s)
  */
 export async function getInventoryItems(businessId?: string): Promise<InventoryItemDetail[]> {
+  await resolveAuthenticatedUser().catch(() => null);
   const bid = await resolveActiveBusinessId(businessId);
   const allBusinessIds = await resolveAllUserBusinessIds();
   const effectiveBusinessIds = Array.from(new Set([bid, ...allBusinessIds].filter(Boolean)));
@@ -622,21 +625,38 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
 
   const extraMeta = store.item_meta || {};
 
-  // Resolve outlet names from outlets table (strictly scoped to effectiveBusinessIds)
+  // Resolve active outlet names from outlets table (strictly scoped to effectiveBusinessIds)
+  // and exclude archived/deleted outlets so shadow branches never inflate HQ stock value
   const outletNameMap = new Map<string, string>();
+  const archivedOutletIds = new Set<string>();
+  const archivedOutletNames = new Set<string>();
   if (effectiveBusinessIds.length > 0) {
     try {
       const { data: outletRows } = await supabase
         .from("outlets")
-        .select("id, name")
+        .select("id, name, settings")
         .in("business_id", effectiveBusinessIds);
-      for (const o of outletRows || []) {
-        if (o.id && o.name) outletNameMap.set(o.id, o.name);
+      for (const o of (outletRows || []) as any[]) {
+        if (isOutletDeletedOrArchived(o)) {
+          if (o?.id) archivedOutletIds.add(o.id);
+          if (o?.name) archivedOutletNames.add(String(o.name).trim().toLowerCase());
+        } else if (o?.id && o?.name) {
+          outletNameMap.set(o.id, o.name);
+        }
       }
     } catch {}
   }
 
-  const mappedItems: InventoryItemDetail[] = (dbItems || []).map((row) => {
+  const activeDbItems = (dbItems || []).filter((row: any) => {
+    const meta = extraMeta[row.id] || {};
+    const oid = (row as any).outlet_id || meta.outlet_id || null;
+    if (oid && archivedOutletIds.has(oid)) return false;
+    const oNameLower = String(meta.outlet_name || "").trim().toLowerCase();
+    if (!oid && oNameLower && archivedOutletNames.has(oNameLower)) return false;
+    return true;
+  });
+
+  const mappedItems: InventoryItemDetail[] = activeDbItems.map((row) => {
     const meta = extraMeta[row.id] || {};
     const stockVal = Number(row.stock) || 0;
     const minVal = Number(row.minimum_stock) || 0;
@@ -1972,6 +1992,8 @@ export async function recordWaste(data: {
   reason?: string;
   cost_loss?: number;
   notes?: string;
+  outlet_id?: string | null;
+  outlet_name?: string | null;
   business_id?: string;
 }): Promise<WasteRecordDetail> {
   const bid = await resolveActiveBusinessId(data.business_id);
@@ -2027,9 +2049,21 @@ export async function recordWaste(data: {
       ? Number(data.cost_loss)
       : computedLoss;
 
+  const resolvedOutletId =
+    data.outlet_id ||
+    (invItem as any)?.outlet_id ||
+    store.item_meta?.[data.inventory_item_id]?.outlet_id ||
+    null;
+  const resolvedOutletName =
+    data.outlet_name ||
+    store.item_meta?.[data.inventory_item_id]?.outlet_name ||
+    null;
+
   const newWaste: WasteRecordDetail = {
     id: `waste-${Date.now()}`,
     business_id: bid,
+    outlet_id: resolvedOutletId,
+    outlet_name: resolvedOutletName,
     inventory_item_id: data.inventory_item_id,
     item_name: itemName,
     quantity: Number(data.quantity),
@@ -2052,6 +2086,7 @@ export async function recordWaste(data: {
     const movWaste: StockMovementRecord = {
       id: `mov-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
       business_id: bid,
+      outlet_id: resolvedOutletId,
       inventory_item_id: data.inventory_item_id,
       item_name: itemName,
       movement_type: "waste",
@@ -2065,6 +2100,7 @@ export async function recordWaste(data: {
     try {
       await supabase.from("stock_movements" as any).insert({
         business_id: bid,
+        outlet_id: resolvedOutletId,
         inventory_item_id: data.inventory_item_id,
         item_name: itemName,
         movement_type: "waste",

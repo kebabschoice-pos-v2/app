@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
+import { isOutletDeletedOrArchived, resolveCurrentBusinessIds } from "./outlet.service";
 
 export interface MenuCategory {
   id: string;
@@ -297,14 +299,16 @@ export interface InventoryIngredient {
   selling_price?: number;
   yield_per_unit?: number | null;
   yield_unit?: string | null;
+  outlet_id?: string | null;
+  outlet_name?: string | null;
 }
 
 /**
  * Resolves all business IDs associated with the current user (owned + members) in parallel
  */
 export async function resolveAllUserBusinessIds(): Promise<string[]> {
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData?.user) {
+  const authUser = await resolveAuthenticatedUser();
+  if (!authUser) {
     return [];
   }
 
@@ -312,12 +316,12 @@ export async function resolveAllUserBusinessIds(): Promise<string[]> {
     supabase
       .from("businesses")
       .select("id")
-      .eq("owner_id", authData.user.id)
+      .eq("owner_id", authUser.id)
       .order("created_at", { ascending: true }),
     supabase
       .from("business_members")
       .select("business_id")
-      .eq("user_id", authData.user.id),
+      .eq("user_id", authUser.id),
   ]);
 
   const ownedIds = (owned || []).map((b) => b.id);
@@ -583,27 +587,39 @@ export async function getBusinessOutlets(businessId?: string): Promise<MenuOutle
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {
-        return json.data;
+        return (json.data as any[]).filter((o) => !isOutletDeletedOrArchived(o));
       }
     }
   } catch (err) {
     console.warn("[menu.service] API outlets fetch error, fallback:", err);
   }
 
-  // Fallback client query: select * for schema resilience
-  const { data } = await (supabase.from("outlets" as any) as any)
+  // Fallback client query: strictly scoped to user's active business IDs & excluding archived outlets
+  let targetBizIds: string[] = bid ? [bid] : [];
+  try {
+    const resolved = await resolveCurrentBusinessIds(bid);
+    if (resolved.allIds.length > 0) targetBizIds = resolved.allIds;
+  } catch {}
+
+  let query = (supabase.from("outlets" as any) as any)
     .select("*")
     .order("created_at", { ascending: true });
+  if (targetBizIds.length > 0) {
+    query = query.in("business_id", targetBizIds);
+  }
+  const { data } = await query;
 
-  return ((data || []) as any[]).map((o) => ({
-    id: o.id,
-    business_id: o.business_id,
-    name: o.name,
-    code: o.code || "",
-    address: o.address || "",
-    active: o.active !== false,
-    status: o.active !== false ? "active" : "inactive",
-  }));
+  return ((data || []) as any[])
+    .filter((o) => !isOutletDeletedOrArchived(o))
+    .map((o) => ({
+      id: o.id,
+      business_id: o.business_id,
+      name: o.name,
+      code: o.code || "",
+      address: o.address || "",
+      active: o.active !== false,
+      status: o.active !== false ? "active" : "inactive",
+    }));
 }
 
 /**
@@ -699,6 +715,8 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
       cost_price: costPrice,
       yield_per_unit: yieldPerUnit,
       yield_unit: yieldUnit,
+      outlet_id: item.outlet_id || null,
+      outlet_name: item.outlet_name || null,
     };
   };
 
@@ -718,12 +736,26 @@ export async function getInventoryIngredients(businessId?: string): Promise<Inve
     }
   } catch (_) {}
 
+  // Exclude items belonging to archived/deleted outlets in final direct fallback
+  const archivedOutletIds = new Set<string>();
+  try {
+    const { data: allOutlets } = await supabase
+      .from("outlets")
+      .select("id, settings")
+      .eq("business_id", bid);
+    for (const o of (allOutlets || []) as any[]) {
+      if (o?.id && isOutletDeletedOrArchived(o)) archivedOutletIds.add(o.id);
+    }
+  } catch {}
+
   const { data } = await supabase
     .from("inventory_items")
     .select("*")
     .eq("business_id", bid)
     .order("name", { ascending: true });
-  return (data || []).map(enrichItem);
+  return ((data || []) as any[])
+    .filter((row) => !row?.outlet_id || !archivedOutletIds.has(row.outlet_id))
+    .map(enrichItem);
 }
 
 /**

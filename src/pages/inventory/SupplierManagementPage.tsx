@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { formatRupiah } from "@/components/kebabschoicepos/data";
 import {
   getSuppliers,
@@ -56,6 +58,7 @@ export function SupplierManagementPage() {
   async function loadData() {
     setLoading(true);
     try {
+      await resolveAuthenticatedUser().catch(() => null);
       const [supps, pos] = await Promise.all([getSuppliers(), getPurchaseOrders()]);
       setSuppliers(supps);
       setPurchaseOrders(pos);
@@ -68,6 +71,23 @@ export function SupplierManagementPage() {
 
   useEffect(() => {
     loadData();
+    const handleSync = () => {
+      loadData();
+    };
+    window.addEventListener("inventory:updated", handleSync);
+    window.addEventListener("app:snapshot-ready", handleSync);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("inventory:updated", handleSync);
+      window.removeEventListener("app:snapshot-ready", handleSync);
+      subscription.unsubscribe();
+    };
   }, []);
 
   const filteredSuppliers = useMemo(() => {

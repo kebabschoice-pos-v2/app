@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getStaffList, isOutletDeviceAccount } from "./staff.service";
 
 export interface OutletMemberSummary {
@@ -48,7 +49,15 @@ export interface OutletInput {
 export function isOutletDeletedOrArchived(o: any): boolean {
   if (!o) return true;
   const s = (o.settings && typeof o.settings === "object" ? o.settings : {}) as Record<string, any>;
-  return Boolean(s.archived === true || s.deleted_at);
+  return Boolean(s.archived === true || s.deleted_at || o.deleted_at || o.is_deleted === true);
+}
+
+/**
+ * Single Source of Truth for active (non-archived, non-deleted) outlets of the current business.
+ */
+export async function getActiveOutlets(businessId?: string): Promise<OutletItem[]> {
+  const list = await getOutletList(businessId);
+  return list.filter((o) => !isOutletDeletedOrArchived(o));
 }
 
 /**
@@ -68,18 +77,18 @@ export async function resolveCurrentBusinessIds(
   let primaryId = explicitId && uuidRe.test(explicitId) ? explicitId : "";
 
   try {
-    const { data: authData } = await supabase.auth.getUser();
-    if (authData?.user) {
+    const authUser = await resolveAuthenticatedUser();
+    if (authUser) {
       const [{ data: ownedBusinesses }, { data: memberBusinesses }] = await Promise.all([
         supabase
           .from("businesses")
           .select("id")
-          .eq("owner_id", authData.user.id)
+          .eq("owner_id", authUser.id)
           .order("created_at", { ascending: true }),
         supabase
           .from("business_members")
           .select("business_id")
-          .eq("user_id", authData.user.id)
+          .eq("user_id", authUser.id)
           .order("created_at", { ascending: true }),
       ]);
 

@@ -269,19 +269,38 @@ export const Route = createFileRoute("/api/inventory")({
             const suppliers = store.suppliers || [];
             const extraMeta = store.item_meta || {};
 
-            // Resolve outlet names directly from outlets table (strictly scoped to business_id)
+            // Resolve active outlet names directly from outlets table (strictly scoped to business_id)
+            // and exclude archived/deleted outlets so shadow branches (e.g. Kebab's.Choice test) never pollute HQ stock
             const outletNameMap = new Map<string, string>();
+            const archivedOutletIds = new Set<string>();
+            const archivedOutletNames = new Set<string>();
             try {
               const { data: outletRows } = await supabaseAdmin
                 .from("outlets")
-                .select("id, name")
+                .select("id, name, settings")
                 .in("business_id", allIds);
-              for (const o of outletRows || []) {
-                if (o.id && o.name) outletNameMap.set(o.id, o.name);
+              for (const o of (outletRows || []) as any[]) {
+                const s = (o?.settings && typeof o.settings === "object" ? o.settings : {}) as Record<string, any>;
+                const isArchived = Boolean(s.archived === true || s.deleted_at || o?.deleted_at || o?.is_deleted === true);
+                if (isArchived) {
+                  if (o?.id) archivedOutletIds.add(o.id);
+                  if (o?.name) archivedOutletNames.add(String(o.name).trim().toLowerCase());
+                } else if (o?.id && o?.name) {
+                  outletNameMap.set(o.id, o.name);
+                }
               }
             } catch {}
 
-            const mappedItems = dbItems.map((row: any) => {
+            const activeDbItems = dbItems.filter((row: any) => {
+              const meta = extraMeta[row.id] || {};
+              const oid = row.outlet_id || meta.outlet_id || null;
+              if (oid && archivedOutletIds.has(oid)) return false;
+              const oNameLower = String(meta.outlet_name || "").trim().toLowerCase();
+              if (!oid && oNameLower && archivedOutletNames.has(oNameLower)) return false;
+              return true;
+            });
+
+            const mappedItems = activeDbItems.map((row: any) => {
               const meta = extraMeta[row.id] || {};
               const stockVal = Number(row.stock) || 0;
               const minVal = Number(row.minimum_stock) || 0;
@@ -1455,7 +1474,7 @@ export const Route = createFileRoute("/api/inventory")({
 
           // 8. RECORD WASTE
           if (action === "record-waste") {
-            const { inventory_item_id, quantity, reason, cost_loss, notes } = body.data;
+            const { inventory_item_id, quantity, reason, cost_loss, notes, outlet_id, outlet_name } = body.data;
             const { data: invItem } = await supabaseAdmin
               .from("inventory_items")
               .select("*")
@@ -1464,6 +1483,23 @@ export const Route = createFileRoute("/api/inventory")({
 
             const itemName = invItem?.name || "Bahan Baku";
             const unit = invItem?.unit || "pcs";
+            const resolvedOutletId =
+              outlet_id ||
+              (invItem as any)?.outlet_id ||
+              store.item_meta?.[inventory_item_id]?.outlet_id ||
+              null;
+            let resolvedOutletName =
+              outlet_name || store.item_meta?.[inventory_item_id]?.outlet_name || null;
+            if (!resolvedOutletName && resolvedOutletId) {
+              try {
+                const { data: oRow } = await supabaseAdmin
+                  .from("outlets")
+                  .select("name")
+                  .eq("id", resolvedOutletId)
+                  .maybeSingle();
+                if (oRow?.name) resolvedOutletName = oRow.name;
+              } catch {}
+            }
             const metaCost = Number(store.item_meta?.[inventory_item_id]?.cost_price) || 0;
             const dbCost = Number(invItem?.cost_price) || 0;
             let resolvedUnitCost =
@@ -1487,6 +1523,8 @@ export const Route = createFileRoute("/api/inventory")({
             const newWaste = {
               id: `waste-${Date.now()}`,
               business_id: businessId,
+              outlet_id: resolvedOutletId,
+              outlet_name: resolvedOutletName,
               inventory_item_id,
               item_name: itemName,
               quantity: Number(quantity),
@@ -1510,6 +1548,7 @@ export const Route = createFileRoute("/api/inventory")({
               const movRecord = {
                 id: `mov-${Date.now()}-${Math.random()}`,
                 business_id: businessId,
+                outlet_id: resolvedOutletId,
                 inventory_item_id,
                 item_name: itemName,
                 movement_type: "waste",
@@ -1523,6 +1562,7 @@ export const Route = createFileRoute("/api/inventory")({
               try {
                 await supabaseAdmin.from("stock_movements" as any).insert({
                   business_id: businessId,
+                  outlet_id: resolvedOutletId,
                   inventory_item_id,
                   movement_type: "waste",
                   type: "waste",

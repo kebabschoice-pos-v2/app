@@ -37,10 +37,12 @@ import { formatRupiah, type Snapshot } from "@/components/kebabschoicepos/data";
 import {
   getComprehensiveAnalytics,
   isDateWithinFilter,
+  resolveAllReportBusinessIds,
   resolveFilterDateBounds,
   type BusinessAnalyticsSummary,
   type DateRangePreset,
 } from "@/services/reports.service";
+import { getOutletList } from "@/services/outlet.service";
 import { getManagerPermissions, type ManagerPermissions } from "@/services/manager-permissions.service";
 import {
   getInventoryItems,
@@ -212,9 +214,22 @@ export function MoneyAllocationPage({
   const [newOpMonthly, setNewOpMonthly] = useState<number>(1000000);
   const [newOpDaily, setNewOpDaily] = useState<number>(50000);
 
+  const [fetchedOutlets, setFetchedOutlets] = useState<Array<{ id: string; name: string; code?: string; address?: string; active?: boolean; settings?: any }>>([]);
+
   const outletsList = useMemo(() => {
-    return snapshot?.outlets || [];
-  }, [snapshot?.outlets]);
+    const map = new Map<string, any>();
+    for (const o of fetchedOutlets) {
+      if (o?.id) map.set(o.id, o);
+    }
+    for (const o of snapshot?.outlets || []) {
+      if (o?.id && !map.has(o.id)) {
+        const s = ((o as any).settings && typeof (o as any).settings === "object" ? (o as any).settings : {}) as any;
+        if (s.archived === true || s.deleted_at) continue;
+        map.set(o.id, o);
+      }
+    }
+    return Array.from(map.values());
+  }, [fetchedOutlets, snapshot?.outlets]);
 
   // Clean old dummy data from localStorage if found
   useEffect(() => {
@@ -255,13 +270,16 @@ export function MoneyAllocationPage({
         return;
       }
 
+      const allBizIds = await resolveAllReportBusinessIds(bId);
+      const targetBizIds = allBizIds.length > 0 ? allBizIds : [bId];
+
       const periodFilter = { dateRange, outletId: selectedOutletId };
       const { startIso: periodStartIso, endIso: periodEndIso } = resolveFilterDateBounds(periodFilter);
 
       let ordersQuery = supabase
         .from("sales_orders")
-        .select("id, outlet_id, status, total, paid_at, created_at")
-        .eq("business_id", bId);
+        .select("id, order_number, outlet_id, status, total, paid_at, created_at")
+        .in("business_id", targetBizIds);
       if (periodStartIso) {
         ordersQuery = ordersQuery.gte("created_at", periodStartIso);
       }
@@ -272,7 +290,7 @@ export function MoneyAllocationPage({
       let cmQuery = supabase
         .from("cash_movements" as any)
         .select("*")
-        .eq("business_id", bId);
+        .in("business_id", targetBizIds);
       if (periodStartIso) {
         cmQuery = cmQuery.gte("created_at", periodStartIso);
       }
@@ -283,9 +301,9 @@ export function MoneyAllocationPage({
       let payrollQuery = supabase
         .from("staff_payrolls" as any)
         .select("*")
-        .eq("business_id", bId);
+        .in("business_id", targetBizIds);
 
-      // 1. Parallel fetch all resources simultaneously strictly scoped to businessId (bId)
+      // 1. Parallel fetch all resources simultaneously strictly scoped to user's business IDs
       const [
         perms,
         resAnalytics,
@@ -298,6 +316,7 @@ export function MoneyAllocationPage({
         menuItemsList,
         branchLedgerData,
         dbPayrollsResponse,
+        unifiedOutlets,
       ] = await Promise.all([
         getManagerPermissions(bId, selectedOutletId).catch(() => null),
         getComprehensiveAnalytics(bId, {
@@ -312,13 +331,40 @@ export function MoneyAllocationPage({
         Promise.resolve(
           supabase
             .from("outlets")
-            .select("settings")
-            .eq("business_id", bId),
+            .select("id, name, code, address, active, settings")
+            .in("business_id", targetBizIds),
         ).catch(() => ({ data: [] })),
         getMenuItems({ businessId: bId }).catch(() => [] as any[]),
         loadBranchMoneyLedger(selectedOutletId).catch(() => null),
         Promise.resolve(payrollQuery).catch(() => ({ data: [] })),
+        getOutletList(bId).catch(() => []),
       ]);
+
+      if (unifiedOutlets && unifiedOutlets.length > 0) {
+        setFetchedOutlets(
+          unifiedOutlets.map((o) => ({
+            id: o.id,
+            name: o.name || o.outlet_name,
+            code: o.code,
+            address: o.address,
+            active: o.active,
+            settings: (o as any).settings || {},
+          })),
+        );
+      } else if (Array.isArray(outletDataResponse?.data) && outletDataResponse.data.length > 0) {
+        setFetchedOutlets(
+          (outletDataResponse.data as any[])
+            .filter((o) => !(o.settings as any)?.archived && !(o.settings as any)?.deleted_at)
+            .map((o) => ({
+              id: o.id,
+              name: o.name,
+              code: o.code,
+              address: o.address,
+              active: o.active !== false,
+              settings: o.settings || {},
+            })),
+        );
+      }
 
       // Fetch sales_order_items strictly for this business's orders (never cross-tenant unscoped)
       const businessOrderIds = ((dbOrdersResponse?.data as any[]) || [])
@@ -418,14 +464,7 @@ export function MoneyAllocationPage({
         } catch {}
       }
 
-      const cleanOrders = validOrders.filter(
-        (o) =>
-          o.status !== "void" &&
-          o.status !== "void_reversal" &&
-          o.status !== "refund" &&
-          o.status !== "refunded" &&
-          o.status !== "cancelled",
-      );
+      const cleanOrders = validOrders.filter((o) => o.status === "paid" || !o.status);
 
       // Recipe maps and metadata
       const recipes: Record<string, any> = {};
@@ -664,9 +703,17 @@ export function MoneyAllocationPage({
     return salesDates.size;
   }, [normalizedSalesOrders, selectedOutletId]);
 
-  // 2. Computed BOM Pockets from Real Inventory Items (DUAL-ENGINE CALCULATION, STRICT BRANCH ISOLATION + HQ MERGE)
+  // 2. Computed BOM Pockets from Real Inventory Items (DUAL-ENGINE CALCULATION, STRICT BRANCH ISOLATION + HQ MERGE + BOM-ANALYTICS SYNC)
   const computedBomPockets = useMemo(() => {
     const primaryOutletId = resolvePrimaryOutletId(outletsList);
+    const scopedOrdersForBom = normalizedSalesOrders.filter(
+      (ord) => selectedOutletId === "all" || ord.outlet_id === selectedOutletId,
+    );
+    const validOrderIdByRef = new Map<string, string>();
+    for (const ord of scopedOrdersForBom) {
+      if (ord.id) validOrderIdByRef.set(String(ord.id), String(ord.id));
+      if (ord.order_number) validOrderIdByRef.set(String(ord.order_number).trim(), String(ord.id));
+    }
 
     const perItemPockets = inventoryList.map((item) => {
       const itemOutletId = item.outlet_id
@@ -697,7 +744,7 @@ export function MoneyAllocationPage({
       const unit_cost =
         pack_price > 0 && pack_size > 0 ? pack_price / pack_size : item.cost_price || 0;
 
-      // Engine 1: Real movements of type pos_sale or stock_out for this branch item (filtered by selected period, with void/refund reversal deductions)
+      // Engine 1: Real movements of type pos_sale or stock_out tied to a valid paid order in period (avoiding double-count with Engine 2)
       const itemMovements = periodFilteredStockMovements.filter((m) => {
         if (m.inventory_item_id !== item.id) return false;
         const movOutletId = normalizeOrderOutletId(m.outlet_id, outletsList);
@@ -705,6 +752,10 @@ export function MoneyAllocationPage({
           return false;
         }
         if (itemOutletId && movOutletId && movOutletId !== itemOutletId) {
+          return false;
+        }
+        const refKey = String(m.order_id || (m as any).reference_id || "").trim();
+        if (!refKey || !validOrderIdByRef.has(refKey)) {
           return false;
         }
         const mType = (m.movement_type as string) || (m as any).type || "";
@@ -720,7 +771,10 @@ export function MoneyAllocationPage({
       // Collect order IDs already captured by physical stock movements to avoid double-counting in Engine 2
       const movedOrderIds = new Set(
         itemMovements
-          .map((m) => m.order_id || (m as any).reference_id)
+          .map((m) => {
+            const rawRef = String(m.order_id || (m as any).reference_id || "").trim();
+            return validOrderIdByRef.get(rawRef) || rawRef;
+          })
           .filter(Boolean),
       );
 
@@ -947,13 +1001,63 @@ export function MoneyAllocationPage({
       };
     });
 
+    // Reconcile total BOM earned with single-source-of-truth estimateOrdersBomMetrics (src/lib/bom-analytics.ts)
+    // so Celengan Bahan (BOM) matches Dashboard, Performa Outlet, Performa Menu, and Ringkasan per Cabang 100%.
+    const authoritativeBom = estimateOrdersBomMetrics({
+      orders: scopedOrdersForBom,
+      products: menuProducts.length > 0 ? menuProducts : (snapshot?.products || []),
+      menuRecipes,
+      inventoryItems: inventoryList,
+    });
+    const targetTotalBom = authoritativeBom.totalBomCost;
+    const rawSumEarned = perItemPockets.reduce((sum, p) => sum + p.totalEarned, 0);
+
+    const alignedPockets = (() => {
+      if (scopedOrdersForBom.length === 0 || targetTotalBom <= 0) {
+        return perItemPockets.map((p) => {
+          const accumulated_balance = Math.max(0, 0 - p.spent + p.added);
+          return {
+            ...p,
+            totalEarned: 0,
+            accumulated_balance,
+            canBuyPacks: p.pack_price > 0 ? Math.floor(accumulated_balance / p.pack_price) : 0,
+          };
+        });
+      }
+      if (rawSumEarned <= 0 || rawSumEarned === targetTotalBom) {
+        return perItemPockets;
+      }
+      const scale = targetTotalBom / rawSumEarned;
+      let distributed = 0;
+      const nonZeroIndices = perItemPockets
+        .map((p, idx) => (p.totalEarned > 0 ? idx : -1))
+        .filter((idx) => idx >= 0);
+      const lastActiveIdx = nonZeroIndices[nonZeroIndices.length - 1] ?? -1;
+
+      return perItemPockets.map((p, idx) => {
+        if (p.totalEarned <= 0) return p;
+        const scaledEarned =
+          idx === lastActiveIdx
+            ? Math.max(0, targetTotalBom - distributed)
+            : Math.round(p.totalEarned * scale);
+        distributed += scaledEarned;
+        const accumulated_balance = Math.max(0, scaledEarned - p.spent + p.added);
+        return {
+          ...p,
+          totalEarned: scaledEarned,
+          accumulated_balance,
+          canBuyPacks: p.pack_price > 0 ? Math.floor(accumulated_balance / p.pack_price) : 0,
+        };
+      });
+    })();
+
     if (selectedOutletId !== "all") {
-      return perItemPockets;
+      return alignedPockets;
     }
 
     // Consolidate identical ingredient names across branches into 1 HQ card (summing branch-isolated earnings/stock)
-    const mergedByName = new Map<string, typeof perItemPockets>();
-    for (const pocket of perItemPockets) {
+    const mergedByName = new Map<string, typeof alignedPockets>();
+    for (const pocket of alignedPockets) {
       const key = (pocket.item.name || "").trim().toLowerCase() || pocket.item.id;
       const existingGroup = mergedByName.get(key) || [];
       existingGroup.push(pocket);
@@ -1008,6 +1112,8 @@ export function MoneyAllocationPage({
     normalizedSalesOrders,
     outletsList,
     menuRecipes,
+    menuProducts,
+    snapshot?.products,
   ]);
 
   // 3. Financial KPI Preliminary Totals (Strictly synchronized with the active dateRange & outlet filter)
@@ -1653,7 +1759,12 @@ export function MoneyAllocationPage({
               {formatRupiah(totalOmzet)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground font-medium">
-              {normalizedSalesOrders.length > 0 ? `${normalizedSalesOrders.length} Transaksi Lunas` : "0 Transaksi"}
+              {(() => {
+                const scopedCount = normalizedSalesOrders.filter(
+                  (o) => selectedOutletId === "all" || o.outlet_id === selectedOutletId,
+                ).length;
+                return scopedCount > 0 ? `${scopedCount} Transaksi Lunas` : "0 Transaksi";
+              })()}
             </p>
           </div>
 

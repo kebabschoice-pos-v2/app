@@ -31,6 +31,7 @@ import {
   type MonthlyRosterSchedule,
 } from "@/services/hr.service";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
+import { getStaffList, isOutletDeviceAccount, type StaffItem } from "@/services/staff.service";
 
 interface AttendancePageProps {
   initialTab?: "in" | "out" | "history" | "shifts";
@@ -51,19 +52,57 @@ export function AttendancePage({
   const [attendances, setAttendances] = useState<StaffAttendance[]>([]);
   const [rosterSchedule, setRosterSchedule] = useState<MonthlyRosterSchedule | null>(null);
   const [loading, setLoading] = useState(true);
-  const [resolvedOutletState, setResolvedOutletState] = useState<{ id: string; name: string } | null>(null);
+  const [resolvedOutletState, setResolvedOutletState] = useState<{ id: string; name: string } | null>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("kebabschoicepos_active_outlet");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.id && parsed.id !== "all" && parsed.id !== "default") {
+            return { id: parsed.id, name: parsed.name || "Cabang Aktif" };
+          }
+        }
+        const savedId =
+          localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+          localStorage.getItem("kebabschoicepos_active_outlet_id");
+        if (savedId && savedId !== "all" && savedId !== "default") {
+          const matched = (snapshot?.outlets as any[])?.find((o: any) => o.id === savedId);
+          return { id: savedId, name: matched?.name || "Cabang Aktif" };
+        }
+      } catch {}
+    }
+    return null;
+  });
 
   useEffect(() => {
-    resolveActiveStaffOutlet()
-      .then((res) => {
-        if (res && res.outletId) {
-          setResolvedOutletState({ id: res.outletId, name: res.outletName });
-        }
-      })
-      .catch(() => undefined);
-  }, [snapshot?.assignedOutletId]);
+    const syncActiveOutlet = () => {
+      resolveActiveStaffOutlet()
+        .then((res) => {
+          if (res && res.outletId && res.outletId !== "default") {
+            setResolvedOutletState({ id: res.outletId, name: res.outletName });
+          }
+        })
+        .catch(() => undefined);
+    };
+    syncActiveOutlet();
 
-  // Active Outlet: Prioritize resolved staff outlet, then snapshot assigned outlet
+    const handleOutletChanged = (e: any) => {
+      if (e?.detail?.outletId) {
+        const nextId = e.detail.outletId;
+        const nextName =
+          e.detail.outletName ||
+          (snapshot?.outlets as any[])?.find((o: any) => o.id === nextId)?.name ||
+          "Cabang Aktif";
+        setResolvedOutletState({ id: nextId, name: nextName });
+      } else {
+        syncActiveOutlet();
+      }
+    };
+    window.addEventListener("outlet:changed", handleOutletChanged);
+    return () => window.removeEventListener("outlet:changed", handleOutletChanged);
+  }, [snapshot?.assignedOutletId, snapshot?.outlets]);
+
+  // Active Outlet: Prioritize resolved staff/owner outlet, then snapshot assigned outlet
   const activeOutlet =
     resolvedOutletState ||
     (snapshot?.assignedOutletId
@@ -71,7 +110,7 @@ export function AttendancePage({
       : null) ||
     snapshot?.outlets?.[0] || {
       id: "out-main",
-      name: "Outlet Jakarta Pusat",
+      name: "Outlet Utama",
     };
 
   // Selected Employee for Attendance
@@ -84,6 +123,27 @@ export function AttendancePage({
     );
     return filtered.length > 0 ? filtered : staffList;
   }, [staffList, activeOutlet.id]);
+
+  // Always keep selectedStaffId synced to a valid member of branchStaffProfiles
+  useEffect(() => {
+    if (branchStaffProfiles.length === 0) return;
+    const isStillValid = branchStaffProfiles.some((p) => p.user_id === selectedStaffId);
+    if (!selectedStaffId || !isStillValid) {
+      const activeCashier =
+        typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_active_cashier_name")
+          : null;
+      const found =
+        (activeCashier
+          ? branchStaffProfiles.find(
+              (p) => p.full_name.trim().toLowerCase() === activeCashier.trim().toLowerCase(),
+            )
+          : null) ||
+        branchStaffProfiles.find((p) => p.user_id === profile?.id) ||
+        branchStaffProfiles[0];
+      if (found) setSelectedStaffId(found.user_id);
+    }
+  }, [branchStaffProfiles, selectedStaffId, profile?.id]);
 
   // Camera & Face Recognition State
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -121,8 +181,9 @@ export function AttendancePage({
         }
       } catch {}
 
-      const [profiles, shiftList, attList, roster] = await Promise.all([
-        getHRStaffProfiles().catch(() => [] as StaffProfile[]),
+      const [profiles, rawStaffList, shiftList, attList, roster] = await Promise.all([
+        getHRStaffProfiles(snapshot?.businessId).catch(() => [] as StaffProfile[]),
+        getStaffList().catch(() => [] as StaffItem[]),
         getStaffShifts(targetOutletId).catch(() => [] as StaffShift[]),
         getAttendanceList({ outletId: targetOutletId }).catch(() => [] as StaffAttendance[]),
         getRosterSchedule(targetOutletId, now.getMonth() + 1, now.getFullYear()).catch(
@@ -130,25 +191,104 @@ export function AttendancePage({
         ),
       ]);
 
-      setStaffList(profiles);
+      // Unify HR profiles + getStaffList() + snapshot.outlets roster so dropdown never shows 0 options
+      const mergedProfiles: StaffProfile[] = [...profiles];
+      const seenKeys = new Set<string>(profiles.map((p) => p.user_id));
+      const seenNames = new Set<string>(profiles.map((p) => p.full_name.trim().toLowerCase()));
+      const outletListForCheck = (snapshot?.outlets as any[]) || [];
+
+      for (const st of rawStaffList) {
+        const key = st.user_id || st.id;
+        const cleanName = String(st.name || "").trim();
+        if (
+          !key ||
+          !cleanName ||
+          seenKeys.has(key) ||
+          seenNames.has(cleanName.toLowerCase()) ||
+          isOutletDeviceAccount(st, outletListForCheck)
+        ) {
+          continue;
+        }
+        seenKeys.add(key);
+        seenNames.add(cleanName.toLowerCase());
+        mergedProfiles.push({
+          id: `hr-prof-${key}`,
+          user_id: key,
+          outlet_id: st.outlet_id || null,
+          outlet_name: st.outlet_name || st.outlet || targetOutletName,
+          full_name: cleanName,
+          phone: "-",
+          address: "-",
+          avatar_url: st.avatar_url || null,
+          job_title:
+            st.role === "manager"
+              ? "Store Manager"
+              : st.role === "cashier"
+                ? "Kasir POS"
+                : "Staff Operasional",
+          role: st.role || "cashier",
+          employment_status: "Tetap",
+          join_date: "2026-01-01",
+        } as StaffProfile);
+      }
+
+      for (const out of outletListForCheck) {
+        const s = (out?.settings && typeof out.settings === "object" ? out.settings : {}) as any;
+        const rosterArr: any[] = Array.isArray(s.outlet_staff_roster) ? s.outlet_staff_roster : [];
+        for (const emp of rosterArr) {
+          const cleanName = String(emp.name || emp.full_name || "").trim();
+          if (!cleanName || isOutletDeviceAccount(emp, outletListForCheck)) continue;
+          const key =
+            emp.user_id ||
+            emp.id ||
+            `emp-${out.id}-${cleanName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+          if (seenKeys.has(key) || seenNames.has(cleanName.toLowerCase())) continue;
+          seenKeys.add(key);
+          seenNames.add(cleanName.toLowerCase());
+          mergedProfiles.push({
+            id: `hr-prof-${key}`,
+            user_id: key,
+            outlet_id: out.id || null,
+            outlet_name: out.name || targetOutletName,
+            full_name: cleanName,
+            phone: emp.phone || "-",
+            address: emp.address || "-",
+            avatar_url: emp.avatar_url || null,
+            job_title: emp.job_title || "Kasir POS",
+            role: (emp.role as any) || "cashier",
+            employment_status: emp.employment_status || "Tetap",
+            join_date: "2026-01-01",
+          } as StaffProfile);
+        }
+      }
+
+      setStaffList(mergedProfiles);
       setShifts(shiftList);
       setAttendances(attList);
       if (roster) setRosterSchedule(roster);
 
       // Preselect active cashier from shift, logged-in user, or first available staff member
-      if (profiles.length > 0 && !selectedStaffId) {
-        const activeCashier = typeof window !== "undefined" ? localStorage.getItem("kebabschoicepos_active_cashier_name") : null;
-        const outletProfiles = profiles.filter(
+      if (mergedProfiles.length > 0) {
+        const activeCashier =
+          typeof window !== "undefined"
+            ? localStorage.getItem("kebabschoicepos_active_cashier_name")
+            : null;
+        const outletProfiles = mergedProfiles.filter(
           (p) => !p.outlet_id || p.outlet_id === targetOutletId || p.outlet_id === "all",
         );
-        const candidateProfiles = outletProfiles.length > 0 ? outletProfiles : profiles;
-        const found =
-          (activeCashier
-            ? candidateProfiles.find((p) => p.full_name.trim().toLowerCase() === activeCashier.trim().toLowerCase())
-            : null) ||
-          candidateProfiles.find((p) => p.user_id === profile?.id) ||
-          candidateProfiles[0];
-        if (found) setSelectedStaffId(found.user_id);
+        const candidateProfiles = outletProfiles.length > 0 ? outletProfiles : mergedProfiles;
+        const currentIsValid = candidateProfiles.some((p) => p.user_id === selectedStaffId);
+        if (!selectedStaffId || !currentIsValid) {
+          const found =
+            (activeCashier
+              ? candidateProfiles.find(
+                  (p) => p.full_name.trim().toLowerCase() === activeCashier.trim().toLowerCase(),
+                )
+              : null) ||
+            candidateProfiles.find((p) => p.user_id === profile?.id) ||
+            candidateProfiles[0];
+          if (found) setSelectedStaffId(found.user_id);
+        }
       }
     } catch (err) {
       console.error("[AttendancePage] Load error:", err);

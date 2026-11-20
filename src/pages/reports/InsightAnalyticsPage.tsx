@@ -34,6 +34,7 @@ import {
   type BusinessAnalyticsSummary,
   type DateRangePreset,
 } from "@/services/reports.service";
+import { getOutletList } from "@/services/outlet.service";
 import { Button } from "@/components/ui/button";
 import { Link } from "@tanstack/react-router";
 import { supabase } from "@/integrations/supabase/client";
@@ -78,13 +79,11 @@ export function InsightAnalyticsPage() {
       }
       if (bId) {
         if (outletsList.length === 0) {
-          const { data: oData } = await supabase
-            .from("outlets")
-            .select("id, name")
-            .eq("business_id", bId)
-            .order("name", { ascending: true });
-          if (oData && oData.length > 0) {
-            setOutletsList(oData);
+          const unifiedOutlets = await getOutletList(bId).catch(() => []);
+          if (unifiedOutlets.length > 0) {
+            setOutletsList(
+              unifiedOutlets.map((o) => ({ id: o.id, name: o.name || o.outlet_name })),
+            );
           }
         }
 
@@ -216,6 +215,7 @@ export function InsightAnalyticsPage() {
                   onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
                   className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
+                  <option value="all">Semua Waktu</option>
                   <option value="today">Hari Ini</option>
                   <option value="last_7_days">7 Hari Terakhir</option>
                   <option value="this_month">Bulan Ini</option>
@@ -330,12 +330,32 @@ export function InsightAnalyticsPage() {
           <div>
             <h2 className="text-base font-black text-foreground">Trend Omzet Harian &amp; Prediksi AI</h2>
             <p className="text-xs text-muted-foreground">
-              Perbandingan penjualan aktual 7 hari terakhir dengan proyeksi target cerdas
+              {dateRange === "custom" && !startDate && !endDate
+                ? "Pilih tanggal mulai dan tanggal akhir pada Custom Range untuk menampilkan perbandingan aktual dan proyeksi"
+                : dateRange === "today"
+                  ? "Perbandingan penjualan aktual hari ini dengan proyeksi target cerdas"
+                  : dateRange === "this_month"
+                    ? "Perbandingan penjualan aktual bulan ini dengan proyeksi target cerdas"
+                    : dateRange === "all"
+                      ? "Perbandingan penjualan aktual semua waktu dengan proyeksi target cerdas"
+                      : dateRange === "custom"
+                        ? `Perbandingan penjualan aktual (${startDate || "Awal"} s/d ${endDate || "Akhir"}) dengan proyeksi target cerdas`
+                        : "Perbandingan penjualan aktual 7 hari terakhir dengan proyeksi target cerdas"}
             </p>
           </div>
 
           <div className="h-64 w-full pt-2">
-            {!hasDailySalesData ? (
+            {dateRange === "custom" && !startDate && !endDate ? (
+              <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
+                <Calendar className="w-5 h-5 text-muted-foreground mb-2" />
+                <p className="text-sm font-semibold text-foreground">
+                  Rentang tanggal Custom Range belum dipilih
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Isi tanggal mulai dan tanggal akhir di atas untuk memuat grafik transaksi dan proyeksi AI.
+                </p>
+              </div>
+            ) : !hasDailySalesData ? (
               <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/70 bg-muted/20 p-6 text-center">
                 <TrendingUp className="w-5 h-5 text-muted-foreground mb-2" />
                 <p className="text-sm font-semibold text-foreground">

@@ -576,23 +576,37 @@ export function OutletManagement({
     }
   }
 
-  // Filtered List with deduplication and RBAC scoping
-  const filteredItems = useMemo(() => {
-    let sourceList = items;
-    if (isManager && managerOutletId) {
-      sourceList = sourceList.filter((item) => item.id === managerOutletId);
+  // Unified real outlets list (merge getOutletList() with snapshot.outlets deduplicated by ID)
+  const effectiveOutlets = useMemo(() => {
+    const map = new Map<string, OutletItem>();
+    for (const o of items) {
+      if (o?.id) map.set(o.id, o);
     }
-
-    // Deduplicate outlets by ID
-    const uniqueMap = new Map<string, OutletItem>();
-    for (const item of sourceList) {
-      if (item && item.id && !uniqueMap.has(item.id)) {
-        uniqueMap.set(item.id, item);
+    for (const so of (snapshot?.outlets || []) as any[]) {
+      if (so?.id && !map.has(so.id)) {
+        const s = (so.settings && typeof so.settings === "object" ? so.settings : {}) as any;
+        if (s.archived === true || s.deleted_at) continue;
+        map.set(so.id, {
+          ...so,
+          outlet_name: so.outlet_name || so.name || "Outlet",
+          name: so.name || so.outlet_name || "Outlet",
+          status: so.active === false ? "inactive" : "active",
+          active: so.active !== false,
+          staff_list: so.staff_list || [],
+          staff_count: so.staff_count || 0,
+        } as OutletItem);
       }
     }
-    const deduplicated = Array.from(uniqueMap.values());
+    const list = Array.from(map.values());
+    if (isManager && managerOutletId) {
+      return list.filter((item) => item.id === managerOutletId);
+    }
+    return list;
+  }, [items, snapshot?.outlets, isManager, managerOutletId]);
 
-    return deduplicated.filter((item) => {
+  // Filtered List with deduplication and RBAC scoping
+  const filteredItems = useMemo(() => {
+    return effectiveOutlets.filter((item) => {
       const q = search.toLowerCase();
       const matchesSearch =
         (item.outlet_name || "").toLowerCase().includes(q) ||
@@ -607,15 +621,9 @@ export function OutletManagement({
 
       return matchesSearch && matchesStatus;
     });
-  }, [items, search, filterStatus, isManager, managerOutletId]);
+  }, [effectiveOutlets, search, filterStatus]);
 
-  const effectiveOutlets = items.length > 0 ? items : (snapshot?.outlets || []);
-  const totalCount = effectiveOutlets.length;
-  const activeCount = effectiveOutlets.filter((i: any) => i.status === "active" || i.active !== false).length;
-  const inactiveCount = totalCount - activeCount;
-  const totalAssignedStaff = effectiveOutlets.reduce((acc: number, curr: any) => acc + (curr.staff_count || 0), 0);
-
-  // Helper: Get real human staff assigned to this outlet from availableStaff & settings.outlet_staff_roster
+  // Helper: Get real human staff assigned to this outlet from availableStaff, outlet.staff_list & settings.outlet_staff_roster
   function getAssignedEmployeesForOutlet(outlet: OutletItem): Array<{ name: string; role: string; email?: string }> {
     const list: Array<{ name: string; role: string; email?: string }> = [];
     const seen = new Set<string>();
@@ -643,8 +651,38 @@ export function OutletManagement({
       }
     }
 
+    // 3. From outlet.staff_list (resolved by getOutletList)
+    if (Array.isArray(outlet.staff_list)) {
+      for (const s of outlet.staff_list) {
+        const name = (s.name || "").trim();
+        if (name && !isOutletDeviceAccount(s) && !seen.has(name.toLowerCase())) {
+          seen.add(name.toLowerCase());
+          list.push({ name, role: s.role || "cashier", email: s.email });
+        }
+      }
+    }
+
     return list;
   }
+
+  const totalCount = effectiveOutlets.length;
+  const activeCount = effectiveOutlets.filter((i: any) => i.status === "active" || i.active !== false).length;
+  const inactiveCount = totalCount - activeCount;
+  const totalAssignedStaff = useMemo(() => {
+    const seenAcrossOutlets = new Set<string>();
+    let total = 0;
+    for (const outlet of effectiveOutlets) {
+      const emps = getAssignedEmployeesForOutlet(outlet);
+      for (const emp of emps) {
+        const key = `${outlet.id}:${emp.name.trim().toLowerCase()}`;
+        if (!seenAcrossOutlets.has(key)) {
+          seenAcrossOutlets.add(key);
+          total += 1;
+        }
+      }
+    }
+    return total;
+  }, [effectiveOutlets, availableStaff]);
 
   return (
     <div className="space-y-6 w-full max-w-none">

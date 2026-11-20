@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { getStaffList, type StaffItem, isOutletDeviceAccount } from "./staff.service";
-import { getOutletList, type OutletItem } from "./outlet.service";
+import { getOutletList, resolveCurrentBusinessIds, type OutletItem } from "./outlet.service";
 
 export interface StaffProfile {
   id: string;
@@ -228,16 +228,22 @@ async function resolveBusinessId(explicitBusinessId?: string): Promise<string> {
 export async function getHRStaffProfiles(businessId?: string): Promise<StaffProfile[]> {
   try {
     const resolvedBid = await resolveBusinessId(businessId);
+    let allBizIds: string[] = resolvedBid ? [resolvedBid] : [];
+    try {
+      const resolvedBiz = await resolveCurrentBusinessIds(businessId || resolvedBid || undefined);
+      if (resolvedBiz.allIds.length > 0) allBizIds = resolvedBiz.allIds;
+    } catch {}
+
     const [staffList, outlets] = await Promise.all([
       getStaffList().catch(() => [] as StaffItem[]),
       getOutletList().catch(() => [] as OutletItem[]),
     ]);
 
-    const outletMap = new Map(outlets.map((o) => [o.id, o.outlet_name]));
+    const outletMap = new Map(outlets.map((o) => [o.id, o.outlet_name || o.name]));
 
-    // Check supabase table strictly scoped by business_id
+    // Check supabase table strictly scoped by user's business IDs
     let dbProfiles: any[] = [];
-    if (resolvedBid) {
+    if (allBizIds.length === 1 && resolvedBid) {
       try {
         const { data } = await supabase
           .from("staff_profiles" as any)
@@ -249,15 +255,135 @@ export async function getHRStaffProfiles(businessId?: string): Promise<StaffProf
       } catch {
         // fallback
       }
+    } else if (allBizIds.length > 0) {
+      try {
+        const { data } = await supabase
+          .from("staff_profiles" as any)
+          .select("*")
+          .in("business_id", allBizIds);
+        if (data && Array.isArray(data)) {
+          dbProfiles = data;
+        }
+      } catch {
+        // fallback
+      }
     }
 
-    const localSaved =
-      typeof window !== "undefined"
-        ? JSON.parse(localStorage.getItem(LOCAL_STORAGE_PROFILES_KEY) || "{}")
-        : {};
+    let localSaved: Record<string, any> = {};
+    if (typeof window !== "undefined") {
+      try {
+        localSaved = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PROFILES_KEY) || "{}") || {};
+      } catch {
+        localSaved = {};
+      }
+    }
 
-    const profileMap = new Map(dbProfiles.map((p) => [p.user_id, p]));
-    const humanStaffList = staffList.filter((s) => !isOutletDeviceAccount(s, outlets));
+    const profileMap = new Map<string, any>();
+    for (const p of dbProfiles) {
+      if (p?.user_id) profileMap.set(p.user_id, p);
+    }
+
+    // Also pull hr_profiles embedded in outlets.settings
+    for (const out of outlets) {
+      const s = (out.settings && typeof out.settings === "object" ? out.settings : {}) as Record<string, any>;
+      if (s.hr_profiles && typeof s.hr_profiles === "object") {
+        for (const [uid, hp] of Object.entries(s.hr_profiles)) {
+          if (uid && !profileMap.has(uid)) {
+            profileMap.set(uid, hp);
+          }
+        }
+      }
+    }
+
+    // Build unified deduplicated human staff list from:
+    // 1. getStaffList()
+    // 2. outlets.settings.outlet_staff_roster
+    // 3. outlets.staff_list
+    // 4. dbProfiles (staff_profiles)
+    const unifiedStaffMap = new Map<string, StaffItem>();
+    const seenNames = new Set<string>();
+
+    const addStaffCandidate = (candidate: StaffItem) => {
+      if (!candidate) return;
+      const key = candidate.user_id || candidate.id;
+      const cleanName = String(candidate.name || "").trim();
+      if (!key || !cleanName || isOutletDeviceAccount(candidate, outlets)) return;
+      const nameKey = cleanName.toLowerCase();
+      if (unifiedStaffMap.has(key) || seenNames.has(nameKey)) return;
+      unifiedStaffMap.set(key, candidate);
+      seenNames.add(nameKey);
+    };
+
+    for (const s of staffList) {
+      addStaffCandidate(s);
+    }
+
+    for (const out of outlets) {
+      const s = (out.settings && typeof out.settings === "object" ? out.settings : {}) as Record<string, any>;
+      const roster: any[] = Array.isArray(s.outlet_staff_roster) ? s.outlet_staff_roster : [];
+      for (const emp of roster) {
+        const empName = String(emp.name || emp.full_name || "").trim();
+        if (!empName) continue;
+        const empId =
+          emp.user_id ||
+          emp.id ||
+          `emp-${out.id}-${empName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+        addStaffCandidate({
+          id: empId,
+          user_id: empId,
+          name: empName,
+          email: emp.email || "",
+          avatar_url: emp.avatar_url || null,
+          role: (emp.role as any) || "cashier",
+          gender: emp.gender || "male",
+          outlet: out.name,
+          outlet_name: out.outlet_name || out.name,
+          outlet_id: out.id,
+          outlet_code: out.code || "",
+          created_at: emp.created_at || new Date().toISOString(),
+          status: emp.status || "active",
+        });
+      }
+      for (const st of out.staff_list || []) {
+        addStaffCandidate({
+          id: st.id || st.user_id,
+          user_id: st.user_id || st.id,
+          name: st.name,
+          email: st.email || "",
+          avatar_url: st.avatar_url || null,
+          role: st.role || "cashier",
+          outlet: out.name,
+          outlet_name: out.outlet_name || out.name,
+          outlet_id: st.outlet_id || out.id,
+          outlet_code: out.code || "",
+          created_at: new Date().toISOString(),
+          status: "active",
+        });
+      }
+    }
+
+    for (const dbp of dbProfiles) {
+      const key = dbp.user_id || dbp.id;
+      const nm = String(dbp.full_name || "").trim();
+      if (!key || !nm) continue;
+      addStaffCandidate({
+        id: key,
+        user_id: key,
+        name: nm,
+        email: dbp.email || "",
+        avatar_url: dbp.avatar_url || null,
+        role: (dbp.role as any) || "cashier",
+        gender: dbp.gender || "male",
+        outlet: (dbp.outlet_id ? outletMap.get(dbp.outlet_id) : null) || "Semua Cabang (HQ)",
+        outlet_name: (dbp.outlet_id ? outletMap.get(dbp.outlet_id) : null) || "Semua Cabang (HQ)",
+        outlet_id: dbp.outlet_id || null,
+        outlet_code: "",
+        created_at: dbp.created_at || new Date().toISOString(),
+        status: "active",
+      });
+    }
+
+    const humanStaffList = Array.from(unifiedStaffMap.values());
 
     return humanStaffList.map((staff) => {
       const db = profileMap.get(staff.user_id) || {};
@@ -292,6 +418,7 @@ export async function getHRStaffProfiles(businessId?: string): Promise<StaffProf
         avatar_url: db.avatar_url || local.avatar_url || staff.avatar_url || null,
         job_title: jobTitle,
         role: staff.role,
+        gender: db.gender || local.gender || staff.gender || "male",
         employment_status: db.employment_status || local.employment_status || "Tetap",
         join_date: db.join_date || local.join_date || "2026-01-01",
         base_salary: baseSalary,

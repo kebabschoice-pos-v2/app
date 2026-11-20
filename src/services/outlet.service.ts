@@ -1,5 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
-import { getStaffList } from "./staff.service";
+import { getStaffList, isOutletDeviceAccount } from "./staff.service";
 
 export interface OutletMemberSummary {
   id: string;
@@ -45,47 +45,77 @@ export interface OutletInput {
   staff_user_ids?: string[];
 }
 
+export function isOutletDeletedOrArchived(o: any): boolean {
+  if (!o) return true;
+  const s = (o.settings && typeof o.settings === "object" ? o.settings : {}) as Record<string, any>;
+  return Boolean(s.archived === true || s.deleted_at);
+}
+
 /**
- * Resolves current active business IDs from Supabase auth session
+ * Resolves current active business IDs from Supabase auth session.
+ * Always unions all owned businesses + member businesses so every registered outlet
+ * belonging to the user is visible consistently across HQ & POS.
  */
-async function resolveCurrentBusinessIds(
+export async function resolveCurrentBusinessIds(
   explicitId?: string,
 ): Promise<{ primaryId: string; allIds: string[] }> {
-  if (explicitId) return { primaryId: explicitId, allIds: [explicitId] };
-
-  const { data: authData } = await supabase.auth.getUser();
-  if (!authData?.user) {
-    throw new Error("Sesi pengguna tidak ditemukan. Silakan login kembali.");
+  const idSet = new Set<string>();
+  const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (explicitId && uuidRe.test(explicitId)) {
+    idSet.add(explicitId);
   }
 
-  // 1. Check businesses owned
-  const { data: ownedBusinesses } = await supabase
-    .from("businesses")
-    .select("id")
-    .eq("owner_id", authData.user.id)
-    .order("created_at", { ascending: true });
+  let primaryId = explicitId && uuidRe.test(explicitId) ? explicitId : "";
 
-  const firstOwned = ownedBusinesses?.[0];
-  if (firstOwned) {
-    const allIds = ownedBusinesses!.map((b) => b.id);
-    return { primaryId: firstOwned.id, allIds };
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    if (authData?.user) {
+      const [{ data: ownedBusinesses }, { data: memberBusinesses }] = await Promise.all([
+        supabase
+          .from("businesses")
+          .select("id")
+          .eq("owner_id", authData.user.id)
+          .order("created_at", { ascending: true }),
+        supabase
+          .from("business_members")
+          .select("business_id")
+          .eq("user_id", authData.user.id)
+          .order("created_at", { ascending: true }),
+      ]);
+
+      for (const b of ownedBusinesses || []) {
+        if (b?.id) idSet.add(b.id);
+      }
+      for (const m of memberBusinesses || []) {
+        if (m?.business_id) idSet.add(m.business_id);
+      }
+
+      const savedBizId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
+          : "";
+      if (!primaryId) {
+        if (savedBizId && idSet.has(savedBizId)) {
+          primaryId = savedBizId;
+        } else {
+          primaryId = ownedBusinesses?.[0]?.id || memberBusinesses?.[0]?.business_id || "";
+        }
+      }
+    } else if (!primaryId) {
+      throw new Error("Sesi pengguna tidak ditemukan. Silakan login kembali.");
+    }
+  } catch (err) {
+    if (idSet.size === 0) {
+      throw err;
+    }
   }
 
-  // 2. Check business_members
-  const { data: memberBusinesses } = await supabase
-    .from("business_members")
-    .select("business_id")
-    .eq("user_id", authData.user.id)
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  const firstMember = memberBusinesses?.[0];
-  if (firstMember) {
-    const bid = firstMember.business_id;
-    return { primaryId: bid, allIds: [bid] };
+  if (idSet.size > 0) {
+    const allIds = Array.from(idSet);
+    return { primaryId: primaryId || allIds[0]!, allIds };
   }
 
-  // 3. Fallback to any business available in development
+  // Fallback to any business available in development
   const { data: anyBusiness } = await supabase
     .from("businesses")
     .select("id")
@@ -148,11 +178,8 @@ export async function getOutletList(businessId?: string): Promise<OutletItem[]> 
     const rawOutlets = outletsData ?? [];
     if (rawOutlets.length === 0) return [];
 
-    // Filter out archived/soft-deleted outlets
-    const outlets = rawOutlets.filter(
-      (o) =>
-        !((o.settings as any)?.archived === true || (o.active === false && (o.settings as any)?.deleted_at)),
-    );
+    // Filter out only explicitly archived/soft-deleted outlets
+    const outlets = rawOutlets.filter((o) => !isOutletDeletedOrArchived(o));
 
     // Deduplicate outlets by ID
     const uniqueOutlets: typeof outlets = [];
@@ -226,10 +253,35 @@ export async function getOutletList(businessId?: string): Promise<OutletItem[]> 
       (staffProfilesData ?? []).map((sp: any) => [sp.user_id, sp]),
     );
 
-    // 5. Map staff members by outlet_id (deduplicated per outlet by user_id)
+    // 5. Map staff members by outlet_id (deduplicated per outlet by user_id & lowercase name, excluding device accounts)
     const outletStaffMap = new Map<string, OutletMemberSummary[]>();
     const outletManagerMap = new Map<string, OutletMemberSummary>();
     const seenPerOutlet = new Map<string, Set<string>>();
+    const seenNamesPerOutlet = new Map<string, Set<string>>();
+
+    const addStaffToOutlet = (outletId: string, summary: OutletMemberSummary, isExplicitManager = false) => {
+      if (!outletId || isOutletDeviceAccount(summary, uniqueOutlets)) return;
+      if (!seenPerOutlet.has(outletId)) {
+        seenPerOutlet.set(outletId, new Set<string>());
+        seenNamesPerOutlet.set(outletId, new Set<string>());
+      }
+      const idSet = seenPerOutlet.get(outletId)!;
+      const nameSet = seenNamesPerOutlet.get(outletId)!;
+      const nameKey = (summary.name || "").trim().toLowerCase();
+      if ((summary.user_id && idSet.has(summary.user_id)) || (nameKey && nameSet.has(nameKey))) {
+        return;
+      }
+      if (summary.user_id) idSet.add(summary.user_id);
+      if (nameKey) nameSet.add(nameKey);
+
+      const existing = outletStaffMap.get(outletId) || [];
+      existing.push(summary);
+      outletStaffMap.set(outletId, existing);
+
+      if (isExplicitManager && !outletManagerMap.has(outletId)) {
+        outletManagerMap.set(outletId, summary);
+      }
+    };
 
     for (const m of members) {
       if (m.role === "owner") continue;
@@ -238,12 +290,6 @@ export async function getOutletList(businessId?: string): Promise<OutletItem[]> 
       const outletId =
         staffProfile?.outlet_id || settingsStaffMap.get(m.user_id) || localStaffMap.get(m.user_id);
       if (!outletId) continue;
-
-      if (!seenPerOutlet.has(outletId)) {
-        seenPerOutlet.set(outletId, new Set<string>());
-      }
-      if (seenPerOutlet.get(outletId)!.has(m.user_id)) continue;
-      seenPerOutlet.get(outletId)!.add(m.user_id);
 
       const profile = profileMap.get(m.user_id);
       let cleanName = (staffProfile?.full_name || profile?.display_name || "").trim();
@@ -265,14 +311,87 @@ export async function getOutletList(businessId?: string): Promise<OutletItem[]> 
         outlet_id: outletId,
       };
 
-      const existing = outletStaffMap.get(outletId) || [];
-      existing.push(summary);
-      outletStaffMap.set(outletId, existing);
-
       const isExplicitManager = settingsManagerMap.get(outletId) === m.user_id || m.role === "manager";
-      if (isExplicitManager && !outletManagerMap.has(outletId)) {
-        outletManagerMap.set(outletId, summary);
+      addStaffToOutlet(outletId, summary, isExplicitManager);
+    }
+
+    // 5b. Also include branch employees stored in outlets.settings.outlet_staff_roster & staff_profiles
+    for (const row of uniqueOutlets) {
+      const s = (row.settings && typeof row.settings === "object" ? row.settings : {}) as Record<string, any>;
+      const roster: any[] = Array.isArray(s.outlet_staff_roster) ? s.outlet_staff_roster : [];
+      for (const emp of roster) {
+        const empName = String(emp.name || emp.full_name || "").trim();
+        if (!empName || isOutletDeviceAccount(emp, uniqueOutlets)) continue;
+        const empId =
+          emp.user_id ||
+          emp.id ||
+          `emp-${row.id}-${empName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+        const summary: OutletMemberSummary = {
+          id: empId,
+          user_id: empId,
+          name: empName,
+          email: emp.email || "",
+          role: (emp.role as any) || "cashier",
+          avatar_url: emp.avatar_url || null,
+          outlet_id: row.id,
+          outlet_name: row.name,
+          status: emp.status || "active",
+        };
+        const isMgr = settingsManagerMap.get(row.id) === empId || emp.role === "manager";
+        addStaffToOutlet(row.id, summary, isMgr);
       }
+    }
+
+    for (const sp of staffProfilesData || []) {
+      if (!sp?.outlet_id || sp.role === "owner" || isOutletDeviceAccount(sp, uniqueOutlets)) continue;
+      const spName = String(sp.full_name || "").trim();
+      if (!spName) continue;
+      const spId = sp.user_id || sp.id;
+      addStaffToOutlet(
+        sp.outlet_id,
+        {
+          id: spId,
+          user_id: spId,
+          name: spName,
+          email: sp.email || "",
+          role: (sp.role as any) || "cashier",
+          avatar_url: sp.avatar_url || null,
+          outlet_id: sp.outlet_id,
+          status: "active",
+        },
+        settingsManagerMap.get(sp.outlet_id) === spId || sp.role === "manager",
+      );
+    }
+
+    if (typeof window !== "undefined") {
+      try {
+        const rawBranchEmps = localStorage.getItem("kebabschoicepos_branch_employees");
+        if (rawBranchEmps) {
+          const parsedEmps: Record<string, any> = JSON.parse(rawBranchEmps);
+          for (const [empId, emp] of Object.entries(parsedEmps)) {
+            if (!emp?.outlet_id || emp.role === "owner" || isOutletDeviceAccount(emp, uniqueOutlets)) {
+              continue;
+            }
+            const empName = String(emp.name || emp.full_name || "").trim();
+            if (!empName) continue;
+            addStaffToOutlet(
+              emp.outlet_id,
+              {
+                id: empId,
+                user_id: empId,
+                name: empName,
+                email: emp.email || "",
+                role: (emp.role as any) || "cashier",
+                avatar_url: emp.avatar_url || null,
+                outlet_id: emp.outlet_id,
+                outlet_name: emp.outlet_name || null,
+                status: emp.status || "active",
+              },
+              settingsManagerMap.get(emp.outlet_id) === empId || emp.role === "manager",
+            );
+          }
+        }
+      } catch {}
     }
 
     return uniqueOutlets.map((row) => {
@@ -1080,13 +1199,100 @@ export async function resolveActiveStaffOutlet(
     }
   }
 
-  // Tier 0: Direct Outlet Device Account check (Always strictly binds device to its outlet)
-  if (uid || userEmail) {
+  // Helper: read stored POS outlet selection from localStorage (supports all 3 keys)
+  const readStoredPosOutlet = (): { id: string; name?: string } | null => {
+    if (typeof window === "undefined") return null;
     try {
-      const { data: allOutlets } = await supabase
+      const selId =
+        localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+        localStorage.getItem("kebabschoicepos_active_outlet_id");
+      let activeObj: { id?: string; name?: string } | null = null;
+      try {
+        const rawObj = localStorage.getItem("kebabschoicepos_active_outlet");
+        if (rawObj) activeObj = JSON.parse(rawObj);
+      } catch {}
+
+      const chosenId =
+        selId && selId !== "all" && selId !== "default"
+          ? selId
+          : activeObj?.id && activeObj.id !== "all" && activeObj.id !== "default"
+            ? activeObj.id
+            : null;
+      if (chosenId) {
+        return {
+          id: chosenId,
+          name: activeObj?.id === chosenId ? activeObj?.name : undefined,
+        };
+      }
+    } catch {}
+    return null;
+  };
+
+  // Determine whether user is Owner or Admin early so Owner's branch selection in Masuk POS Kasir is respected first
+  let isOwnerOrAdmin = false;
+  let userBusinessIds: string[] = [];
+  if (uid) {
+    try {
+      if (typeof window !== "undefined") {
+        const simRole = localStorage.getItem("kebabschoicepos_simulated_role");
+        if (simRole === "owner" || simRole === "admin") isOwnerOrAdmin = true;
+      }
+      const [{ data: ownedBizList }, { data: memberRows }] = await Promise.all([
+        supabase.from("businesses").select("id").eq("owner_id", uid),
+        (supabase.from("business_members" as any) as any)
+          .select("business_id, role, outlet_id")
+          .eq("user_id", uid),
+      ]);
+
+      const bizSet = new Set<string>();
+      for (const b of ownedBizList || []) {
+        if (b?.id) {
+          bizSet.add(b.id);
+          isOwnerOrAdmin = true;
+        }
+      }
+      for (const m of (memberRows as any[]) || []) {
+        if (m?.business_id) bizSet.add(m.business_id);
+        if (m?.role === "owner" || m?.role === "admin") isOwnerOrAdmin = true;
+      }
+      userBusinessIds = Array.from(bizSet);
+    } catch {
+      // ignore
+    }
+  }
+
+  // Owner/Admin Priority: Always respect the branch explicitly chosen in Masuk POS Kasir / header switcher
+  if (isOwnerOrAdmin) {
+    const stored = readStoredPosOutlet();
+    if (stored?.id) {
+      try {
+        let q = supabase.from("outlets").select("id, name, business_id").eq("id", stored.id);
+        if (userBusinessIds.length > 0) {
+          q = q.in("business_id", userBusinessIds);
+        }
+        const { data: out } = await q.maybeSingle();
+        if (out) {
+          return {
+            outletId: out.id,
+            outletName: out.name,
+            source: "stored",
+          };
+        }
+      } catch {}
+    }
+  }
+
+  // Tier 0: Direct Outlet Device Account check (Always strictly binds non-owner device accounts to their outlet)
+  if (!isOwnerOrAdmin && (uid || userEmail)) {
+    try {
+      let devQuery = supabase
         .from("outlets")
         .select("id, name, settings")
         .order("created_at", { ascending: true });
+      if (userBusinessIds.length > 0) {
+        devQuery = devQuery.in("business_id", userBusinessIds);
+      }
+      const { data: allOutlets } = await devQuery;
 
       if (allOutlets && allOutlets.length > 0) {
         const matchedOutlet = allOutlets.find((o: any) => {
@@ -1117,44 +1323,8 @@ export async function resolveActiveStaffOutlet(
     }
   }
 
-  // If user is authenticated, prioritize official database assignment first
-  if (uid) {
-    // Check if user is Owner or Admin
-    let isOwnerOrAdmin = false;
-    try {
-      if (typeof window !== "undefined") {
-        const simRole = localStorage.getItem("kebabschoicepos_simulated_role");
-        if (simRole === "owner" || simRole === "admin") isOwnerOrAdmin = true;
-      }
-      if (!isOwnerOrAdmin) {
-        const { data: memberRow } = await (supabase
-          .from("business_members" as any) as any)
-          .select("role, outlet_id")
-          .eq("user_id", uid)
-          .limit(1)
-          .maybeSingle();
-
-        if ((memberRow as any)?.role === "owner" || (memberRow as any)?.role === "admin") {
-          isOwnerOrAdmin = true;
-        }
-
-        // Check if owner in businesses
-        if (!isOwnerOrAdmin) {
-          const { data: ownedBiz } = await supabase
-            .from("businesses")
-            .select("id")
-            .eq("owner_id", uid)
-            .limit(1)
-            .maybeSingle();
-          if (ownedBiz) isOwnerOrAdmin = true;
-        }
-      }
-    } catch {
-      // ignore
-    }
-
-    // For non-owner staff (Cashier/Staff), STRICTLY check database assignment first
-    if (!isOwnerOrAdmin) {
+  // For non-owner staff (Cashier/Staff), STRICTLY check database assignment first
+  if (uid && !isOwnerOrAdmin) {
       // Tier 1 (Staff Priority): Check staff_profiles table
       try {
         const { data: staffRow } = await supabase
@@ -1209,10 +1379,14 @@ export async function resolveActiveStaffOutlet(
 
       // Tier 3 (Staff Priority): Search in outlets where settings.assigned_staff_ids contains uid or settings.manager_user_id === uid
       try {
-        const { data: allOutlets } = await supabase
+        let assignQuery = supabase
           .from("outlets")
           .select("id, name, settings")
           .order("created_at", { ascending: true });
+        if (userBusinessIds.length > 0) {
+          assignQuery = assignQuery.in("business_id", userBusinessIds);
+        }
+        const { data: allOutlets } = await assignQuery;
 
         if (allOutlets && allOutlets.length > 0) {
           const matched = allOutlets.find((o: any) => {
@@ -1234,40 +1408,40 @@ export async function resolveActiveStaffOutlet(
       } catch {
         // ignore
       }
-    }
   }
 
   // Tier 4: For Owner/Admin or staff without explicit assigned outlet, check active outlet selection in localStorage
-  if (typeof window !== "undefined") {
+  const storedFallback = readStoredPosOutlet();
+  if (storedFallback?.id) {
     try {
-      const storedOutletId = localStorage.getItem("kebabschoicepos_active_outlet_id");
-      if (storedOutletId && storedOutletId !== "all") {
-        const { data: out } = await supabase
-          .from("outlets")
-          .select("id, name")
-          .eq("id", storedOutletId)
-          .maybeSingle();
-        if (out) {
-          return {
-            outletId: out.id,
-            outletName: out.name,
-            source: "stored",
-          };
-        }
+      let q = supabase.from("outlets").select("id, name").eq("id", storedFallback.id);
+      if (userBusinessIds.length > 0) {
+        q = q.in("business_id", userBusinessIds);
+      }
+      const { data: out } = await q.maybeSingle();
+      if (out) {
+        return {
+          outletId: out.id,
+          outletName: out.name,
+          source: "stored",
+        };
       }
     } catch {
       // ignore
     }
   }
 
-  // Tier 5: Fallback to first outlet
+  // Tier 5: Fallback to first non-archived outlet belonging strictly to the user's business
   try {
-    const { data: firstOutlet } = await supabase
+    let fallbackQuery = supabase
       .from("outlets")
-      .select("id, name")
-      .order("created_at", { ascending: true })
-      .limit(1)
-      .maybeSingle();
+      .select("id, name, settings")
+      .order("created_at", { ascending: true });
+    if (userBusinessIds.length > 0) {
+      fallbackQuery = fallbackQuery.in("business_id", userBusinessIds);
+    }
+    const { data: candidateOutlets } = await fallbackQuery;
+    const firstOutlet = (candidateOutlets || []).find((o) => !isOutletDeletedOrArchived(o));
 
     if (firstOutlet) {
       return {

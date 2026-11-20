@@ -215,6 +215,10 @@ export function isDateWithinFilter(
   }
 
   if (range === "custom") {
+    // Do NOT fallback to all-time data when Custom Range is selected without any date filled
+    if (!filter.startDate && !filter.endDate) {
+      return false;
+    }
     if (filter.startDate) {
       const parts = filter.startDate.split("-").map(Number);
       const start = new Date(
@@ -321,7 +325,7 @@ export async function getComprehensiveAnalytics(
     const allBusinessIds = await resolveAllBusinessIds(businessId);
     const targetBizIds = allBusinessIds.length > 0 ? allBusinessIds : [businessId];
 
-    // 1. Fetch Outlets for this business (filter out archived/inactive)
+    // 1. Fetch Outlets for this business (exclude only archived/soft-deleted outlets)
     const { data: outletsData } = await supabase
       .from("outlets")
       .select("id, name, code, address, active, settings, created_at")
@@ -329,7 +333,7 @@ export async function getComprehensiveAnalytics(
       .order("created_at", { ascending: true });
 
     const outlets = (outletsData || []).filter(
-      (o: any) => o.active !== false && !(o.settings as any)?.archived,
+      (o: any) => !(o.settings as any)?.archived && !(o.settings as any)?.deleted_at,
     );
 
     // Extract recipes & order metadata stored across outlet settings
@@ -565,6 +569,9 @@ export async function getComprehensiveAnalytics(
             if (!mergedMenuRecipes[k] && v) mergedMenuRecipes[k] = v;
           }
         }
+        if (st.procurement?.item_meta && typeof st.procurement.item_meta === "object") {
+          Object.assign(itemMetaMap, st.procurement.item_meta);
+        }
         if (st.procurement_store?.item_meta && typeof st.procurement_store.item_meta === "object") {
           Object.assign(itemMetaMap, st.procurement_store.item_meta);
         }
@@ -572,9 +579,17 @@ export async function getComprehensiveAnalytics(
       if (Object.keys(itemMetaMap).length > 0) {
         enrichedInventoryItems = enrichedInventoryItems.map((inv: any) => {
           const meta = itemMetaMap[inv.id] || {};
+          const dbCost = Number(inv.cost_price) || 0;
+          const metaCost = Number(meta.cost_price) || 0;
+          const resolvedCost =
+            metaCost > 0 && (dbCost <= 0 || (dbCost === 1000 && metaCost !== 1000))
+              ? metaCost
+              : dbCost > 0
+                ? dbCost
+                : metaCost;
           return {
             ...inv,
-            cost_price: Number(inv.cost_price) > 0 ? Number(inv.cost_price) : Number(meta.cost_price) || 0,
+            cost_price: resolvedCost,
             yield_per_unit: inv.yield_per_unit ?? meta.yield_per_unit ?? null,
             yield_unit: inv.yield_unit ?? meta.yield_unit ?? null,
           };
@@ -603,8 +618,8 @@ export async function getComprehensiveAnalytics(
     // Build menu performance list
     const menuItems: MenuPerformanceItem[] = enrichedProducts.map((p) => {
       const sales = menuSalesMap[p.id] || menuSalesMap[p.name] || { soldCount: 0, revenue: 0 };
-      const cost = productCostMap[p.id] || Math.round(p.price * 0.4);
-      const margin = p.price > 0 ? Math.round(((p.price - cost) / p.price) * 100) : 50;
+      const cost = productCostMap[p.id] || (p.price > 0 ? Math.round(p.price * 0.4) : 0);
+      const margin = p.price > 0 ? Math.round(((p.price - cost) / p.price) * 100) : 0;
 
       let status: MenuPerformanceItem["status"] = "normal";
       if (sales.soldCount >= 10) status = "best_seller";
@@ -903,18 +918,23 @@ export async function getComprehensiveAnalytics(
       }
     }
 
+    const isEmptyCustomRange =
+      filter?.dateRange === "custom" && !filter?.startDate && !filter?.endDate;
+
     const dailyTrends: DailyTrendMetric[] = Object.entries(dailyMap).map(([day, val]) => {
-      const actualVal = val.revenue > 0 ? val.revenue : null;
+      const actualVal = !isEmptyCustomRange && val.revenue > 0 ? val.revenue : null;
       const forecastVal =
-        val.revenue > 0
-          ? Math.round(val.revenue * 1.08)
-          : Math.round(totalRevenue > 0 ? (totalRevenue / 7) * 1.05 : 0);
+        isEmptyCustomRange || totalRevenue <= 0
+          ? 0
+          : val.revenue > 0
+            ? Math.round(val.revenue * 1.08)
+            : Math.round((totalRevenue / 7) * 1.05);
       return {
         day,
         dateStr: day,
         aktual: actualVal,
         prediksi: forecastVal,
-        orders: val.orders,
+        orders: isEmptyCustomRange ? 0 : val.orders,
       };
     });
 

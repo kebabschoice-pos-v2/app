@@ -588,7 +588,7 @@ export const calculateSnapshotMetrics = (snapshot: Snapshot) => {
   }
   const outletPerformances = Object.values(outletMap).sort((a, b) => b.revenue - a.revenue);
 
-  // Top products
+  // Top products (only include items with actual sales in the active period)
   const topProducts = [...(snapshot.products || [])]
     .map((p) => {
       const sales = bomMetrics.productSalesMap[p.id] || bomMetrics.productSalesMap[p.name] || {
@@ -604,6 +604,7 @@ export const calculateSnapshotMetrics = (snapshot: Snapshot) => {
         revenue: sales.revenue,
       };
     })
+    .filter((p) => p.soldCount > 0 || p.revenue > 0)
     .sort((a, b) => b.revenue - a.revenue || b.soldCount - a.soldCount)
     .slice(0, 5);
 

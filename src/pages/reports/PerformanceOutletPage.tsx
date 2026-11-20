@@ -49,6 +49,7 @@ import {
   type BusinessAnalyticsSummary,
   type DateRangePreset,
 } from "@/services/reports.service";
+import { getOutletList } from "@/services/outlet.service";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
@@ -91,15 +92,13 @@ export function PerformanceOutletPage() {
         }
       }
       if (bId) {
-        // Fetch list of all outlets for filter dropdown if not yet populated
+        // Fetch unified list of all registered outlets for filter dropdown
         if (allOutletsList.length === 0) {
-          const { data: oList } = await supabase
-            .from("outlets")
-            .select("id, name")
-            .eq("business_id", bId)
-            .order("name", { ascending: true });
-          if (oList && oList.length > 0) {
-            setAllOutletsList(oList);
+          const unifiedOutlets = await getOutletList(bId).catch(() => []);
+          if (unifiedOutlets.length > 0) {
+            setAllOutletsList(
+              unifiedOutlets.map((o) => ({ id: o.id, name: o.name || o.outlet_name })),
+            );
           }
         }
 
@@ -321,6 +320,7 @@ export function PerformanceOutletPage() {
                   onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
                   className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
+                  <option value="all">Semua Waktu</option>
                   <option value="today">Hari Ini</option>
                   <option value="last_7_days">7 Hari Terakhir</option>
                   <option value="this_month">Bulan Ini</option>

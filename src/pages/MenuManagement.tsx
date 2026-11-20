@@ -1389,19 +1389,63 @@ export function MenuManagement() {
     }
   }
 
+  // Sync category filter tabs with actual categories present on menu items
+  // (e.g. ensure actual "Umum" items appear with accurate counts and hide orphan 0-count tabs like "makanan 0")
+  const syncedFilterCategories = useMemo(() => {
+    const byLowerName = new Map<string, { id: string; name: string; count: number }>();
+
+    // First register all actual categories present on loaded menu items
+    for (const item of items) {
+      const effectiveName = (item.category_name || "").trim() || "Umum";
+      const lower = effectiveName.toLowerCase();
+      const matchedCat = categories.find(
+        (c) => c.id === item.category_id || c.name.trim().toLowerCase() === lower,
+      );
+      const existing = byLowerName.get(lower);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        byLowerName.set(lower, {
+          id: matchedCat?.id || effectiveName,
+          name: matchedCat?.name || effectiveName,
+          count: 1,
+        });
+      }
+    }
+
+    // If there are no items yet, show all configured categories
+    if (items.length === 0) {
+      for (const cat of categories) {
+        const lower = cat.name.trim().toLowerCase();
+        if (!byLowerName.has(lower)) {
+          byLowerName.set(lower, { id: cat.id, name: cat.name, count: 0 });
+        }
+      }
+    }
+
+    return Array.from(byLowerName.values());
+  }, [items, categories]);
+
   // Filtered List
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
+      const effectiveCatName = (item.category_name || "").trim() || "Umum";
       const q = search.toLowerCase();
       const matchesSearch =
         (item.name || "").toLowerCase().includes(q) ||
         (item.sku || "").toLowerCase().includes(q) ||
-        (item.category_name || "").toLowerCase().includes(q);
+        effectiveCatName.toLowerCase().includes(q);
 
+      const selectedCatObj = syncedFilterCategories.find(
+        (c) =>
+          c.id === selectedCategoryFilter ||
+          c.name.toLowerCase() === selectedCategoryFilter.toLowerCase(),
+      );
       const matchesCategory =
         selectedCategoryFilter === "all" ||
         item.category_id === selectedCategoryFilter ||
-        item.category_name?.toLowerCase() === selectedCategoryFilter.toLowerCase();
+        effectiveCatName.toLowerCase() === selectedCategoryFilter.toLowerCase() ||
+        (selectedCatObj ? effectiveCatName.toLowerCase() === selectedCatObj.name.toLowerCase() : false);
 
       const matchesStatus =
         filterStatus === "all" ||
@@ -1410,12 +1454,12 @@ export function MenuManagement() {
 
       return matchesSearch && matchesCategory && matchesStatus;
     });
-  }, [items, search, selectedCategoryFilter, filterStatus]);
+  }, [items, search, selectedCategoryFilter, filterStatus, syncedFilterCategories]);
 
   // KPI Stats
   const totalMenuCount = items.length;
   const activeMenuCount = items.filter((i) => i.active).length;
-  const categoryCount = categories.length;
+  const categoryCount = syncedFilterCategories.length;
   const totalOutlets = outlets.length;
 
   return (
@@ -1490,11 +1534,7 @@ export function MenuManagement() {
           </span>
         </button>
 
-        {categories.map((cat) => {
-          const catCount = items.filter(
-            (i) =>
-              i.category_id === cat.id || i.category_name?.toLowerCase() === cat.name.toLowerCase(),
-          ).length;
+        {syncedFilterCategories.map((cat) => {
           const isSelected =
             selectedCategoryFilter === cat.id ||
             selectedCategoryFilter.toLowerCase() === cat.name.toLowerCase();
@@ -1511,7 +1551,7 @@ export function MenuManagement() {
             >
               <span>{cat.name}</span>
               <span className="ml-1 rounded-full bg-black/10 dark:bg-white/20 px-1.5 py-0.5 text-xs">
-                {catCount}
+                {cat.count}
               </span>
             </button>
           );

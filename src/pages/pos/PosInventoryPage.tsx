@@ -56,7 +56,18 @@ const STORAGE_STOCK_REQUESTS = "kebabschoicepos_outlet_stock_requests";
 export function PosInventoryPage() {
   const [items, setItems] = useState<OutletInventoryItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [outletName, setOutletName] = useState("Kebab Pasar Jumat");
+  const [outletName, setOutletName] = useState(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const raw = localStorage.getItem("kebabschoicepos_active_outlet");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.name) return String(parsed.name);
+        }
+      } catch {}
+    }
+    return "Cabang Aktif";
+  });
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
 
@@ -83,8 +94,18 @@ export function PosInventoryPage() {
     const handleInvUpdate = () => {
       loadInventory();
     };
+    const handleOutletChanged = (e: any) => {
+      if (e?.detail?.outletName) {
+        setOutletName(String(e.detail.outletName));
+      }
+      loadInventory();
+    };
     window.addEventListener("inventory:updated", handleInvUpdate);
-    return () => window.removeEventListener("inventory:updated", handleInvUpdate);
+    window.addEventListener("outlet:changed", handleOutletChanged);
+    return () => {
+      window.removeEventListener("inventory:updated", handleInvUpdate);
+      window.removeEventListener("outlet:changed", handleOutletChanged);
+    };
   }, []);
 
   async function loadInventory() {

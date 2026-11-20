@@ -189,6 +189,10 @@ export function InventoryManagement() {
 
   async function loadData() {
     setLoading(true);
+    const safetyTimer = setTimeout(() => {
+      setLoading(false);
+    }, 3000);
+
     try {
       const activeBranchId =
         selectedOutlet === "all" || selectedOutlet === "central" ? null : selectedOutlet;
@@ -197,59 +201,18 @@ export function InventoryManagement() {
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "";
 
-      let salesOrdersQuery = supabase
-        .from("sales_orders")
-        .select("id, outlet_id, status, total, created_at")
-        .order("created_at", { ascending: false });
-      if (activeBizId) {
-        salesOrdersQuery = salesOrdersQuery.eq("business_id", activeBizId);
-      }
-
-      let outletsSettingsQuery = supabase.from("outlets").select("settings");
-      if (activeBizId) {
-        outletsSettingsQuery = outletsSettingsQuery.eq("business_id", activeBizId);
-      }
-
-      const [
-        itms,
-        supps,
-        movs,
-        mets,
-        outls,
-        bizOutlets,
-        bLedger,
-        wastes,
-        transfers,
-        dbOrdersRes,
-        menuItemsRes,
-        outletDataRes,
-      ] = await Promise.all([
+      // Stage 1 (Fast critical path): Fetch core inventory items, suppliers, and outlets
+      // so the Bahan Baku table and KPI cards render immediately without blocking on secondary queries.
+      const [itms, supps, outls, bizOutlets] = await Promise.all([
         getInventoryItems(activeBizId || undefined),
-        getSuppliers(),
-        getStockMovements(activeBizId || undefined),
-        getInventoryDashboardMetrics(),
+        getSuppliers().catch(() => [] as SupplierItem[]),
         getOutletList().catch(() => [] as OutletItem[]),
-        getBusinessOutlets(activeBizId || undefined).catch(() => [] as Array<{ id: string; name: string }>),
-        loadBranchMoneyLedger(activeBranchId).catch(() => null),
-        getWasteRecords(activeBranchId || undefined).catch(() => []),
-        getStockTransfers(activeBranchId || undefined).catch(() => []),
-        Promise.resolve(salesOrdersQuery).catch(() => ({ data: [] })),
-        getMenuItems({ businessId: activeBizId || undefined }).catch(() => [] as any[]),
-        Promise.resolve(outletsSettingsQuery).catch(() => ({ data: [] })),
+        getBusinessOutlets(activeBizId || undefined).catch(
+          () => [] as Array<{ id: string; name: string }>,
+        ),
       ]);
 
-      const orderIds = ((dbOrdersRes?.data as any[]) || []).map((o: any) => o.id).filter(Boolean);
-      const dbItemsRes =
-        orderIds.length > 0
-          ? await Promise.resolve(
-              supabase
-                .from("sales_order_items")
-                .select("order_id, product_id, name, quantity")
-                .in("order_id", orderIds),
-            ).catch(() => ({ data: [] }))
-          : { data: [] };
-
-      // Merge active outlets with archived-but-holding-stock outlets & item outlet references
+      // Merge active outlets with item outlet references
       const mergedOutletsMap = new Map<string, OutletItem>();
       for (const o of outls || []) {
         if (o?.id) mergedOutletsMap.set(o.id, o);
@@ -270,6 +233,68 @@ export function InventoryManagement() {
           } as OutletItem);
         }
       }
+
+      // Compute KPI metrics directly from fetched items (eliminates redundant double getInventoryItems call)
+      const computedMetrics = {
+        totalItems: itms.length,
+        totalStockValue: itms.reduce(
+          (sum, it) => sum + (Number(it.stock) || 0) * (Number(it.cost_price) || 0),
+          0,
+        ),
+        lowStockCount: itms.filter((it) => it.status === "menipis").length,
+        outOfStockCount: itms.filter((it) => it.status === "habis").length,
+      };
+
+      // Commit core table & KPI state immediately and stop table loading spinner
+      setItems(itms);
+      setSuppliers(supps);
+      setMetrics(computedMetrics);
+      setOutlets(Array.from(mergedOutletsMap.values()));
+      clearTimeout(safetyTimer);
+      setLoading(false);
+
+      // Stage 2 (Non-blocking secondary mutation & analytics enrichment)
+      let salesOrdersQuery = supabase
+        .from("sales_orders")
+        .select("id, outlet_id, status, total, created_at")
+        .order("created_at", { ascending: false });
+      if (activeBizId) {
+        salesOrdersQuery = salesOrdersQuery.eq("business_id", activeBizId);
+      }
+
+      let outletsSettingsQuery = supabase.from("outlets").select("settings");
+      if (activeBizId) {
+        outletsSettingsQuery = outletsSettingsQuery.eq("business_id", activeBizId);
+      }
+
+      const [
+        movs,
+        bLedger,
+        wastes,
+        transfers,
+        dbOrdersRes,
+        menuItemsRes,
+        outletDataRes,
+      ] = await Promise.all([
+        getStockMovements(activeBizId || undefined).catch(() => [] as StockMovementRecord[]),
+        loadBranchMoneyLedger(activeBranchId).catch(() => null),
+        getWasteRecords(activeBranchId || undefined).catch(() => []),
+        getStockTransfers(activeBranchId || undefined).catch(() => []),
+        Promise.resolve(salesOrdersQuery).catch(() => ({ data: [] })),
+        getMenuItems({ businessId: activeBizId || undefined }).catch(() => [] as any[]),
+        Promise.resolve(outletsSettingsQuery).catch(() => ({ data: [] })),
+      ]);
+
+      const orderIds = ((dbOrdersRes?.data as any[]) || []).map((o: any) => o.id).filter(Boolean);
+      const dbItemsRes =
+        orderIds.length > 0
+          ? await Promise.resolve(
+              supabase
+                .from("sales_order_items")
+                .select("order_id, product_id, name, quantity")
+                .in("order_id", orderIds),
+            ).catch(() => ({ data: [] }))
+          : { data: [] };
 
       // Sales orders and order items pairing
       const validOrders: any[] = [];
@@ -335,11 +360,7 @@ export function InventoryManagement() {
         }
       }
 
-      setItems(itms);
-      setSuppliers(supps);
       setMovements(movs);
-      setMetrics(mets);
-      setOutlets(Array.from(mergedOutletsMap.values()));
       setBranchLedger(bLedger);
       setWasteList(wastes || []);
       setTransferList(transfers || []);
@@ -351,6 +372,7 @@ export function InventoryManagement() {
         description: err.message || "Terjadi kesalahan koneksi database",
       });
     } finally {
+      clearTimeout(safetyTimer);
       setLoading(false);
     }
   }
@@ -492,13 +514,16 @@ export function InventoryManagement() {
     const getOrCreateEntry = (itemId: string, itemName: string) => {
       const itm = items.find((i) => i.id === itemId || i.name?.toLowerCase().trim() === itemName.toLowerCase().trim());
       const resolvedId = itm?.id || itemId || "unknown";
-      const resolvedName = itm?.name || itemName || "Bahan Baku";
+      const resolvedName = (itm?.name || itemName || "Bahan Baku").trim();
       const unit = itm?.unit || "unit";
       const yield_per_unit = itm?.yield_per_unit;
       const yield_unit = itm?.yield_unit;
+      // Deduplicate across branches by normalized item name so identical ingredients (e.g. Daging Kebab Uji)
+      // never appear as duplicate cards in Mutasi Stok.
+      const mapKey = resolvedName.toLowerCase() || resolvedId;
 
-      if (!map.has(resolvedId)) {
-        map.set(resolvedId, {
+      if (!map.has(mapKey)) {
+        map.set(mapKey, {
           itemId: resolvedId,
           itemName: resolvedName,
           unit,
@@ -512,7 +537,7 @@ export function InventoryManagement() {
           wasteNotes: [],
         });
       }
-      return map.get(resolvedId)!;
+      return map.get(mapKey)!;
     };
 
     // 1. Process recorded movements

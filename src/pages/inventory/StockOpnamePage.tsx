@@ -83,22 +83,50 @@ export function StockOpnamePage() {
     loadData();
   }, []);
 
+  function buildAuditItemsForOutlet(targetOutletId: string) {
+    // Filter items strictly for the chosen outlet (preferring exact outlet match, fallback to shared items)
+    // and deduplicate by normalized lowercase ingredient name so e.g. "Daging Kebab Uji" never appears twice.
+    const branchMatched = targetOutletId
+      ? inventoryItems.filter((item) => item.outlet_id === targetOutletId)
+      : [];
+    const candidates =
+      branchMatched.length > 0
+        ? branchMatched
+        : inventoryItems.filter((item) => !item.outlet_id || item.outlet_id === targetOutletId);
+    const sourceList = candidates.length > 0 ? candidates : inventoryItems;
+
+    const dedupMap = new Map<string, InventoryItemDetail>();
+    for (const item of sourceList) {
+      const nameKey = (item.name || "").trim().toLowerCase() || item.id;
+      const existing = dedupMap.get(nameKey);
+      if (!existing) {
+        dedupMap.set(nameKey, item);
+      } else if (targetOutletId && item.outlet_id === targetOutletId && existing.outlet_id !== targetOutletId) {
+        dedupMap.set(nameKey, item);
+      }
+    }
+
+    return Array.from(dedupMap.values()).map((item) => ({
+      item_id: item.id,
+      item_name: item.name,
+      unit: item.unit,
+      system_stock: item.stock,
+      physical_stock: item.stock, // Default to system stock
+      notes: "",
+    }));
+  }
+
   function handleStartNewOpname() {
     if (inventoryItems.length === 0) {
       toast.error("Belum ada bahan baku di inventori untuk di-opname.");
       return;
     }
 
-    setAuditItems(
-      inventoryItems.map((item) => ({
-        item_id: item.id,
-        item_name: item.name,
-        unit: item.unit,
-        system_stock: item.stock,
-        physical_stock: item.stock, // Default to system stock
-        notes: "",
-      })),
-    );
+    const effectiveOutletId = selectedOutletId || outlets[0]?.id || "";
+    if (!selectedOutletId && effectiveOutletId) {
+      setSelectedOutletId(effectiveOutletId);
+    }
+    setAuditItems(buildAuditItemsForOutlet(effectiveOutletId));
     setOpnameDate(new Date().toISOString().split("T")[0] ?? "");
     setOpnameNotes("");
     setConductorName("Staff Audit");
@@ -372,7 +400,11 @@ export function StockOpnamePage() {
                 <label className="text-xs font-bold text-muted-foreground">Outlet Target *</label>
                 <select
                   value={selectedOutletId}
-                  onChange={(e) => setSelectedOutletId(e.target.value)}
+                  onChange={(e) => {
+                    const nextOutletId = e.target.value;
+                    setSelectedOutletId(nextOutletId);
+                    setAuditItems(buildAuditItemsForOutlet(nextOutletId));
+                  }}
                   aria-label="Pilih outlet target opname"
                   className="mt-1 w-full rounded-2xl border border-input bg-background p-2.5 text-xs sm:text-sm font-medium focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                 >

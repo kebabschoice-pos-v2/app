@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveCurrentBusinessIds } from "@/services/outlet.service";
 import { sanitizeQuantityInput, stripLeadingZeros } from "@/lib/input-formatters";
 
 export function TaxSettingsPage() {
@@ -17,32 +18,83 @@ export function TaxSettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       try {
+        let resolvedConfig = {
+          taxEnabled: true,
+          taxRate: 10,
+          taxName: "PB1 (Pajak Restoran)",
+          taxMode: "exclusive" as "inclusive" | "exclusive",
+          serviceEnabled: false,
+          serviceRate: 5,
+        };
+        let foundSaved = false;
+
         const saved = localStorage.getItem("kebabschoicepos_tax_settings");
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (typeof parsed.taxEnabled === "boolean") setTaxEnabled(parsed.taxEnabled);
-          if (parsed.taxRate !== undefined) setTaxRate(parsed.taxRate);
-          if (parsed.taxName) setTaxName(parsed.taxName);
-          if (parsed.taxMode) setTaxMode(parsed.taxMode);
-          if (typeof parsed.serviceEnabled === "boolean") setServiceEnabled(parsed.serviceEnabled);
-          if (parsed.serviceRate !== undefined) setServiceRate(parsed.serviceRate);
+          foundSaved = true;
+          resolvedConfig = {
+            taxEnabled: typeof parsed.taxEnabled === "boolean" ? parsed.taxEnabled : true,
+            taxRate: parsed.taxRate !== undefined ? Number(parsed.taxRate) : 10,
+            taxName: parsed.taxName || "PB1 (Pajak Restoran)",
+            taxMode: parsed.taxMode === "inclusive" ? "inclusive" : "exclusive",
+            serviceEnabled: typeof parsed.serviceEnabled === "boolean" ? parsed.serviceEnabled : false,
+            serviceRate: parsed.serviceRate !== undefined ? Number(parsed.serviceRate) : 5,
+          };
         }
 
-        // Check Supabase outlets.settings.tax_settings
-        const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(5);
+        // Check Supabase outlets.settings.tax_settings scoped to active user's businesses
+        let allBizIds: string[] = [];
+        try {
+          const biz = await resolveCurrentBusinessIds();
+          allBizIds = biz.allIds;
+        } catch {}
+
+        let outletsQuery = supabase.from("outlets").select("id, settings");
+        if (allBizIds.length > 0) {
+          outletsQuery = outletsQuery.in("business_id", allBizIds);
+        } else {
+          outletsQuery = outletsQuery.limit(5);
+        }
+        const { data: outletsData } = await outletsQuery;
         if (outletsData && Array.isArray(outletsData)) {
           for (const out of outletsData) {
             const taxConf = (out.settings as any)?.tax_settings;
             if (taxConf) {
-              if (typeof taxConf.taxEnabled === "boolean") setTaxEnabled(taxConf.taxEnabled);
-              if (taxConf.taxRate !== undefined) setTaxRate(taxConf.taxRate);
-              if (taxConf.taxName) setTaxName(taxConf.taxName);
-              if (taxConf.taxMode) setTaxMode(taxConf.taxMode);
-              if (typeof taxConf.serviceEnabled === "boolean") setServiceEnabled(taxConf.serviceEnabled);
-              if (taxConf.serviceRate !== undefined) setServiceRate(taxConf.serviceRate);
+              foundSaved = true;
+              resolvedConfig = {
+                taxEnabled:
+                  typeof taxConf.taxEnabled === "boolean"
+                    ? taxConf.taxEnabled
+                    : resolvedConfig.taxEnabled,
+                taxRate:
+                  taxConf.taxRate !== undefined ? Number(taxConf.taxRate) : resolvedConfig.taxRate,
+                taxName: taxConf.taxName || resolvedConfig.taxName,
+                taxMode: taxConf.taxMode === "inclusive" ? "inclusive" : "exclusive",
+                serviceEnabled:
+                  typeof taxConf.serviceEnabled === "boolean"
+                    ? taxConf.serviceEnabled
+                    : resolvedConfig.serviceEnabled,
+                serviceRate:
+                  taxConf.serviceRate !== undefined
+                    ? Number(taxConf.serviceRate)
+                    : resolvedConfig.serviceRate,
+              };
               break;
             }
           }
+        }
+
+        setTaxEnabled(resolvedConfig.taxEnabled);
+        setTaxRate(resolvedConfig.taxRate);
+        setTaxName(resolvedConfig.taxName);
+        setTaxMode(resolvedConfig.taxMode);
+        setServiceEnabled(resolvedConfig.serviceEnabled);
+        setServiceRate(resolvedConfig.serviceRate);
+
+        // Always keep localStorage synced so Smart Cart /pos matches the active state displayed in /tax
+        if (!foundSaved || !saved) {
+          localStorage.setItem("kebabschoicepos_tax_settings", JSON.stringify(resolvedConfig));
+          window.dispatchEvent(new CustomEvent("tax:updated", { detail: resolvedConfig }));
         }
       } catch (e) {
         console.error(e);
@@ -54,16 +106,26 @@ export function TaxSettingsPage() {
   const handleSave = async () => {
     const data = {
       taxEnabled,
-      taxRate,
-      taxName,
+      taxRate: Number(taxRate) || 0,
+      taxName: taxName.trim() || "PB1 (Pajak Restoran)",
       taxMode,
       serviceEnabled,
-      serviceRate,
+      serviceRate: Number(serviceRate) || 0,
     };
     localStorage.setItem("kebabschoicepos_tax_settings", JSON.stringify(data));
 
     try {
-      const { data: allOutlets } = await supabase.from("outlets").select("id, settings");
+      let allBizIds: string[] = [];
+      try {
+        const biz = await resolveCurrentBusinessIds();
+        allBizIds = biz.allIds;
+      } catch {}
+
+      let outletsQuery = supabase.from("outlets").select("id, settings");
+      if (allBizIds.length > 0) {
+        outletsQuery = outletsQuery.in("business_id", allBizIds);
+      }
+      const { data: allOutlets } = await outletsQuery;
       if (allOutlets && Array.isArray(allOutlets)) {
         for (const out of allOutlets) {
           const curr =
@@ -84,6 +146,7 @@ export function TaxSettingsPage() {
 
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("storage"));
+      window.dispatchEvent(new CustomEvent("tax:updated", { detail: data }));
     }
     toast.success("Pengaturan Pajak & Biaya Layanan berhasil disimpan");
   };

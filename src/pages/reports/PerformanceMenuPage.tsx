@@ -36,6 +36,7 @@ import {
   type BusinessAnalyticsSummary,
   type DateRangePreset,
 } from "@/services/reports.service";
+import { getOutletList } from "@/services/outlet.service";
 import { supabase } from "@/integrations/supabase/client";
 import { toast } from "sonner";
 
@@ -80,13 +81,11 @@ export function PerformanceMenuPage() {
       }
       if (bId) {
         if (outletsList.length === 0) {
-          const { data: oData } = await supabase
-            .from("outlets")
-            .select("id, name")
-            .eq("business_id", bId)
-            .order("name", { ascending: true });
-          if (oData && oData.length > 0) {
-            setOutletsList(oData);
+          const unifiedOutlets = await getOutletList(bId).catch(() => []);
+          if (unifiedOutlets.length > 0) {
+            setOutletsList(
+              unifiedOutlets.map((o) => ({ id: o.id, name: o.name || o.outlet_name })),
+            );
           }
         }
 
@@ -285,6 +284,7 @@ export function PerformanceMenuPage() {
                   onChange={(e) => setDateRange(e.target.value as DateRangePreset)}
                   className="p-0 m-0 pl-0 bg-transparent appearance-none leading-tight font-semibold text-sm text-foreground focus:outline-none cursor-pointer mt-0.5"
                 >
+                  <option value="all">Semua Waktu</option>
                   <option value="today">Hari Ini</option>
                   <option value="last_7_days">7 Hari Terakhir</option>
                   <option value="this_month">Bulan Ini</option>
@@ -530,10 +530,10 @@ export function PerformanceMenuPage() {
                   </td>
                   <td
                     className={`py-2.5 px-3 text-right font-semibold tabular-nums whitespace-nowrap ${
-                      item.margin < 0 ? "text-destructive" : "text-foreground"
+                      item.price > 0 && item.margin < 0 ? "text-destructive" : "text-foreground"
                     }`}
                   >
-                    {item.margin}%
+                    {item.price > 0 ? `${item.margin}%` : "0%"}
                   </td>
                   <td className="py-2.5 px-3 text-right font-semibold text-foreground tabular-nums whitespace-nowrap">
                     {item.soldCount}

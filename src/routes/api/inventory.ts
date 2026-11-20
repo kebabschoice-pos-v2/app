@@ -285,12 +285,14 @@ export const Route = createFileRoute("/api/inventory")({
               const meta = extraMeta[row.id] || {};
               const stockVal = Number(row.stock) || 0;
               const minVal = Number(row.minimum_stock) || 0;
+              const dbCostVal = Number(row.cost_price) || 0;
+              const metaCostVal = Number(meta.cost_price) || 0;
               let costPrice =
-                Number(row.cost_price) > 0
-                  ? Number(row.cost_price)
-                  : Number(meta.cost_price) > 0
-                    ? Number(meta.cost_price)
-                    : 0;
+                metaCostVal > 0 && (dbCostVal <= 0 || (dbCostVal === 1000 && metaCostVal !== 1000))
+                  ? metaCostVal
+                  : dbCostVal > 0
+                    ? dbCostVal
+                    : metaCostVal;
               const supplierId = row.supplier_id || meta.supplier_id || null;
               const matchedSup = suppliers.find((s: any) => s.id === supplierId);
               const outletId = row.outlet_id || meta.outlet_id || null;
@@ -308,11 +310,11 @@ export const Route = createFileRoute("/api/inventory")({
               // Only provide intelligent fallbacks if values are uninitialized (<= 0). Never overwrite valid user updates!
               const rowNameLower = (row.name || "").toLowerCase();
               if (rowNameLower.includes("tortilla")) {
-                if (costPrice <= 0) costPrice = 25000;
+                if (costPrice <= 0 || costPrice === 1000) costPrice = 25000;
                 if (!yieldPerUnit || yieldPerUnit <= 1) yieldPerUnit = 20;
                 if (!yieldUnit) yieldUnit = "pcs";
               } else if (rowNameLower.includes("daging")) {
-                if (costPrice <= 0) costPrice = 120000;
+                if (costPrice <= 0 || costPrice === 1000) costPrice = 120000;
                 if (!yieldPerUnit || yieldPerUnit <= 1) yieldPerUnit = 2000;
                 if (!yieldUnit) yieldUnit = "gram";
               }
@@ -583,7 +585,7 @@ export const Route = createFileRoute("/api/inventory")({
             if (res1) {
               inserted = res1;
             } else {
-              delete insertPayload.cost_price;
+              // Keep cost_price intact (real DB column) while stripping optional extension columns
               delete insertPayload.supplier_id;
               delete insertPayload.outlet_id;
               delete insertPayload.yield_per_unit;
@@ -595,12 +597,22 @@ export const Route = createFileRoute("/api/inventory")({
                 .single();
 
               if (err2 || !res2) {
-                return Response.json(
-                  { error: err2?.message || err1?.message || "Gagal membuat bahan baku" },
-                  { status: 500 },
-                );
+                delete insertPayload.cost_price;
+                const { data: res3, error: err3 } = await supabaseAdmin
+                  .from("inventory_items")
+                  .insert(insertPayload as any)
+                  .select()
+                  .single();
+                if (err3 || !res3) {
+                  return Response.json(
+                    { error: err3?.message || err2?.message || err1?.message || "Gagal membuat bahan baku" },
+                    { status: 500 },
+                  );
+                }
+                inserted = res3;
+              } else {
+                inserted = res2;
               }
-              inserted = res2;
             }
 
             const yieldPerUnitVal =
@@ -665,15 +677,22 @@ export const Route = createFileRoute("/api/inventory")({
               .eq("id", body.id);
 
             if (updErr) {
-              delete updatePayload.cost_price;
+              // Keep cost_price intact on retry so DB cost_price stays synced with real unit cost
               delete updatePayload.supplier_id;
               delete updatePayload.outlet_id;
               delete updatePayload.yield_per_unit;
               delete updatePayload.yield_unit;
-              await supabaseAdmin
+              const { error: updErr2 } = await supabaseAdmin
                 .from("inventory_items")
                 .update(updatePayload as any)
                 .eq("id", body.id);
+              if (updErr2) {
+                delete updatePayload.cost_price;
+                await supabaseAdmin
+                  .from("inventory_items")
+                  .update(updatePayload as any)
+                  .eq("id", body.id);
+              }
             }
 
             let resolvedUpdateOutletName = itemData.outlet_name;
@@ -1445,7 +1464,25 @@ export const Route = createFileRoute("/api/inventory")({
 
             const itemName = invItem?.name || "Bahan Baku";
             const unit = invItem?.unit || "pcs";
-            const finalCost = cost_loss || Number(quantity) * (Number(invItem?.cost_price) || 0);
+            const metaCost = Number(store.item_meta?.[inventory_item_id]?.cost_price) || 0;
+            const dbCost = Number(invItem?.cost_price) || 0;
+            let resolvedUnitCost =
+              metaCost > 0 && (dbCost <= 0 || (dbCost === 1000 && metaCost !== 1000))
+                ? metaCost
+                : dbCost > 0
+                  ? dbCost
+                  : metaCost;
+            const lowerWasteName = itemName.toLowerCase();
+            if (lowerWasteName.includes("daging") && (resolvedUnitCost <= 0 || resolvedUnitCost === 1000)) {
+              resolvedUnitCost = 120000;
+            } else if (lowerWasteName.includes("tortilla") && (resolvedUnitCost <= 0 || resolvedUnitCost === 1000)) {
+              resolvedUnitCost = 25000;
+            }
+            const computedLoss = Math.round(Number(quantity) * resolvedUnitCost);
+            const finalCost =
+              Number(cost_loss) > 0 && !(Number(cost_loss) === Math.round(Number(quantity) * 1000) && resolvedUnitCost > 1000)
+                ? Number(cost_loss)
+                : computedLoss;
 
             const newWaste = {
               id: `waste-${Date.now()}`,

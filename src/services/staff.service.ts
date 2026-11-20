@@ -80,42 +80,37 @@ async function queryStaffListDirect(): Promise<StaffItem[]> {
   const callerId = authData.user.id;
   console.log("CURRENT USER ID:", callerId);
 
-  // 1. Find businesses.owner_id
-  const { data: ownedBusinesses } = await supabase
-    .from("businesses")
-    .select("id, name")
-    .eq("owner_id", callerId)
-    .order("created_at", { ascending: true });
-
-  let businessId: string | null = null;
-  let businessIds: string[] = [];
-
-  const firstOwned = ownedBusinesses?.[0];
-  if (firstOwned) {
-    businessId = firstOwned.id;
-    businessIds = (ownedBusinesses || []).map((b) => b.id);
-    console.log("BUSINESS FOUND:", businessId);
-  } else {
-    const { data: memberBusinesses } = await supabase
+  // 1. Find ALL businesses owned OR membered by this user
+  const [{ data: ownedBusinesses }, { data: memberBusinesses }] = await Promise.all([
+    supabase
+      .from("businesses")
+      .select("id, name")
+      .eq("owner_id", callerId)
+      .order("created_at", { ascending: true }),
+    supabase
       .from("business_members")
       .select("business_id")
       .eq("user_id", callerId)
-      .order("created_at", { ascending: false })
-      .limit(1);
+      .order("created_at", { ascending: true }),
+  ]);
 
-    const firstMemberBiz = memberBusinesses?.[0];
-    if (firstMemberBiz) {
-      businessId = firstMemberBiz.business_id;
-      businessIds = [businessId];
-      console.log("BUSINESS FOUND:", businessId);
-    }
+  const bizIdSet = new Set<string>();
+  for (const b of ownedBusinesses || []) {
+    if (b?.id) bizIdSet.add(b.id);
+  }
+  for (const m of memberBusinesses || []) {
+    if (m?.business_id) bizIdSet.add(m.business_id);
   }
 
-  if (!businessId) {
+  const businessIds = Array.from(bizIdSet);
+  const businessId = ownedBusinesses?.[0]?.id || memberBusinesses?.[0]?.business_id || null;
+
+  if (!businessId || businessIds.length === 0) {
     console.log("BUSINESS FOUND: NOT_FOUND");
     console.log("STAFF QUERY RESULT:", []);
     return [];
   }
+  console.log("BUSINESS FOUND:", businessId);
 
   // 2. Query business_members without outlet_id
   const { data: members, error: mErr } = await supabase
@@ -247,9 +242,32 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
     }
   }
 
-  // 1. Fetch outlets to inspect settings.outlet_staff_roster
+  // 1. Fetch outlets scoped strictly to the user's business(es) to inspect settings.outlet_staff_roster
   try {
-    const { data: outlets } = await supabase.from("outlets").select("id, name, code, settings");
+    let userBizIds: string[] = [];
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      if (authData?.user) {
+        const [{ data: owned }, { data: members }] = await Promise.all([
+          supabase.from("businesses").select("id").eq("owner_id", authData.user.id),
+          supabase.from("business_members").select("business_id").eq("user_id", authData.user.id),
+        ]);
+        const s = new Set<string>();
+        for (const b of owned || []) if (b?.id) s.add(b.id);
+        for (const m of members || []) if (m?.business_id) s.add(m.business_id);
+        userBizIds = Array.from(s);
+      }
+    } catch {}
+    if (userBizIds.length === 0 && typeof window !== "undefined") {
+      const cachedBid = localStorage.getItem("kebabschoicepos_active_business_id");
+      if (cachedBid) userBizIds = [cachedBid];
+    }
+
+    let outletsQuery = supabase.from("outlets").select("id, name, code, settings");
+    if (userBizIds.length > 0) {
+      outletsQuery = outletsQuery.in("business_id", userBizIds);
+    }
+    const { data: outlets } = await outletsQuery;
     if (outlets && Array.isArray(outlets)) {
       for (const out of outlets) {
         const settings =

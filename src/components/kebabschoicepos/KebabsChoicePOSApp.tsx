@@ -195,7 +195,13 @@ import { OutletManagement } from "@/pages/OutletManagement";
 import { MenuManagement } from "@/pages/MenuManagement";
 import { ReceiptSettingsPage } from "@/components/kebabschoicepos/ReceiptSettingsPage";
 import { convertRecipeToInventoryQuantity } from "@/services/menu.service";
-import { recordOrderOutletMetadata, exportToCSV } from "@/services/reports.service";
+import {
+  recordOrderOutletMetadata,
+  exportToCSV,
+  isDateWithinFilter,
+  type AnalyticsFilter,
+} from "@/services/reports.service";
+import { getOutletList, isOutletDeletedOrArchived } from "@/services/outlet.service";
 import { verifySupervisorPin } from "@/services/supervisor.service";
 import { InventoryManagement } from "@/pages/inventory/InventoryManagement";
 import { StockOpnamePage } from "@/pages/inventory/StockOpnamePage";
@@ -757,6 +763,14 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
   const storedOutletAssignments: Record<string, any[]> = {};
   const storedOrderMetadata: Record<string, any> = {};
 
+  let bestOutletTaxSettings: any = null;
+  let bestOutletTaxTs = -1;
+  const preferredActiveOutletId =
+    typeof window !== "undefined"
+      ? localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+        localStorage.getItem("kebabschoicepos_active_outlet_id")
+      : null;
+
   for (const o of outletsResult.data || []) {
     const setObj = (o.settings as any) || {};
     if (setObj.menu_recipes) Object.assign(storedRecipes, setObj.menu_recipes);
@@ -767,10 +781,16 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
         storedOutletAssignments[prodId] = assignList as any[];
       }
     }
-    if (setObj.tax_settings) {
-      try {
-        localStorage.setItem("kebabschoicepos_tax_settings", JSON.stringify(setObj.tax_settings));
-      } catch {}
+    if (setObj.tax_settings && typeof setObj.tax_settings === "object") {
+      const ts = setObj.tax_settings.updatedAt
+        ? new Date(setObj.tax_settings.updatedAt).getTime()
+        : o.id === preferredActiveOutletId
+          ? 1
+          : 0;
+      if (!bestOutletTaxSettings || ts >= bestOutletTaxTs) {
+        bestOutletTaxSettings = setObj.tax_settings;
+        bestOutletTaxTs = ts;
+      }
     }
     if (setObj.payment_settings) {
       try {
@@ -782,6 +802,17 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
         localStorage.setItem("kebabschoicepos_printer_settings", JSON.stringify(setObj.printer_settings));
       } catch {}
     }
+  }
+
+  if (bestOutletTaxSettings && typeof window !== "undefined") {
+    try {
+      const existingLocalRaw = localStorage.getItem("kebabschoicepos_tax_settings");
+      const existingLocal = existingLocalRaw ? JSON.parse(existingLocalRaw) : null;
+      const localTs = existingLocal?.updatedAt ? new Date(existingLocal.updatedAt).getTime() : 0;
+      if (!existingLocal || bestOutletTaxTs >= localTs) {
+        localStorage.setItem("kebabschoicepos_tax_settings", JSON.stringify(bestOutletTaxSettings));
+      }
+    } catch {}
   }
 
   function deduplicateEntitiesById<T extends { id?: string }>(items: T[]): T[] {
@@ -800,14 +831,16 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     return res;
   }
 
-  const rawOutlets: OutletItem[] = (outletsResult.data || []).map((o: any) => ({
-    id: o.id,
-    name: o.name,
-    code: o.code || "",
-    address: o.address || "",
-    active: o.active !== false && o.is_active !== false,
-    settings: (o.settings as any) || {},
-  }));
+  const rawOutlets: OutletItem[] = (outletsResult.data || [])
+    .filter((o: any) => !isOutletDeletedOrArchived(o))
+    .map((o: any) => ({
+      id: o.id,
+      name: o.name,
+      code: o.code || "",
+      address: o.address || "",
+      active: !isOutletDeletedOrArchived(o),
+      settings: (o.settings as any) || {},
+    }));
   const mappedOutlets: OutletItem[] = deduplicateEntitiesById(rawOutlets);
 
   const relationalGroups: Record<string, MenuVariantGroup[]> = {};
@@ -886,7 +919,7 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     return ord;
   });
 
-  const rawMappedOrders = deduplicateEntitiesById([...localSavedOrders, ...rawDbOrders]);
+  const rawMappedOrders = deduplicateEntitiesById([...rawDbOrders, ...localSavedOrders]);
   const mappedOrders = rawMappedOrders.map((ord) => ({
     ...ord,
     outlet_id: normalizeOrderOutletId(
@@ -919,8 +952,11 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
   try {
     const itemMetaMap: Record<string, any> = {};
     for (const o of outletsResult.data || []) {
-      const meta = (o?.settings as any)?.procurement_store?.item_meta;
-      if (meta && typeof meta === "object") Object.assign(itemMetaMap, meta);
+      const s = (o?.settings as any) || {};
+      const meta1 = s?.procurement?.item_meta;
+      const meta2 = s?.procurement_store?.item_meta;
+      if (meta1 && typeof meta1 === "object") Object.assign(itemMetaMap, meta1);
+      if (meta2 && typeof meta2 === "object") Object.assign(itemMetaMap, meta2);
     }
 
     let invBomMap = new Map<string, any>();
@@ -937,12 +973,20 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     enrichedMappedInventory = mappedInventory.map((inv) => {
       const dbRow = invBomMap.get(inv.id) || {};
       const meta = itemMetaMap[inv.id] || {};
+      const dbCost = Number(dbRow.cost_price) || 0;
+      const metaCost = Number(meta.cost_price) || 0;
+      const baseCost = Number(inv.cost_price) || 0;
+      const resolvedCost =
+        metaCost > 0 && (dbCost <= 0 || (dbCost === 1000 && metaCost !== 1000))
+          ? metaCost
+          : dbCost > 0
+            ? dbCost
+            : metaCost > 0
+              ? metaCost
+              : baseCost;
       return {
         ...inv,
-        cost_price:
-          Number(dbRow.cost_price) > 0
-            ? Number(dbRow.cost_price)
-            : Number(meta.cost_price) || Number(inv.cost_price) || 0,
+        cost_price: resolvedCost,
         yield_per_unit: dbRow.yield_per_unit ?? meta.yield_per_unit ?? inv.yield_per_unit ?? null,
         yield_unit: dbRow.yield_unit ?? meta.yield_unit ?? inv.yield_unit ?? null,
         outlet_id: dbRow.outlet_id ?? inv.outlet_id ?? null,
@@ -962,9 +1006,118 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     } catch {}
   }
 
+  // Derive real favorite menu item per customer from sales_order_items & heal corrupted records
+  // (e.g. where favorite_product accidentally stored the customer's own name like "arya")
+  const productNameById = new Map<string, string>();
+  for (const p of enrichedMappedProducts) {
+    if (p.id && p.name) productNameById.set(p.id, p.name);
+  }
+  const orderItemsByOrderId = new Map<string, any[]>();
+  for (const oi of mappedOrderItems) {
+    if (!oi?.order_id) continue;
+    const list = orderItemsByOrderId.get(oi.order_id) || [];
+    list.push(oi);
+    orderItemsByOrderId.set(oi.order_id, list);
+  }
+
+  const sanitizedCustomers = mappedCustomers.map((cust) => {
+    const custNameLower = String(cust.name || "").trim().toLowerCase();
+    const matchedOrderIds = new Set<string>();
+    for (const ord of mappedOrders as Array<SalesOrder & Record<string, any>>) {
+      if (ord.status === "void" || ord.status === "cancelled" || ord.status === "refunded") continue;
+      const ordMeta = storedOrderMetadata[ord.id];
+      const ordCustName = String(
+        ord.customer_name || ordMeta?.customer_name || ordMeta?.queue_name || "",
+      )
+        .trim()
+        .toLowerCase();
+      if (
+        (ord.customer_id && ord.customer_id === cust.id) ||
+        (custNameLower && ordCustName === custNameLower)
+      ) {
+        matchedOrderIds.add(ord.id);
+      }
+    }
+
+    const productQtyCounts = new Map<string, number>();
+    for (const oid of matchedOrderIds) {
+      const items = orderItemsByOrderId.get(oid) || [];
+      for (const it of items) {
+        const rawMenuName =
+          (it.product_id && productNameById.get(it.product_id)) ||
+          String(it.name || "")
+            .replace(/\s*\[Catatan:[^\]]*\]/gi, "")
+            .replace(/\s*\([^)]*\)\s*/g, " ")
+            .trim();
+        const cleanedMenuName = rawMenuName.trim();
+        if (
+          cleanedMenuName &&
+          cleanedMenuName.toLowerCase() !== custNameLower &&
+          !cleanedMenuName.toLowerCase().startsWith("order pos #")
+        ) {
+          productQtyCounts.set(
+            cleanedMenuName,
+            (productQtyCounts.get(cleanedMenuName) || 0) + (Number(it.quantity) || 1),
+          );
+        }
+      }
+    }
+
+    let derivedFavorite: string | null = null;
+    let maxQty = 0;
+    for (const [menuName, qty] of productQtyCounts.entries()) {
+      if (qty > maxQty) {
+        maxQty = qty;
+        derivedFavorite = menuName;
+      }
+    }
+
+    const rawFav = String(cust.favorite_product || "").trim();
+    const rawFavLower = rawFav.toLowerCase();
+    const isCorruptedFav =
+      !rawFav ||
+      rawFavLower === custNameLower ||
+      rawFavLower.startsWith("order pos #") ||
+      rawFavLower === "pelanggan umum";
+
+    const finalFav = derivedFavorite || (isCorruptedFav ? null : rawFav);
+
+    // Self-heal corrupted DB value in background so it does not persist across pages
+    if (cust.id && isCorruptedFav && rawFav && finalFav !== rawFav) {
+      void supabase
+        .from("customers")
+        .update({ favorite_product: finalFav })
+        .eq("id", cust.id)
+        .then(() => {});
+    }
+
+    return {
+      ...cust,
+      favorite_product: finalFav,
+    };
+  });
+
+  const resolvedEffectiveRole =
+    (typeof window !== "undefined" && localStorage.getItem("kebabschoicepos_simulated_role")) ||
+    membership?.role ||
+    "owner";
+  const isOwnerOrAdminSnapshot = ["owner", "admin", "hq"].includes(
+    String(resolvedEffectiveRole).toLowerCase(),
+  );
+
   // Strict resolution priority for assigned outlet:
+  // For Owner/Admin, honor the active branch chosen in "Masuk POS Kasir" first
+  let resolvedAssignedOutletId: string | null = null;
+  if (isOwnerOrAdminSnapshot && preferredActiveOutletId && preferredActiveOutletId !== "all") {
+    if (mappedOutlets.some((o) => o.id === preferredActiveOutletId)) {
+      resolvedAssignedOutletId = preferredActiveOutletId;
+    }
+  }
+
   // Tier 0: Direct Outlet Device Account match
-  let resolvedAssignedOutletId: string | null = matchedOutletAccount ? matchedOutletAccount.id : null;
+  if (!resolvedAssignedOutletId && matchedOutletAccount) {
+    resolvedAssignedOutletId = matchedOutletAccount.id;
+  }
 
   // Tier 1: staff_profiles outlet_id
   if (!resolvedAssignedOutletId && (staffProfile as any)?.outlet_id) {
@@ -1017,14 +1170,11 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     businessName: business.name,
     logo: (business as any).logo ?? null,
     city: business.city ?? "Jakarta",
-    role:
-      (typeof window !== "undefined" && localStorage.getItem("kebabschoicepos_simulated_role")) ||
-      membership?.role ||
-      "owner",
+    role: resolvedEffectiveRole,
     assignedOutletId: resolvedAssignedOutletId,
     outlets: mappedOutlets,
     products: enrichedMappedProducts,
-    customers: mappedCustomers,
+    customers: sanitizedCustomers,
     inventory: enrichedMappedInventory,
     orders: mappedOrders,
     orderItems: mappedOrderItems,
@@ -1125,6 +1275,17 @@ function Header({
   const isHQ = ["owner", "admin", "manager"].includes(normalizedRole);
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
   const currentLang = (i18n.language || "id").slice(0, 2).toUpperCase();
+  const [, setHeaderOutletTick] = useState(0);
+
+  useEffect(() => {
+    const syncHeaderOutlet = () => setHeaderOutletTick((n) => n + 1);
+    window.addEventListener("outlet:changed", syncHeaderOutlet);
+    window.addEventListener("storage", syncHeaderOutlet);
+    return () => {
+      window.removeEventListener("outlet:changed", syncHeaderOutlet);
+      window.removeEventListener("storage", syncHeaderOutlet);
+    };
+  }, []);
 
   const isPosPage = [
     "pos",
@@ -1557,21 +1718,32 @@ function Sidebar({
   // Active shift state for POS banner (resolved strictly per active outlet)
   const [hasActiveShift, setHasActiveShift] = useState(false);
   useEffect(() => {
-    try {
-      const currentOid =
-        localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
-        localStorage.getItem("kebabschoicepos_active_outlet_id");
-      const outletKey = getOutletShiftKey(currentOid);
-      const saved = (outletKey && localStorage.getItem(outletKey)) || localStorage.getItem("kebabschoicepos_active_shift");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        setHasActiveShift(parsed.status === "open");
-      } else {
+    const readShiftFlag = () => {
+      try {
+        const currentOid =
+          localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+          localStorage.getItem("kebabschoicepos_active_outlet_id");
+        const outletKey = getOutletShiftKey(currentOid);
+        const saved =
+          (outletKey && localStorage.getItem(outletKey)) ||
+          localStorage.getItem("kebabschoicepos_active_shift");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setHasActiveShift(parsed.status === "open");
+        } else {
+          setHasActiveShift(false);
+        }
+      } catch {
         setHasActiveShift(false);
       }
-    } catch {
-      setHasActiveShift(false);
-    }
+    };
+    readShiftFlag();
+    window.addEventListener("outlet:changed", readShiftFlag);
+    window.addEventListener("pos:shift-updated", readShiftFlag);
+    return () => {
+      window.removeEventListener("outlet:changed", readShiftFlag);
+      window.removeEventListener("pos:shift-updated", readShiftFlag);
+    };
   }, [active]);
 
   // --- HQ ACCORDION STATES (Redesign B: 5 Grup Ringkas Bergaya TOMORO) ---
@@ -2211,7 +2383,46 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
 
 function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
   const { t } = useTranslation();
-  const metrics = calculateSnapshotMetrics(snapshot);
+  const [periodFilter, setPeriodFilter] = useState<AnalyticsFilter["dateRange"]>("today");
+
+  const periodFilteredSnapshot = useMemo<Snapshot>(() => {
+    if (periodFilter === "all") return snapshot;
+    const filteredOrders = (snapshot.orders || []).filter((ord: any) =>
+      isDateWithinFilter(ord.paid_at || ord.created_at, { dateRange: periodFilter }),
+    );
+    const allowedIds = new Set(filteredOrders.map((o) => o.id));
+    const filteredOrderItems = (snapshot.orderItems || []).filter((oi: any) =>
+      allowedIds.has(oi.order_id),
+    );
+    return {
+      ...snapshot,
+      orders: filteredOrders,
+      orderItems: filteredOrderItems,
+    };
+  }, [snapshot, periodFilter]);
+
+  const metrics = useMemo(
+    () => calculateSnapshotMetrics(periodFilteredSnapshot),
+    [periodFilteredSnapshot],
+  );
+
+  const periodLabel =
+    periodFilter === "today"
+      ? "Hari Ini"
+      : periodFilter === "last_7_days"
+        ? "7 Hari Terakhir"
+        : periodFilter === "this_month"
+          ? "Bulan Ini"
+          : "Semua Waktu";
+
+  const revenueCardLabel =
+    periodFilter === "today"
+      ? t("dashboard.revenue_today", "Revenue Hari Ini")
+      : periodFilter === "last_7_days"
+        ? "Revenue 7 Hari"
+        : periodFilter === "this_month"
+          ? "Revenue Bulan Ini"
+          : "Total Revenue";
 
   const lowStockItems = useMemo(() => {
     return snapshot.inventory.filter(
@@ -2259,12 +2470,12 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
       });
     }
 
-    if (snapshot.orders.length > 0) {
+    if (metrics.orders > 0) {
       res.push({
         id: "order-sum-1",
         type: "daily_summary",
-        title: "Performa Penjualan Aktif",
-        body: `Tercatat ${snapshot.orders.length} transaksi dengan omzet ${formatRupiah(metrics.todayRevenue)}. Channel kasir toko mendominasi transaksi.`,
+        title: `Performa Penjualan (${periodLabel})`,
+        body: `Tercatat ${metrics.orders} transaksi lunas dengan omzet ${formatRupiah(metrics.todayRevenue)} dan HPP BOM ${formatRupiah(metrics.totalCost || 0)}.`,
         confidence: 92,
         action_label: "Lihat Laporan",
       });
@@ -2272,7 +2483,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
       res.push({
         id: "order-empty-1",
         type: "daily_summary",
-        title: "Pencatatan POS Siap",
+        title: `Belum Ada Penjualan (${periodLabel})`,
         body: "Kasir telah terhubung ke database cloud. Buka menu POS Kasir untuk melayani pesanan pembeli.",
         confidence: 90,
         action_label: "Buka POS",
@@ -2282,11 +2493,17 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
     if (snapshot.customers.length > 0) {
       const topCustomer = snapshot.customers[0];
       if (topCustomer) {
+        const cleanFav =
+          topCustomer.favorite_product &&
+          topCustomer.favorite_product.trim().toLowerCase() !==
+            topCustomer.name.trim().toLowerCase()
+            ? topCustomer.favorite_product.trim()
+            : null;
         res.push({
           id: "crm-top-1",
           type: "customer_insight",
           title: `Pelanggan Setia: ${topCustomer.name}`,
-          body: `Telah melakukan ${topCustomer.visits}x kunjungan dengan total transaksi ${formatRupiah(topCustomer.total_spend)}. Produk favorit: ${topCustomer.favorite_product || "Kebab"}.`,
+          body: `Telah melakukan ${topCustomer.visits}x kunjungan dengan total transaksi ${formatRupiah(topCustomer.total_spend)}. ${cleanFav ? `Produk favorit: ${cleanFav}.` : "Menu favorit sedang dikumpulkan dari riwayat transaksi."}`,
           confidence: 95,
           action_label: "CRM",
         });
@@ -2318,13 +2535,15 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
     snapshot.insights,
     lowStockItems,
     snapshot.inventory,
-    snapshot.orders,
+    metrics.orders,
     metrics.todayRevenue,
+    metrics.totalCost,
+    periodLabel,
     snapshot.customers,
     snapshot.products,
   ]);
 
-  const recentOrders = snapshot.orders;
+  const recentOrders = periodFilteredSnapshot.orders;
 
   return (
     <div className="space-y-6 w-full max-w-none">
@@ -2377,24 +2596,65 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         </div>
       </section>
 
+      {/* Period Filter Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
+          <Calendar className="size-4 text-foreground/70" />
+          <span>Periode Ringkasan:</span>
+          <span className="font-bold text-foreground">{periodLabel}</span>
+        </div>
+        <div
+          role="group"
+          aria-label="Filter Periode Dashboard"
+          className="inline-flex items-center rounded-2xl border border-border bg-card p-1 shadow-xs"
+        >
+          {(
+            [
+              { key: "today", label: "Hari Ini" },
+              { key: "last_7_days", label: "7 Hari" },
+              { key: "this_month", label: "Bulan Ini" },
+              { key: "all", label: "Semua Waktu" },
+            ] as Array<{ key: AnalyticsFilter["dateRange"]; label: string }>
+          ).map((opt) => {
+            const active = periodFilter === opt.key;
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => setPeriodFilter(opt.key)}
+                className={cn(
+                  "px-3 py-1.5 rounded-xl text-xs font-bold cursor-pointer",
+                  active
+                    ? "bg-primary text-primary-foreground shadow-xs"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
         <StatCard
-          label={t("dashboard.revenue_today", "Revenue Hari Ini")}
+          label={revenueCardLabel}
           value={formatRupiah(metrics.todayRevenue || 0)}
-          trend={`${metrics.orders || 0} transaksi`}
+          trend={`${metrics.orders || 0} transaksi · ${periodLabel}`}
           icon={DollarSign}
         />
         <StatCard
           label={t("dashboard.total_orders", "Total Transaksi")}
           value={`${metrics.orders || 0}`}
-          trend="Real-time POS"
+          trend={`Periode: ${periodLabel}`}
           icon={ReceiptText}
           tone="success"
         />
         <StatCard
           label={t("dashboard.profit_margin", "Margin Keuntungan")}
           value={`${metrics.marginPercentage || 0}%`}
-          trend={`Laba: ${formatRupiah(metrics.grossProfit || 0)}`}
+          trend={`Laba: ${formatRupiah(metrics.grossProfit || 0)} · HPP: ${formatRupiah(metrics.totalCost || 0)}`}
           icon={TrendingUp}
           tone="primary"
         />
@@ -2644,6 +2904,9 @@ interface ReceiptData {
   discountAmount?: number;
   serviceChargeAmount?: number;
   taxAmount?: number;
+  taxName?: string;
+  taxRate?: number;
+  taxMode?: "inclusive" | "exclusive";
   orderType?: string;
   tableNumber?: string;
   total: number;
@@ -2780,8 +3043,16 @@ function ReceiptModal({
             )}
             {Boolean(data.taxAmount) && (
               <div className="flex justify-between text-muted-foreground">
-                <span>Pajak Restoran (PB1):</span>
-                <span>+{formatRupiah(data.taxAmount || 0)}</span>
+                <span>
+                  {data.taxName || "Pajak Restoran (PB1)"}
+                  {data.taxRate ? ` (${data.taxRate}%)` : ""}
+                  {data.taxMode === "inclusive" ? " [Include]" : ""}:
+                </span>
+                <span>
+                  {data.taxMode === "inclusive"
+                    ? formatRupiah(data.taxAmount || 0)
+                    : `+${formatRupiah(data.taxAmount || 0)}`}
+                </span>
               </div>
             )}
             <div className="flex justify-between text-base font-black pt-1 border-t border-dashed border-border/80">
@@ -3543,9 +3814,24 @@ function PosPage({
       const saved =
         localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
         localStorage.getItem("kebabschoicepos_active_outlet_id");
-      if (saved && (saved === "all" || activeOutlets.some((o) => o.id === saved))) {
-        return saved;
+      if (saved && saved !== "all") {
+        if (activeOutlets.length === 0 || activeOutlets.some((o) => o.id === saved)) {
+          return saved;
+        }
       }
+      try {
+        const activeRaw = localStorage.getItem("kebabschoicepos_active_outlet");
+        if (activeRaw) {
+          const parsed = JSON.parse(activeRaw);
+          if (
+            parsed?.id &&
+            parsed.id !== "all" &&
+            (activeOutlets.length === 0 || activeOutlets.some((o) => o.id === parsed.id))
+          ) {
+            return parsed.id;
+          }
+        }
+      } catch {}
     }
     return !isOwner ? assignedOutlet?.id || "all" : activeOutlets[0]?.id || "all";
   };
@@ -3574,17 +3860,44 @@ function PosPage({
 
   // Strictly enforce a real outlet (never "all") whenever in POS mode
   useEffect(() => {
+    if (activeOutlets.length === 0) return;
     const isInvalid =
       !selectedOutletId ||
       selectedOutletId === "all" ||
       !activeOutlets.some((o) => o.id === selectedOutletId);
-    if (isInvalid && activeOutlets.length > 0) {
-      const targetId = (!isOwner && snapshot.assignedOutletId) || activeOutlets[0]?.id;
+    if (isInvalid) {
+      let savedInStorage: string | null = null;
+      if (isOwner && typeof window !== "undefined") {
+        const rawId =
+          localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+          localStorage.getItem("kebabschoicepos_active_outlet_id");
+        if (rawId && activeOutlets.some((o) => o.id === rawId)) {
+          savedInStorage = rawId;
+        } else {
+          try {
+            const activeObj = JSON.parse(
+              localStorage.getItem("kebabschoicepos_active_outlet") || "null",
+            );
+            if (activeObj?.id && activeOutlets.some((o) => o.id === activeObj.id)) {
+              savedInStorage = activeObj.id;
+            }
+          } catch {}
+        }
+      }
+      const targetId =
+        savedInStorage ||
+        (!isOwner && snapshot.assignedOutletId && activeOutlets.some((o) => o.id === snapshot.assignedOutletId)
+          ? snapshot.assignedOutletId
+          : activeOutlets[0]?.id);
       if (targetId && targetId !== selectedOutletId) {
         setSelectedOutletId(targetId);
         try {
           localStorage.setItem("kebabschoicepos_active_outlet_id", targetId);
           localStorage.setItem("kebabschoicepos_selected_outlet_id", targetId);
+          const matchedOut = activeOutlets.find((o) => o.id === targetId);
+          if (matchedOut) {
+            localStorage.setItem("kebabschoicepos_active_outlet", JSON.stringify(matchedOut));
+          }
         } catch {}
       }
     }
@@ -3596,9 +3909,13 @@ function PosPage({
       try {
         localStorage.setItem("kebabschoicepos_active_outlet_id", selectedOutletId);
         localStorage.setItem("kebabschoicepos_selected_outlet_id", selectedOutletId);
+        const matchedOut = (snapshot.outlets || []).find((o) => o.id === selectedOutletId);
+        if (matchedOut) {
+          localStorage.setItem("kebabschoicepos_active_outlet", JSON.stringify(matchedOut));
+        }
       } catch {}
     }
-  }, [selectedOutletId]);
+  }, [selectedOutletId, snapshot.outlets]);
 
   // Active shift state for live status strictly bound to selected outlet
   const [activeShift, setActiveShift] = useState<any>(null);
@@ -4075,7 +4392,15 @@ function PosPage({
   const [discountType, setDiscountType] = useState<"nominal" | "percent">("nominal");
   const [discountValue, setDiscountValue] = useState<number>(0);
 
-  // Tax & Service Charge Settings State
+  // Tax & Service Charge Settings State (default matches TaxSettingsPage PB1 10% Exclusive)
+  const DEFAULT_TAX_CONFIG = {
+    taxEnabled: true,
+    taxRate: 10,
+    taxName: "PB1 (Pajak Restoran)",
+    taxMode: "exclusive" as "inclusive" | "exclusive",
+    serviceEnabled: false,
+    serviceRate: 5,
+  };
   const [taxSettings, setTaxSettings] = useState<{
     taxEnabled: boolean;
     taxRate: number;
@@ -4087,43 +4412,72 @@ function PosPage({
     if (typeof window !== "undefined") {
       try {
         const raw = localStorage.getItem("kebabschoicepos_tax_settings");
-        if (raw) return JSON.parse(raw);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          return {
+            taxEnabled: parsed.taxEnabled ?? DEFAULT_TAX_CONFIG.taxEnabled,
+            taxRate: Number(parsed.taxRate ?? DEFAULT_TAX_CONFIG.taxRate) || 0,
+            taxName: parsed.taxName || DEFAULT_TAX_CONFIG.taxName,
+            taxMode: parsed.taxMode === "inclusive" ? "inclusive" : "exclusive",
+            serviceEnabled: parsed.serviceEnabled ?? DEFAULT_TAX_CONFIG.serviceEnabled,
+            serviceRate: Number(parsed.serviceRate ?? DEFAULT_TAX_CONFIG.serviceRate) || 0,
+          };
+        }
       } catch {}
     }
-    return {
-      taxEnabled: false,
-      taxRate: 10,
-      taxName: "PB1 (Pajak Restoran)",
-      taxMode: "exclusive",
-      serviceEnabled: false,
-      serviceRate: 5,
-    };
+    return DEFAULT_TAX_CONFIG;
   });
 
-  // Re-read tax & payment settings on outlet change, window focus, or storage event
+  // Re-read tax & payment settings on outlet change, window focus, tax:updated, or storage event
   useEffect(() => {
     const syncSettings = () => {
       // 1. Resolve active outlet
       const activeOutlet = snapshot.outlets?.find((o) => o.id === selectedOutletId);
 
-      // Tax settings
-      const outletTax = activeOutlet?.settings?.tax_settings;
-      if (outletTax) {
-        setTaxSettings((prev) => ({
-          ...prev,
-          taxEnabled: outletTax.taxEnabled ?? prev.taxEnabled,
-          taxRate: outletTax.taxRate ?? prev.taxRate,
-          taxName: outletTax.taxName || prev.taxName,
-          taxMode: outletTax.taxMode || prev.taxMode,
-          serviceEnabled: outletTax.serviceEnabled ?? prev.serviceEnabled,
-          serviceRate: outletTax.serviceRate ?? prev.serviceRate,
-        }));
-      } else {
-        try {
-          const raw = localStorage.getItem("kebabschoicepos_tax_settings");
-          if (raw) setTaxSettings(JSON.parse(raw));
-        } catch {}
-      }
+      // Tax settings: merge business outlets + active outlet + localStorage (prefer newest updatedAt)
+      const outletTax = (activeOutlet?.settings as any)?.tax_settings;
+      const fallbackOutletTax = (snapshot.outlets || []).find(
+        (o) => (o.settings as any)?.tax_settings,
+      )?.settings?.tax_settings;
+      let localTax: any = null;
+      try {
+        const raw = localStorage.getItem("kebabschoicepos_tax_settings");
+        if (raw) localTax = JSON.parse(raw);
+      } catch {}
+
+      const dbTax = outletTax || fallbackOutletTax || null;
+      const dbTs = dbTax?.updatedAt ? new Date(dbTax.updatedAt).getTime() : 0;
+      const localTs = localTax?.updatedAt ? new Date(localTax.updatedAt).getTime() : 0;
+      const resolvedTax =
+        localTax && (!dbTax || localTs >= dbTs)
+          ? { ...DEFAULT_TAX_CONFIG, ...(dbTax || {}), ...localTax }
+          : dbTax
+            ? { ...DEFAULT_TAX_CONFIG, ...(localTax || {}), ...dbTax }
+            : DEFAULT_TAX_CONFIG;
+
+      setTaxSettings((prev) => {
+        const next = {
+          taxEnabled: Boolean(resolvedTax.taxEnabled),
+          taxRate: Number(resolvedTax.taxRate) || 0,
+          taxName: resolvedTax.taxName || DEFAULT_TAX_CONFIG.taxName,
+          taxMode: (resolvedTax.taxMode === "inclusive" ? "inclusive" : "exclusive") as
+            | "inclusive"
+            | "exclusive",
+          serviceEnabled: Boolean(resolvedTax.serviceEnabled),
+          serviceRate: Number(resolvedTax.serviceRate) || 0,
+        };
+        if (
+          prev.taxEnabled === next.taxEnabled &&
+          prev.taxRate === next.taxRate &&
+          prev.taxName === next.taxName &&
+          prev.taxMode === next.taxMode &&
+          prev.serviceEnabled === next.serviceEnabled &&
+          prev.serviceRate === next.serviceRate
+        ) {
+          return prev;
+        }
+        return next;
+      });
 
       // Payment settings (merge active outlet, any configured business outlet, and localStorage)
       const outletPay = activeOutlet?.settings?.payment_settings;
@@ -4185,9 +4539,13 @@ function PosPage({
     syncSettings();
     window.addEventListener("focus", syncSettings);
     window.addEventListener("storage", syncSettings);
+    window.addEventListener("tax:updated", syncSettings);
+    window.addEventListener("outlet:changed", syncSettings);
     return () => {
       window.removeEventListener("focus", syncSettings);
       window.removeEventListener("storage", syncSettings);
+      window.removeEventListener("tax:updated", syncSettings);
+      window.removeEventListener("outlet:changed", syncSettings);
     };
   }, [selectedOutletId, snapshot.outlets]);
 
@@ -4914,6 +5272,9 @@ function PosPage({
       discountAmount: safeQrisDiscount,
       serviceChargeAmount: safeQrisService,
       taxAmount: safeQrisTax,
+      taxName: taxSettings.taxName,
+      taxRate: taxSettings.taxRate,
+      taxMode: taxSettings.taxMode,
       orderType: qrisPendingOrder?.orderType ?? "dine_in",
       tableNumber: qrisPendingOrder?.tableNumber || undefined,
       items: cartItems.map((c: CartItem) => ({
@@ -5674,6 +6035,9 @@ function PosPage({
       discountAmount: safeDiscountAmount,
       serviceChargeAmount: safeServiceCharge,
       taxAmount: safeTaxAmount,
+      taxName: taxSettings.taxName,
+      taxRate: taxSettings.taxRate,
+      taxMode: taxSettings.taxMode,
       orderType,
       tableNumber: orderType === "dine_in" && tableNumber ? tableNumber : undefined,
       items: cart.map((c) => ({
@@ -6613,12 +6977,17 @@ function PosPage({
                 </span>
               </div>
             )}
-            {taxAmount > 0 && (
+            {taxSettings.taxEnabled && (taxAmount > 0 || cart.length > 0) && (
               <div className="flex items-center justify-between text-muted-foreground">
                 <span>
-                  {taxSettings.taxName || "Pajak"} ({taxSettings.taxRate}%)
+                  {taxSettings.taxName || "PB1 (Pajak Restoran)"} ({taxSettings.taxRate}%
+                  {taxSettings.taxMode === "inclusive" ? " Include" : ""})
                 </span>
-                <span className="font-semibold text-foreground">+{formatRupiah(taxAmount)}</span>
+                <span className="font-semibold text-foreground">
+                  {taxSettings.taxMode === "inclusive"
+                    ? formatRupiah(taxAmount)
+                    : `+${formatRupiah(taxAmount)}`}
+                </span>
               </div>
             )}
             <div className="pt-1.5 border-t border-border/60 flex items-center justify-between text-base font-black">
@@ -6683,13 +7052,39 @@ function PosPage({
             {/* Body Modal Pembayaran */}
             <div className="flex-1 overflow-y-auto p-5 space-y-4">
               {/* Total Tagihan Besar */}
-              <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 flex items-center justify-between gap-3">
-                <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                  Total Tagihan
-                </span>
-                <span className="text-2xl sm:text-3xl font-black font-mono text-primary whitespace-nowrap">
-                  {formatRupiah(total)}
-                </span>
+              <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 space-y-2">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                    Total Tagihan
+                  </span>
+                  <span className="text-2xl sm:text-3xl font-black font-mono text-primary whitespace-nowrap">
+                    {formatRupiah(total)}
+                  </span>
+                </div>
+                {(discountAmount > 0 || serviceChargeAmount > 0 || taxAmount > 0) && (
+                  <div className="pt-2 border-t border-border/60 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
+                    <span>Subtotal: {formatRupiah(subtotal)}</span>
+                    {discountAmount > 0 && (
+                      <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                        Diskon: -{formatRupiah(discountAmount)}
+                      </span>
+                    )}
+                    {serviceChargeAmount > 0 && (
+                      <span>
+                        Layanan ({taxSettings.serviceRate}%): +{formatRupiah(serviceChargeAmount)}
+                      </span>
+                    )}
+                    {taxAmount > 0 && (
+                      <span className="font-semibold text-foreground">
+                        {taxSettings.taxName || "PB1"} ({taxSettings.taxRate}%
+                        {taxSettings.taxMode === "inclusive" ? " Include" : ""}):{" "}
+                        {taxSettings.taxMode === "inclusive"
+                          ? formatRupiah(taxAmount)
+                          : `+${formatRupiah(taxAmount)}`}
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Pilihan Metode Pembayaran Besar */}
@@ -7801,17 +8196,123 @@ function InventoryPage({ snapshot }: { snapshot: Snapshot }) {
 
 function CustomersPage({ snapshot }: { snapshot: Snapshot }) {
   const { t } = useTranslation();
-  const customers = snapshot.customers;
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+
+  const outletNameById = useMemo(() => {
+    const map: Record<string, string> = {};
+    (snapshot.outlets || []).forEach((o) => {
+      if (o.id && o.name) map[o.id] = o.name;
+    });
+    return map;
+  }, [snapshot.outlets]);
+
+  const orderMetadataMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    (snapshot.outlets || []).forEach((o) => {
+      const meta = ((o as any).settings as any)?.order_metadata || {};
+      Object.entries(meta).forEach(([ordId, data]) => {
+        map[ordId] = { ...(map[ordId] || {}), ...(data as any), outlet_id: (data as any)?.outlet_id || o.id, outlet_name: (data as any)?.outlet_name || o.name };
+      });
+    });
+    return map;
+  }, [snapshot.outlets]);
+
+  const getCleanFavoriteProduct = (customer: Customer): string | null => {
+    const raw = String(customer.favorite_product || "").trim();
+    const custName = String(customer.name || "").trim().toLowerCase();
+    if (!raw || raw.toLowerCase() === custName || raw.toLowerCase().startsWith("order pos #")) {
+      return null;
+    }
+    return raw;
+  };
+
+  const customers = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return snapshot.customers;
+    return snapshot.customers.filter((c) => {
+      const cleanFav = getCleanFavoriteProduct(c) || "";
+      return (
+        String(c.name || "").toLowerCase().includes(q) ||
+        String(c.phone || "").toLowerCase().includes(q) ||
+        cleanFav.toLowerCase().includes(q)
+      );
+    });
+  }, [snapshot.customers, searchQuery]);
+
+  const selectedCustomerOrders = useMemo(() => {
+    if (!selectedCustomer) return [];
+    const custNameLower = String(selectedCustomer.name || "").trim().toLowerCase();
+    return (snapshot.orders || [])
+      .filter((ord: SalesOrder & Record<string, any>) => {
+        const meta = orderMetadataMap[ord.id];
+        const ordCustName = String(
+          ord.customer_name || meta?.customer_name || meta?.queue_name || "",
+        )
+          .trim()
+          .toLowerCase();
+        return (
+          (ord.customer_id && ord.customer_id === selectedCustomer.id) ||
+          (custNameLower && ordCustName === custNameLower)
+        );
+      })
+      .sort((a, b) => {
+        const ta = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const tb = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return tb - ta;
+      });
+  }, [selectedCustomer, snapshot.orders, orderMetadataMap]);
+
+  const orderItemsByOrderId = useMemo(() => {
+    const map: Record<string, any[]> = {};
+    (snapshot.orderItems || []).forEach((it: any) => {
+      if (!it?.order_id) return;
+      if (!map[it.order_id]) map[it.order_id] = [];
+      map[it.order_id]!.push(it);
+    });
+    return map;
+  }, [snapshot.orderItems]);
+
   return (
     <div className="space-y-6 w-full max-w-none">
-      <PageTitle
-        title={t("crm.title", "Customer CRM")}
-        subtitle={t(
-          "crm.subtitle",
-          "Profil pelanggan, riwayat belanja, favorit, dan insight AI dalam satu pandangan.",
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+        <PageTitle
+          title={t("crm.title", "Customer CRM")}
+          subtitle={t(
+            "crm.subtitle",
+            "Profil pelanggan, riwayat belanja, favorit, dan insight AI dalam satu pandangan.",
+          )}
+        />
+        {snapshot.customers.length > 0 && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full md:w-auto">
+            <div className="relative min-w-[16rem] flex-1 sm:flex-initial">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+              <Input
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Cari nama, nomor HP, atau menu favorit..."
+                aria-label="Cari pelanggan"
+                className="pl-10 pr-8 h-11 rounded-2xl text-xs bg-card"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  aria-label="Hapus pencarian"
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground hover:bg-muted hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+            <span className="inline-flex items-center justify-center rounded-2xl border border-border bg-card px-3.5 h-11 text-xs font-bold text-muted-foreground whitespace-nowrap">
+              {customers.length} / {snapshot.customers.length} Pelanggan
+            </span>
+          </div>
         )}
-      />
-      {customers.length === 0 ? (
+      </div>
+
+      {snapshot.customers.length === 0 ? (
         <div className="rounded-[1.75rem] border border-dashed border-border bg-card/60 p-12 text-center">
           <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary mb-3">
             <UsersRound className="size-7" />
@@ -7826,47 +8327,241 @@ function CustomersPage({ snapshot }: { snapshot: Snapshot }) {
             )}
           </p>
         </div>
+      ) : customers.length === 0 ? (
+        <div className="rounded-[1.75rem] border border-dashed border-border bg-card/60 p-10 text-center">
+          <Search className="mx-auto size-8 text-muted-foreground/40 mb-2" />
+          <h3 className="text-base font-black">Pelanggan Tidak Ditemukan</h3>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Tidak ada pelanggan yang cocok dengan kata kunci "{searchQuery}".
+          </p>
+        </div>
       ) : (
         <div className="grid gap-4 xl:grid-cols-2">
-          {customers.map((customer) => (
-            <div
-              key={customer.id}
-              className="rounded-[1.5rem] border border-border bg-card/84 p-5 shadow-soft backdrop-blur-2xl"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex items-center gap-4">
-                  <div className="flex size-12 items-center justify-center rounded-2xl bg-primary-soft text-primary">
-                    <UsersRound className="size-5" />
+          {customers.map((customer) => {
+            const cleanFav = getCleanFavoriteProduct(customer);
+            return (
+              <div
+                key={customer.id}
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedCustomer(customer)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSelectedCustomer(customer);
+                  }
+                }}
+                className="group rounded-[1.5rem] border border-border bg-card/84 p-5 shadow-soft backdrop-blur-2xl cursor-pointer transition-all hover:border-primary/40 hover:shadow-md text-left focus:outline-none focus:ring-2 focus:ring-primary/40"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+                      <UsersRound className="size-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="text-lg font-black tracking-normal truncate">
+                        {customer.name}
+                      </h3>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {t("crm.favorite", "Favorit")}: {cleanFav || "Belum ada data"}
+                      </p>
+                      {customer.phone && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{customer.phone}</p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <h3 className="text-lg font-black tracking-normal">{customer.name}</h3>
-                    <p className="text-sm text-muted-foreground">
-                      {t("crm.favorite", "Favorit")}:{" "}
-                      {customer.favorite_product || "Belum ada data"}
+                  <button
+                    type="button"
+                    aria-label={`Lihat riwayat transaksi ${customer.name}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedCustomer(customer);
+                    }}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground group-hover:bg-secondary group-hover:text-primary transition-colors cursor-pointer"
+                  >
+                    <ChevronRight className="size-5 group-hover:translate-x-0.5 transition-transform" />
+                  </button>
+                </div>
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <div className="rounded-2xl bg-secondary p-3">
+                    <p className="text-xs text-muted-foreground">{t("crm.visits", "Kunjungan")}</p>
+                    <p className="text-xl font-black">{customer.visits}</p>
+                  </div>
+                  <div className="rounded-2xl bg-secondary p-3">
+                    <p className="text-xs text-muted-foreground">
+                      {t("crm.total_spend", "Total belanja")}
                     </p>
+                    <p className="text-xl font-black">{formatRupiah(customer.total_spend)}</p>
                   </div>
                 </div>
-                <ChevronRight className="size-5 text-muted-foreground" />
-              </div>
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                <div className="rounded-2xl bg-secondary p-3">
-                  <p className="text-xs text-muted-foreground">{t("crm.visits", "Kunjungan")}</p>
-                  <p className="text-xl font-black">{customer.visits}</p>
-                </div>
-                <div className="rounded-2xl bg-secondary p-3">
-                  <p className="text-xs text-muted-foreground">
-                    {t("crm.total_spend", "Total belanja")}
+                {customer.ai_insight && (
+                  <p className="mt-4 rounded-2xl bg-muted px-4 py-3 text-sm leading-6 text-foreground/75">
+                    {customer.ai_insight}
                   </p>
-                  <p className="text-xl font-black">{formatRupiah(customer.total_spend)}</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* MODAL DETAIL & RIWAYAT TRANSAKSI PELANGGAN */}
+      {selectedCustomer && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in"
+          onClick={() => setSelectedCustomer(null)}
+        >
+          <div
+            className="relative w-full max-w-xl rounded-[2rem] border border-border bg-card p-6 shadow-float max-h-[88vh] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary-soft text-primary">
+                  <UsersRound className="size-5" />
+                </div>
+                <div className="min-w-0">
+                  <h2 className="text-xl font-black truncate">{selectedCustomer.name}</h2>
+                  <p className="text-xs text-muted-foreground">
+                    {selectedCustomer.phone ? `HP: ${selectedCustomer.phone} · ` : ""}
+                    Detail & Riwayat Transaksi Pelanggan
+                  </p>
                 </div>
               </div>
-              {customer.ai_insight && (
-                <p className="mt-4 rounded-2xl bg-muted px-4 py-3 text-sm leading-6 text-foreground/75">
-                  {customer.ai_insight}
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="rounded-xl size-8 shrink-0"
+                onClick={() => setSelectedCustomer(null)}
+              >
+                <X className="size-4" />
+              </Button>
+            </div>
+
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              <div className="rounded-2xl bg-secondary p-3">
+                <p className="text-xs text-muted-foreground">Kunjungan</p>
+                <p className="text-lg font-black mt-0.5">{selectedCustomer.visits}x</p>
+              </div>
+              <div className="rounded-2xl bg-secondary p-3">
+                <p className="text-xs text-muted-foreground">Total Belanja</p>
+                <p className="text-lg font-black mt-0.5 tabular-nums">
+                  {formatRupiah(selectedCustomer.total_spend)}
                 </p>
+              </div>
+              <div className="rounded-2xl bg-secondary p-3">
+                <p className="text-xs text-muted-foreground">Menu Favorit</p>
+                <p className="text-sm font-black mt-1 truncate">
+                  {getCleanFavoriteProduct(selectedCustomer) || "Belum ada data"}
+                </p>
+              </div>
+            </div>
+
+            {selectedCustomer.ai_insight && (
+              <p className="mt-3 rounded-2xl bg-muted px-4 py-3 text-xs leading-5 text-foreground/80">
+                {selectedCustomer.ai_insight}
+              </p>
+            )}
+
+            <div className="mt-4 flex-1 overflow-y-auto pr-1 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-black uppercase tracking-wider text-muted-foreground">
+                  Riwayat Transaksi ({selectedCustomerOrders.length})
+                </p>
+              </div>
+
+              {selectedCustomerOrders.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-border bg-muted/30 p-6 text-center text-xs text-muted-foreground">
+                  <ReceiptText className="mx-auto size-7 opacity-40 mb-1.5" />
+                  <p className="font-bold text-foreground/80">Belum ada transaksi tertaut</p>
+                  <p className="mt-1">
+                    Transaksi POS yang memilih member ini akan tampil otomatis di sini.
+                  </p>
+                </div>
+              ) : (
+                selectedCustomerOrders.map((ord: SalesOrder & Record<string, any>) => {
+                  const meta = orderMetadataMap[ord.id];
+                  const items = orderItemsByOrderId[ord.id] || [];
+                  const outletLabel =
+                    (ord.outlet_id && outletNameById[ord.outlet_id]) ||
+                    meta?.outlet_name ||
+                    ord.outlet_name ||
+                    "Outlet Aktif";
+                  return (
+                    <div
+                      key={ord.id}
+                      className="rounded-2xl border border-border/70 bg-secondary/50 p-3.5 space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="font-black text-sm text-foreground">
+                            {ord.order_number}
+                          </span>
+                          <span className="rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 px-2 py-0.5 text-xs font-bold capitalize">
+                            {ord.status || "paid"}
+                          </span>
+                          <span className="rounded-full bg-primary/10 text-primary px-2 py-0.5 text-xs font-bold uppercase">
+                            {ord.payment_method}
+                          </span>
+                        </div>
+                        <span className="font-black text-sm text-primary tabular-nums shrink-0">
+                          {formatRupiah(ord.total)}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground flex-wrap">
+                        <span className="flex items-center gap-1">
+                          <Store className="size-3.5" />
+                          {outletLabel}
+                        </span>
+                        {ord.created_at && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="size-3.5" />
+                            {new Date(ord.created_at).toLocaleString("id-ID", {
+                              day: "numeric",
+                              month: "short",
+                              year: "numeric",
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
+                        )}
+                      </div>
+                      {items.length > 0 && (
+                        <div className="pt-2 border-t border-border/50 space-y-1">
+                          {items.map((it: any, iIdx: number) => (
+                            <div
+                              key={it.id || iIdx}
+                              className="flex items-center justify-between gap-2 text-xs"
+                            >
+                              <span className="text-foreground/85 truncate">
+                                {it.quantity}x {it.name}
+                              </span>
+                              <span className="font-semibold text-muted-foreground tabular-nums shrink-0">
+                                {formatRupiah(it.subtotal || it.unit_price * it.quantity)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               )}
             </div>
-          ))}
+
+            <div className="mt-4 pt-3 border-t border-border flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl text-xs font-bold"
+                onClick={() => setSelectedCustomer(null)}
+              >
+                Tutup
+              </Button>
+            </div>
+          </div>
         </div>
       )}
     </div>
@@ -8069,18 +8764,22 @@ function AnalyticsPage({ snapshot }: { snapshot: Snapshot }) {
 function OrdersPage({
   snapshot,
   onRefresh,
+  isPosOrders = false,
 }: {
   snapshot: Snapshot;
   onRefresh?: () => Promise<void>;
+  isPosOrders?: boolean;
 }) {
   const { t } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
-  const [dbOutlets, setDbOutlets] = useState<OutletItem[]>(() => snapshot.outlets || []);
+  const [dbOutlets, setDbOutlets] = useState<OutletItem[]>(() =>
+    (snapshot.outlets || []).filter((o) => !isOutletDeletedOrArchived(o)),
+  );
 
   useEffect(() => {
-    const incomingOutlets = snapshot.outlets || [];
+    const incomingOutlets = (snapshot.outlets || []).filter((o) => !isOutletDeletedOrArchived(o));
     if (incomingOutlets.length > 0) {
       setDbOutlets((prev) => {
         const map = new Map<string, OutletItem>();
@@ -8093,29 +8792,24 @@ function OrdersPage({
         return merged;
       });
     }
-    if (!snapshot.businessId) return;
     let isCancelled = false;
-    Promise.resolve(
-      supabase
-        .from("outlets")
-        .select("*")
-        .eq("business_id", snapshot.businessId)
-        .order("created_at", { ascending: true }),
-    )
-      .then(({ data }) => {
-        if (isCancelled || !data || data.length === 0) return;
-        const fetched: OutletItem[] = data.map((o: any) => ({
-          id: o.id,
-          name: o.name,
-          code: o.code || "",
-          address: o.address || "",
-          active: o.active !== false && o.is_active !== false,
-          settings: (o.settings as any) || {},
-        }));
+    getOutletList(snapshot.businessId || undefined)
+      .then((list) => {
+        if (isCancelled || !list || list.length === 0) return;
+        const fetched: OutletItem[] = list
+          .filter((o: any) => !isOutletDeletedOrArchived(o))
+          .map((o: any) => ({
+            id: o.id,
+            name: o.name,
+            code: o.code || "",
+            address: o.address || "",
+            active: !isOutletDeletedOrArchived(o),
+            settings: (o.settings as any) || {},
+          }));
         setDbOutlets((prev) => {
           const map = new Map<string, OutletItem>();
           prev.forEach((o) => map.set(o.id, o));
-          fetched.forEach((o) => map.set(o.id, o));
+          fetched.forEach((o) => map.set(o.id, { ...(map.get(o.id) || {}), ...o }));
           const merged = Array.from(map.values());
           if (
             merged.length === prev.length &&
@@ -8139,15 +8833,22 @@ function OrdersPage({
   }, [snapshot.businessId, snapshot.outlets]);
 
   const activeOutlets = useMemo(
-    () => dbOutlets.filter((o) => o.active !== false),
+    () => dbOutlets.filter((o) => !isOutletDeletedOrArchived(o)),
     [dbOutlets],
   );
   const assignedOutletId =
     snapshot.assignedOutletId ||
     (activeOutlets.length > 0 && activeOutlets[0] ? activeOutlets[0].id : "all");
-  const [selectedOutletFilter, setSelectedOutletFilter] = useState<string>(
-    !isOwner ? assignedOutletId : "all",
-  );
+  const [selectedOutletFilter, setSelectedOutletFilter] = useState<string>(() => {
+    if (!isOwner) return assignedOutletId;
+    if (isPosOrders && typeof window !== "undefined") {
+      const activePosId =
+        localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+        localStorage.getItem("kebabschoicepos_active_outlet_id");
+      if (activePosId && activePosId !== "all") return activePosId;
+    }
+    return "all";
+  });
 
   useEffect(() => {
     if (!isOwner) {
@@ -8159,6 +8860,21 @@ function OrdersPage({
       }
     }
   }, [isOwner, snapshot.assignedOutletId, activeOutlets, selectedOutletFilter]);
+
+  useEffect(() => {
+    if (!isPosOrders || !isOwner) return;
+    const handlePosOutletChange = (e: any) => {
+      const nextId =
+        e?.detail?.outletId ||
+        localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
+        localStorage.getItem("kebabschoicepos_active_outlet_id");
+      if (nextId && nextId !== "all") {
+        setSelectedOutletFilter(nextId);
+      }
+    };
+    window.addEventListener("outlet:changed", handlePosOutletChange);
+    return () => window.removeEventListener("outlet:changed", handlePosOutletChange);
+  }, [isPosOrders, isOwner]);
   const [searchQuery, setSearchQuery] = useState("");
   const [receiptModalData, setReceiptModalData] = useState<ReceiptData | null>(null);
 
@@ -8174,7 +8890,7 @@ function OrdersPage({
       cached.forEach((o) => {
         if (o && o.id) {
           const existing = map.get(o.id);
-          map.set(o.id, { ...existing, ...o });
+          map.set(o.id, existing ? { ...o, ...existing } : o);
         }
       });
       return Array.from(map.values()).sort((a, b) => {
@@ -8215,34 +8931,14 @@ function OrdersPage({
 
   const [dateFilter, setDateFilter] = useState<"all" | "today" | "7days" | "month">("all");
 
-  const isTodayLocal = (dateString?: string) => {
-    if (!dateString) return false;
-    const d = new Date(dateString);
-    if (isNaN(d.getTime())) return false;
-    const now = new Date();
-    return (
-      d.getFullYear() === now.getFullYear() &&
-      d.getMonth() === now.getMonth() &&
-      d.getDate() === now.getDate()
-    );
-  };
+  const isTodayLocal = (dateString?: string) =>
+    isDateWithinFilter(dateString, { dateRange: "today" });
 
-  const isWithinDaysLocal = (dateString?: string, days: number = 7) => {
-    if (!dateString) return false;
-    const d = new Date(dateString);
-    if (isNaN(d.getTime())) return false;
-    const now = new Date();
-    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1), 0, 0, 0, 0);
-    return d.getTime() >= start.getTime();
-  };
+  const isWithinDaysLocal = (dateString?: string) =>
+    isDateWithinFilter(dateString, { dateRange: "last_7_days" });
 
-  const isThisMonthLocal = (dateString?: string) => {
-    if (!dateString) return false;
-    const d = new Date(dateString);
-    if (isNaN(d.getTime())) return false;
-    const now = new Date();
-    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
-  };
+  const isThisMonthLocal = (dateString?: string) =>
+    isDateWithinFilter(dateString, { dateRange: "this_month" });
 
   // Detail Transaksi Modal State
   const [selectedDetailOrder, setSelectedDetailOrder] = useState<SalesOrder | null>(null);
@@ -8418,9 +9114,10 @@ function OrdersPage({
         }
       }
 
-      if (dateFilter === "today" && !isTodayLocal(ord.created_at)) return false;
-      if (dateFilter === "7days" && !isWithinDaysLocal(ord.created_at, 7)) return false;
-      if (dateFilter === "month" && !isThisMonthLocal(ord.created_at)) return false;
+      const ordDateValue = (ord as any).paid_at || ord.created_at;
+      if (dateFilter === "today" && !isTodayLocal(ordDateValue)) return false;
+      if (dateFilter === "7days" && !isWithinDaysLocal(ordDateValue)) return false;
+      if (dateFilter === "month" && !isThisMonthLocal(ordDateValue)) return false;
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -8497,9 +9194,16 @@ function OrdersPage({
     }
   };
 
-  // Open Detail Transaksi Modal & fetch items
+  // Open Detail Transaksi Modal & fetch items (mutually exclusive with ReceiptModal)
   const handleOpenOrderDetail = async (order: SalesOrder) => {
+    setReceiptModalData(null);
     setSelectedDetailOrder(order);
+    const snapshotItems = (snapshot.orderItems || []).filter((it: any) => it.order_id === order.id);
+    if (snapshotItems.length > 0) {
+      setDetailItems(snapshotItems);
+    } else {
+      setDetailItems([]);
+    }
     setIsLoadingDetailItems(true);
     try {
       const { data: items, error } = await supabase
@@ -8509,7 +9213,7 @@ function OrdersPage({
 
       if (!error && items && items.length > 0) {
         setDetailItems(items);
-      } else {
+      } else if (snapshotItems.length === 0) {
         // Fallback item
         setDetailItems([
           {
@@ -8521,17 +9225,84 @@ function OrdersPage({
         ]);
       }
     } catch {
-      setDetailItems([
-        {
-          name: `Order POS #${order.order_number}`,
-          quantity: 1,
-          unit_price: order.total,
-          subtotal: order.total,
-        },
-      ]);
+      if (snapshotItems.length === 0) {
+        setDetailItems([
+          {
+            name: `Order POS #${order.order_number}`,
+            quantity: 1,
+            unit_price: order.total,
+            subtotal: order.total,
+          },
+        ]);
+      }
     } finally {
       setIsLoadingDetailItems(false);
     }
+  };
+
+  // Open Receipt Preview / Print Modal directly (mutually exclusive with Detail Transaksi modal)
+  const handleOpenOrderReceipt = async (order: SalesOrder) => {
+    setSelectedDetailOrder(null);
+    const displayMeta = resolveOrderDisplayMeta(order as any);
+    const snapshotItems = (snapshot.orderItems || []).filter((it: any) => it.order_id === order.id);
+    const buildReceiptItems = (rows: any[]) =>
+      rows.length > 0
+        ? rows.map((it: any) => ({
+            name: it.name || `Order POS #${order.order_number}`,
+            quantity: Number(it.quantity) || 1,
+            price: Number(it.unit_price ?? it.price) || 0,
+            subtotal:
+              Number(it.subtotal) ||
+              (Number(it.unit_price ?? it.price) || 0) * (Number(it.quantity) || 1),
+          }))
+        : [
+            {
+              name: `Order POS #${order.order_number}`,
+              quantity: 1,
+              price: order.total,
+              subtotal: order.total,
+            },
+          ];
+
+    const initialPayload: ReceiptData = {
+      orderNumber: order.order_number,
+      outletName: displayMeta.outletName,
+      cashierName: displayMeta.staffName,
+      paymentMethod: (order.payment_method || "CASH").toUpperCase(),
+      customerName: displayMeta.custName || displayMeta.queueName,
+      customerQueueName: displayMeta.queueName,
+      createdAt: order.created_at || new Date().toISOString(),
+      subtotal: displayMeta.subtotal,
+      discountAmount: displayMeta.discountAmount,
+      taxAmount: displayMeta.taxAmount,
+      items: buildReceiptItems(snapshotItems),
+      total: order.total,
+    };
+    setReceiptModalData(initialPayload);
+
+    try {
+      const { data: dbItems, error } = await supabase
+        .from("sales_order_items")
+        .select("*")
+        .eq("order_id", order.id);
+      if (!error && dbItems && dbItems.length > 0) {
+        const firstMeta = (dbItems[0] as any)?.selected_options?.order_meta;
+        setReceiptModalData((curr) =>
+          curr && curr.orderNumber === order.order_number
+            ? {
+                ...curr,
+                subtotal: Number(firstMeta?.subtotal ?? curr.subtotal) || curr.total,
+                discountAmount: Number(firstMeta?.discount_amount ?? curr.discountAmount) || 0,
+                serviceChargeAmount: Number(firstMeta?.service_charge ?? 0) || 0,
+                taxAmount: Number(firstMeta?.tax_amount ?? curr.taxAmount) || 0,
+                cashReceived: firstMeta?.cash_received ?? curr.cashReceived,
+                changeAmount: firstMeta?.change_amount ?? curr.changeAmount,
+                items: buildReceiptItems(dbItems),
+              }
+            : curr,
+        );
+      }
+    } catch {}
   };
 
   // Open Supervisor Action Modal (reject already void/cancelled/refunded orders immediately)
@@ -8987,48 +9758,64 @@ function OrdersPage({
           </div>
 
           {/* Date Filter Tabs */}
-          <div className="flex items-center rounded-2xl border border-border bg-background p-1 shadow-xs">
+          <div
+            role="group"
+            aria-label="Filter Periode Transaksi"
+            className="flex items-center rounded-2xl border border-border bg-background p-1 shadow-xs"
+          >
             <button
               type="button"
+              aria-pressed={dateFilter === "all"}
+              data-active={dateFilter === "all" ? "true" : "false"}
               onClick={() => setDateFilter("all")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={cn(
+                "px-3 py-1.5 rounded-xl text-xs font-bold transition-none cursor-pointer focus:outline-none",
                 dateFilter === "all"
                   ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  : "bg-transparent text-muted-foreground hover:text-foreground",
+              )}
             >
               Semua
             </button>
             <button
               type="button"
+              aria-pressed={dateFilter === "today"}
+              data-active={dateFilter === "today" ? "true" : "false"}
               onClick={() => setDateFilter("today")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={cn(
+                "px-3 py-1.5 rounded-xl text-xs font-bold transition-none cursor-pointer focus:outline-none",
                 dateFilter === "today"
                   ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  : "bg-transparent text-muted-foreground hover:text-foreground",
+              )}
             >
               Hari Ini
             </button>
             <button
               type="button"
+              aria-pressed={dateFilter === "7days"}
+              data-active={dateFilter === "7days" ? "true" : "false"}
               onClick={() => setDateFilter("7days")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={cn(
+                "px-3 py-1.5 rounded-xl text-xs font-bold transition-none cursor-pointer focus:outline-none",
                 dateFilter === "7days"
                   ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  : "bg-transparent text-muted-foreground hover:text-foreground",
+              )}
             >
               7 Hari
             </button>
             <button
               type="button"
+              aria-pressed={dateFilter === "month"}
+              data-active={dateFilter === "month" ? "true" : "false"}
               onClick={() => setDateFilter("month")}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              className={cn(
+                "px-3 py-1.5 rounded-xl text-xs font-bold transition-none cursor-pointer focus:outline-none",
                 dateFilter === "month"
                   ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground"
-              }`}
+                  : "bg-transparent text-muted-foreground hover:text-foreground",
+              )}
             >
               Bulan Ini
             </button>
@@ -9119,10 +9906,12 @@ function OrdersPage({
               return (
                 <div
                   key={order.id}
-                  onClick={() => handleOpenOrderDetail(order)}
-                  className="flex flex-col gap-3 rounded-2xl bg-secondary/70 p-4 sm:flex-row sm:items-center sm:justify-between transition-all hover:bg-secondary cursor-pointer border border-transparent hover:border-primary/30"
+                  className="flex flex-col gap-3 rounded-2xl bg-secondary/70 p-4 sm:flex-row sm:items-center sm:justify-between transition-colors hover:bg-secondary border border-transparent hover:border-primary/30"
                 >
-                  <div className="space-y-1">
+                  <div
+                    className="space-y-1 flex-1 min-w-0 cursor-pointer"
+                    onClick={() => handleOpenOrderDetail(order)}
+                  >
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-black tracking-normal text-base">
                         {order.order_number}
@@ -9192,40 +9981,34 @@ function OrdersPage({
                     <p className="text-[11px] text-muted-foreground capitalize">
                       Channel: {order.channel || "POS Kasir"}
                     </p>
-                    <div className="flex flex-wrap items-center justify-end gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <div
+                      className="flex flex-wrap items-center justify-end gap-2 shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    >
                       <Button
+                        type="button"
                         variant="outline"
                         size="sm"
-                        className="h-8 rounded-xl text-xs font-bold gap-1.5 border-border bg-background hover:bg-secondary"
-                        onClick={() =>
-                          setReceiptModalData({
-                            orderNumber: order.order_number,
-                            outletName,
-                            cashierName: staffName,
-                            paymentMethod: (order.payment_method || "CASH").toUpperCase(),
-                            customerName: custName || queueName,
-                            customerQueueName: queueName,
-                            createdAt: order.created_at || new Date().toISOString(),
-                            items: [
-                              {
-                                name: `Order POS #${order.order_number}`,
-                                quantity: 1,
-                                price: order.total,
-                                subtotal: order.total,
-                              },
-                            ],
-                            total: order.total,
-                          })
-                        }
+                        className="h-8 rounded-xl text-xs font-bold gap-1.5 border-border bg-background hover:bg-secondary cursor-pointer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleOpenOrderReceipt(order);
+                        }}
                       >
                         <Printer className="size-3.5" />
                         {t("pos.print_receipt", "Cetak Struk")}
                       </Button>
                       <Button
+                        type="button"
                         variant="ghost"
                         size="sm"
-                        className="h-8 rounded-xl text-xs font-bold gap-1"
-                        onClick={() => handleOpenOrderDetail(order)}
+                        className="h-8 rounded-xl text-xs font-bold gap-1 cursor-pointer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          void handleOpenOrderDetail(order);
+                        }}
                       >
                         <FileText className="size-3.5" />
                         Detail
@@ -9381,52 +10164,107 @@ function OrdersPage({
                       </div>
                     ) : (
                       <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
-                        {detailItems.map((item, idx) => (
-                          <div
-                            key={idx}
-                            className="rounded-xl border border-border/80 bg-background/80 p-3 text-xs space-y-1"
-                          >
-                            <div className="flex items-start justify-between gap-2">
-                              <span className="font-bold text-foreground">{item.name}</span>
-                              <span className="font-black text-primary shrink-0">
-                                {formatRupiah(item.subtotal || item.unit_price * item.quantity)}
-                              </span>
+                        {detailItems.map((item, idx) => {
+                          const rawVariantTokens = String(item.variant_name || "")
+                            .split(/[•|,]/)
+                            .map((t) => t.trim())
+                            .filter(Boolean);
+                          const seenTokens = new Set<string>();
+                          const uniqueVariantTokens: string[] = [];
+                          for (const tok of rawVariantTokens) {
+                            const key = tok.toLowerCase();
+                            if (!seenTokens.has(key)) {
+                              seenTokens.add(key);
+                              uniqueVariantTokens.push(tok);
+                            }
+                          }
+                          const uniqueModifiers = (
+                            Array.isArray(item.selected_options?.modifiers)
+                              ? item.selected_options.modifiers
+                              : []
+                          )
+                            .map((m: any) => String(m || "").trim())
+                            .filter((m: string) => {
+                              if (!m) return false;
+                              const key = m.toLowerCase();
+                              if (seenTokens.has(key)) return false;
+                              seenTokens.add(key);
+                              return true;
+                            });
+                          const uniqueAddons = (
+                            Array.isArray(item.selected_options?.addons)
+                              ? item.selected_options.addons
+                              : []
+                          )
+                            .map((a: any) => String(a?.name || a || "").trim())
+                            .filter((a: string) => {
+                              if (!a) return false;
+                              const key = a.replace(/^\+/, "").trim().toLowerCase();
+                              if (seenTokens.has(key) || seenTokens.has(`+${key}`)) return false;
+                              seenTokens.add(key);
+                              return true;
+                            });
+                          const hasStructuredOptions =
+                            uniqueVariantTokens.length > 0 ||
+                            uniqueModifiers.length > 0 ||
+                            uniqueAddons.length > 0 ||
+                            Boolean(item.notes);
+                          const cleanDisplayName = hasStructuredOptions
+                            ? String(item.name || "")
+                                .replace(/\s*\[Catatan:[^\]]*\]\s*/gi, "")
+                                .replace(/\s*\([^)]*\)\s*$/g, "")
+                                .trim() || item.name
+                            : item.name;
+
+                          return (
+                            <div
+                              key={idx}
+                              className="rounded-xl border border-border/80 bg-background/80 p-3 text-xs space-y-1"
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <span className="font-bold text-foreground">
+                                  {cleanDisplayName}
+                                </span>
+                                <span className="font-black text-primary shrink-0">
+                                  {formatRupiah(item.subtotal || item.unit_price * item.quantity)}
+                                </span>
+                              </div>
+                              {uniqueVariantTokens.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  Varian:{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {uniqueVariantTokens.join(" · ")}
+                                  </span>
+                                </p>
+                              )}
+                              {uniqueModifiers.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  Level/Opsi:{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {uniqueModifiers.join(", ")}
+                                  </span>
+                                </p>
+                              )}
+                              {uniqueAddons.length > 0 && (
+                                <p className="text-xs text-muted-foreground">
+                                  Topping:{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {uniqueAddons.join(", ")}
+                                  </span>
+                                </p>
+                              )}
+                              {item.notes && (
+                                <p className="text-xs italic text-foreground/75">
+                                  Catatan: {item.notes}
+                                </p>
+                              )}
+                              <div className="text-xs text-muted-foreground pt-1 flex justify-between border-t border-border/40">
+                                <span>Jumlah: {item.quantity} porsi</span>
+                                <span>@ {formatRupiah(item.unit_price)}</span>
+                              </div>
                             </div>
-                            {item.variant_name && (
-                              <p className="text-[11px] text-muted-foreground">
-                                Varian:{" "}
-                                <span className="font-semibold text-foreground">
-                                  {item.variant_name}
-                                </span>
-                              </p>
-                            )}
-                            {item.selected_options?.modifiers?.length > 0 && (
-                              <p className="text-[11px] text-muted-foreground">
-                                Level/Opsi:{" "}
-                                <span className="font-semibold text-foreground">
-                                  {item.selected_options.modifiers.join(", ")}
-                                </span>
-                              </p>
-                            )}
-                            {item.selected_options?.addons?.length > 0 && (
-                              <p className="text-[11px] text-muted-foreground">
-                                Topping:{" "}
-                                <span className="font-semibold text-foreground">
-                                  {item.selected_options.addons.map((a: any) => a.name).join(", ")}
-                                </span>
-                              </p>
-                            )}
-                            {item.notes && (
-                              <p className="text-[10px] italic text-foreground/75">
-                                Catatan: {item.notes}
-                              </p>
-                            )}
-                            <div className="text-[11px] text-muted-foreground pt-1 flex justify-between border-t border-border/40">
-                              <span>Jumlah: {item.quantity} porsi</span>
-                              <span>@ {formatRupiah(item.unit_price)}</span>
-                            </div>
-                          </div>
-                        ))}
+                          );
+                        })}
                       </div>
                     )}
                   </div>
@@ -10718,7 +11556,13 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       );
     }
     if (page === "pos-orders" || page === "orders") {
-      return <OrdersPage snapshot={snapshot} onRefresh={refresh} />;
+      return (
+        <OrdersPage
+          snapshot={snapshot}
+          onRefresh={refresh}
+          isPosOrders={page === "pos-orders"}
+        />
+      );
     }
     if (page === "inventory") {
       return <InventoryManagement />;

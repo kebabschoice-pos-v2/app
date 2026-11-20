@@ -228,30 +228,23 @@ export function StaffManagement() {
   async function loadData() {
     try {
       setLoading(true);
-      const [staffData, outletData, profilesData, attData, shiftData, prData, directOutletsRes] = await Promise.all([
+      const [staffData, outletData, profilesData, attData, shiftData, prData] = await Promise.all([
         getStaffList().catch(() => [] as StaffItem[]),
         getOutletList().catch(() => [] as OutletItem[]),
         getHRStaffProfiles().catch(() => [] as StaffProfile[]),
         getAttendanceList().catch(() => [] as StaffAttendance[]),
         getStaffShifts().catch(() => [] as StaffShift[]),
         generateMonthlyPayrollList(payrollMonth, payrollYear).catch(() => [] as StaffPayroll[]),
-        (async () => {
-          try {
-            const res = await supabase.from("outlets").select("id, name, code, address, phone, settings, active");
-            return (res.data || []) as any[];
-          } catch {
-            return [] as any[];
-          }
-        })(),
       ]);
 
-      // Deduplicate and merge outlets from getOutletList() and direct query
+      // Single source of truth: outlets strictly from getOutletList() scoped to active business(es)
+      // (Never query outlets unscoped across tenants — avoids duplicate "Main Outlet (Belum Ada)" phantom cards)
       const uniqueOutlets: OutletItem[] = [];
       const seenOutlets = new Set<string>();
 
       const addOutletIfValid = (o: any) => {
         if (!o || !o.id || seenOutlets.has(o.id)) return;
-        const isArchived = Boolean((o.settings as any)?.archived) || o.active === false;
+        const isArchived = Boolean((o.settings as any)?.archived || (o.settings as any)?.deleted_at);
         if (isArchived) return;
         seenOutlets.add(o.id);
         uniqueOutlets.push({
@@ -269,26 +262,6 @@ export function StaffManagement() {
       };
 
       for (const o of outletData) addOutletIfValid(o);
-      for (const o of directOutletsRes) addOutletIfValid(o);
-
-      // Also check if any staff has an outlet_id & outlet_name not yet in uniqueOutlets
-      for (const s of staffData) {
-        if (s.outlet_id && !seenOutlets.has(s.outlet_id)) {
-          seenOutlets.add(s.outlet_id);
-          uniqueOutlets.push({
-            id: s.outlet_id,
-            name: s.outlet_name || s.outlet || "Outlet Cabang",
-            outlet_name: s.outlet_name || s.outlet || "Outlet Cabang",
-            code: s.outlet_code || "",
-            address: "",
-            phone: "",
-            status: "active",
-            created_at: new Date().toISOString(),
-            settings: {},
-            staff_count: 0,
-          } as any as OutletItem);
-        }
-      }
 
       // Deduplicate staff list by user_id || id, filtering out device accounts
       const uniqueStaff: StaffItem[] = [];
@@ -2095,19 +2068,6 @@ export function StaffManagement() {
                 </div>
 
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-foreground/80">
-                      Jenis Kelamin (Gender) *
-                    </label>
-                    <select
-                      className="mt-1.5 h-10 w-full rounded-xl border border-input bg-card px-3 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring font-semibold"
-                      value={form.gender || "male"}
-                      onChange={(e) => setForm({ ...form, gender: e.target.value as any })}
-                    >
-                      <option value="male">Laki-laki (L)</option>
-                      <option value="female">Perempuan (P)</option>
-                    </select>
-                  </div>
                   <div>
                     <label className="text-xs font-bold text-foreground/80">
                       Status Kepegawaian

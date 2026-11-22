@@ -87,6 +87,38 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { getUserRole } from "@/integrations/supabase/role-resolver";
 
+function withTimeout<T>(promise: PromiseLike<T>, ms = 5000, fallback: T): Promise<T> {
+  const safeMs = Math.min(Math.max(500, ms), 5000);
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallback);
+      }
+    }, safeMs);
+    Promise.resolve(promise)
+      .then((val) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(val);
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(fallback);
+        }
+      });
+  });
+}
+
+function getSettledValue<T>(result: PromiseSettledResult<T>, fallback: T): T {
+  return result.status === "fulfilled" && result.value !== undefined ? result.value : fallback;
+}
+
 export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
   // Navigation Tabs: staff (Daftar & Profil), attendance (Rekap Absensi), shifts (Jadwal Shift), payroll (Penggajian), manager_permissions (Hak Akses Manager)
   const [activeTab, setActiveTab] = useState<"staff" | "attendance" | "shifts" | "payroll" | "manager_permissions">(
@@ -230,23 +262,154 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
   async function loadData() {
     try {
       setLoading(true);
-      const authUser = await resolveAuthenticatedUser().catch(() => null);
-      const activeBizId =
+
+      // Immediate hydration from snapshot?.outlets if already available (zero wait on network)
+      if (Array.isArray(snapshot?.outlets) && snapshot.outlets.length > 0 && outlets.length === 0) {
+        const snapOutlets: OutletItem[] = [];
+        const snapStaff: StaffItem[] = [];
+        const seenSnapOut = new Set<string>();
+        const seenSnapStaff = new Set<string>();
+        for (const so of snapshot.outlets as any[]) {
+          if (!so?.id || seenSnapOut.has(so.id)) continue;
+          const isArchived = Boolean((so.settings as any)?.archived || (so.settings as any)?.deleted_at);
+          if (isArchived) continue;
+          seenSnapOut.add(so.id);
+          const normOut: OutletItem = {
+            id: so.id,
+            name: so.name || so.outlet_name || "Outlet Cabang",
+            outlet_name: so.outlet_name || so.name || "Outlet Cabang",
+            code: so.code || "",
+            address: so.address || "",
+            phone: so.phone || "",
+            status: so.status || (so.active !== false ? "active" : "inactive"),
+            created_at: so.created_at || new Date().toISOString(),
+            settings: so.settings || {},
+            staff_count: so.staff_count || 0,
+          } as any as OutletItem;
+          snapOutlets.push(normOut);
+          const roster: any[] = Array.isArray((so.settings as any)?.outlet_staff_roster)
+            ? (so.settings as any).outlet_staff_roster
+            : [];
+          for (const emp of roster) {
+            const empId =
+              emp.user_id ||
+              emp.id ||
+              `emp-${so.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
+            if (!seenSnapStaff.has(empId) && !isOutletDeviceAccount(emp, snapOutlets)) {
+              seenSnapStaff.add(empId);
+              snapStaff.push({
+                id: empId,
+                user_id: empId,
+                name: emp.name || emp.full_name || "Karyawan Cabang",
+                email: emp.email || "",
+                avatar_url: emp.avatar_url || null,
+                role: (emp.role as any) || "cashier",
+                outlet: normOut.name,
+                outlet_name: normOut.name,
+                outlet_id: normOut.id,
+                outlet_code: normOut.code || "",
+                created_at: emp.created_at || new Date().toISOString(),
+                status: emp.status || "active",
+                gender: emp.gender || "male",
+              });
+            }
+          }
+        }
+        if (snapOutlets.length > 0) {
+          setOutlets(snapOutlets);
+          if (snapStaff.length > 0 && staffList.length === 0) {
+            setStaffList(snapStaff);
+          }
+          setHasLoadedInitialData(true);
+          setLoading(false);
+        }
+      }
+
+      const sessionRes = await withTimeout(
+        supabase.auth.getSession(),
+        2500,
+        { data: { session: null }, error: null } as any,
+      );
+      const authUser =
+        sessionRes?.data?.session?.user ||
+        (await withTimeout(resolveAuthenticatedUser(), 2500, null));
+
+      let activeBizId =
         snapshot?.businessId ||
         (typeof window !== "undefined"
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "") ||
         undefined;
 
-      // Stage 1 (Fast Critical Path): Fetch core staff list, outlets, and HR profiles immediately
-      // without blocking on heavy monthly payroll generation so Staff & Outlet cards populate on mount.
-      const [staffData, outletData, profilesData] = await Promise.all([
-        getStaffList().catch(() => [] as StaffItem[]),
-        getOutletList(activeBizId).catch(() => [] as OutletItem[]),
-        getHRStaffProfiles(activeBizId).catch(() => [] as StaffProfile[]),
+      if (!activeBizId && authUser?.id) {
+        const [ownedRes, memberRes] = await Promise.allSettled([
+          withTimeout(
+            supabase
+              .from("businesses")
+              .select("id")
+              .eq("owner_id", authUser.id)
+              .order("created_at", { ascending: true })
+              .limit(1),
+            3000,
+            { data: [] as any[] } as any,
+          ),
+          withTimeout(
+            supabase
+              .from("business_members")
+              .select("business_id")
+              .eq("user_id", authUser.id)
+              .limit(1),
+            3000,
+            { data: [] as any[] } as any,
+          ),
+        ]);
+        const ownedRows = getSettledValue(ownedRes, { data: [] as any[] })?.data || [];
+        const memberRows = getSettledValue(memberRes, { data: [] as any[] })?.data || [];
+        activeBizId = ownedRows[0]?.id || memberRows[0]?.business_id || undefined;
+        if (activeBizId && typeof window !== "undefined") {
+          try {
+            localStorage.setItem("kebabschoicepos_active_business_id", activeBizId);
+          } catch {}
+        }
+      }
+
+      // Stage 1 (Fast Critical Path): Wrap EVERY request in Promise.allSettled + withTimeout (max 4500ms)
+      // plus parallel direct Supabase client queries for outlets and staff_profiles so a slow /api/list-staff never blocks!
+      const [
+        staffSettled,
+        outletSettled,
+        profilesSettled,
+        directOutletsSettled,
+        directStaffProfilesSettled,
+      ] = await Promise.allSettled([
+        withTimeout(getStaffList(), 4500, [] as StaffItem[]),
+        withTimeout(getOutletList(activeBizId), 4500, [] as OutletItem[]),
+        withTimeout(getHRStaffProfiles(activeBizId), 4500, [] as StaffProfile[]),
+        withTimeout(
+          activeBizId
+            ? supabase.from("outlets").select("*").eq("business_id", activeBizId)
+            : supabase.from("outlets").select("*"),
+          4000,
+          { data: [] as any[] } as any,
+        ),
+        withTimeout(
+          activeBizId
+            ? supabase.from("staff_profiles" as any).select("*").eq("business_id", activeBizId)
+            : supabase.from("staff_profiles" as any).select("*"),
+          4000,
+          { data: [] as any[] } as any,
+        ),
       ]);
 
-      // Single source of truth: outlets strictly from getOutletList() + snapshot.outlets fallback
+      const staffData = getSettledValue(staffSettled, [] as StaffItem[]);
+      const outletData = getSettledValue(outletSettled, [] as OutletItem[]);
+      const profilesData = getSettledValue(profilesSettled, [] as StaffProfile[]);
+      const directOutletsRows: any[] =
+        getSettledValue(directOutletsSettled, { data: [] as any[] })?.data || [];
+      const directStaffProfilesRows: any[] =
+        getSettledValue(directStaffProfilesSettled, { data: [] as any[] })?.data || [];
+
+      // Single source of truth: outlets strictly from getOutletList() + direct Supabase outlets + snapshot.outlets fallback
       const uniqueOutlets: OutletItem[] = [];
       const seenOutlets = new Set<string>();
 
@@ -270,6 +433,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       };
 
       for (const o of outletData) addOutletIfValid(o);
+      for (const dOut of directOutletsRows) addOutletIfValid(dOut);
       for (const so of (snapshot?.outlets || []) as any[]) addOutletIfValid(so);
 
       // Deduplicate staff list by user_id || id, filtering out device accounts
@@ -313,9 +477,43 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
         }
       }
 
-      const existingProfiles = profilesData.filter(
-        (p: StaffProfile) => !isOutletDeviceAccount(p, uniqueOutlets),
-      );
+      // Merge direct Supabase staff_profiles fallback into profilesData
+      const combinedProfilesMap = new Map<string, StaffProfile>();
+      for (const p of profilesData) {
+        const k = p?.user_id || p?.id;
+        if (k && !isOutletDeviceAccount(p, uniqueOutlets)) {
+          combinedProfilesMap.set(k, p);
+        }
+      }
+      for (const dp of directStaffProfilesRows) {
+        const k = dp?.user_id || dp?.id;
+        if (k && !combinedProfilesMap.has(k) && !isOutletDeviceAccount(dp, uniqueOutlets)) {
+          const matchOut = uniqueOutlets.find((o) => o.id === dp.outlet_id) || uniqueOutlets[0];
+          combinedProfilesMap.set(k, {
+            id: dp.id || `prof-${k}`,
+            user_id: k,
+            full_name: dp.full_name || dp.name || "Karyawan Cabang",
+            phone: dp.phone || "-",
+            address: dp.address || "-",
+            avatar_url: dp.avatar_url || null,
+            join_date: dp.join_date || dp.created_at || new Date().toISOString(),
+            job_title: dp.job_title || (dp.role === "manager" ? "Manager Cabang" : "Kasir POS"),
+            role: (dp.role as any) || "cashier",
+            gender: dp.gender || "male",
+            employment_status: dp.employment_status || "Tetap",
+            base_salary: Number(dp.base_salary) || 2000000,
+            daily_allowance: Number(dp.daily_allowance) || 25000,
+            late_deduction: Number(dp.late_deduction) || 20000,
+            absence_deduction: Number(dp.absence_deduction) || 80000,
+            default_shift: dp.default_shift || "Shift Pagi",
+            outlet_id: dp.outlet_id || matchOut?.id || null,
+            outlet_name: dp.outlet_name || matchOut?.name || "Outlet Cabang",
+            created_at: dp.created_at || new Date().toISOString(),
+          });
+        }
+      }
+
+      const existingProfiles = Array.from(combinedProfilesMap.values());
       // Also ensure any employee present in HR profiles is included in uniqueStaff
       for (const ep of existingProfiles) {
         const epKey = ep.user_id || ep.id;
@@ -375,9 +573,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       setStaffList(uniqueStaff);
       setOutlets(uniqueOutlets);
       setHrProfiles(fullProfiles);
-      if (uniqueStaff.length > 0 || uniqueOutlets.length > 0 || authUser) {
-        setHasLoadedInitialData(true);
-      }
+      setHasLoadedInitialData(true);
       setLoading(false);
 
       const firstOutlet = uniqueOutlets[0];
@@ -392,14 +588,21 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       }
 
       // Stage 2 (Non-blocking secondary enrichment: Attendance, Shifts, Payroll, Role & Permissions)
-      const [attData, shiftData, prData, perms] = await Promise.all([
-        getAttendanceList().catch(() => [] as StaffAttendance[]),
-        getStaffShifts().catch(() => [] as StaffShift[]),
-        generateMonthlyPayrollList(payrollMonth, payrollYear, undefined, activeBizId).catch(
-          () => [] as StaffPayroll[],
+      const [attSettled, shiftSettled, prSettled, permsSettled] = await Promise.allSettled([
+        withTimeout(getAttendanceList(), 4500, [] as StaffAttendance[]),
+        withTimeout(getStaffShifts(), 4500, [] as StaffShift[]),
+        withTimeout(
+          generateMonthlyPayrollList(payrollMonth, payrollYear, undefined, activeBizId),
+          5000,
+          [] as StaffPayroll[],
         ),
-        getManagerPermissions(activeBizId).catch(() => null),
+        withTimeout(getManagerPermissions(activeBizId), 4000, null),
       ]);
+
+      const attData = getSettledValue(attSettled, [] as StaffAttendance[]);
+      const shiftData = getSettledValue(shiftSettled, [] as StaffShift[]);
+      const prData = getSettledValue(prSettled, [] as StaffPayroll[]);
+      const perms = getSettledValue(permsSettled, null);
 
       setAttendances(attData);
       setShifts(shiftData);
@@ -411,7 +614,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
           if (authUser.email) {
             setOwnerEmail(authUser.email);
           }
-          const role = await getUserRole(authUser.id);
+          const role = await withTimeout(getUserRole(authUser.id), 3000, "owner");
           setCurrentUserRole(role);
           if (role === "cashier" && (activeTab === "payroll" || (activeTab as string) === "manager_permissions")) {
             setActiveTab("staff");
@@ -433,6 +636,11 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
 
   useEffect(() => {
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    const safetyTimer = setTimeout(() => {
+      setHasLoadedInitialData(true);
+      setLoading(false);
+    }, 5500);
+
     loadData().then(() => {
       // Follow-up check if initial mount ran before auth session / active businessId finished hydrating
       retryTimer = setTimeout(() => {
@@ -443,7 +651,9 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
     });
 
     const handleShiftsUpdate = () => {
-      getStaffShifts().then(setShifts).catch(() => {});
+      withTimeout(getStaffShifts(), 4000, [] as StaffShift[])
+        .then(setShifts)
+        .catch(() => {});
     };
     const handleSync = () => {
       loadData();
@@ -459,6 +669,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       }
     });
     return () => {
+      clearTimeout(safetyTimer);
       if (retryTimer) clearTimeout(retryTimer);
       window.removeEventListener("hr:shifts-updated", handleShiftsUpdate);
       window.removeEventListener("app:snapshot-ready", handleSync);

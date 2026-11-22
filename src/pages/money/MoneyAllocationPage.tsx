@@ -118,6 +118,38 @@ interface MoneyAllocationSettings {
 
 const STORAGE_KEY = "kebabschoicepos_money_allocation";
 
+function withTimeout<T>(promise: PromiseLike<T>, ms = 5000, fallback: T): Promise<T> {
+  const safeMs = Math.min(Math.max(500, ms), 5000);
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallback);
+      }
+    }, safeMs);
+    Promise.resolve(promise)
+      .then((val) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(val);
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(fallback);
+        }
+      });
+  });
+}
+
+function getSettledValue<T>(result: PromiseSettledResult<T>, fallback: T): T {
+  return result.status === "fulfilled" && result.value !== undefined ? result.value : fallback;
+}
+
 export function MoneyAllocationPage({
   snapshot,
   onRefresh,
@@ -259,14 +291,56 @@ export function MoneyAllocationPage({
     const requestId = ++loadRequestIdRef.current;
     try {
       setLoading(true);
-      await resolveAuthenticatedUser().catch(() => null);
+
+      // Resolve businessId directly from snapshot / localStorage / fast getSession() without blocking on getUser()
       let bId =
         snapshot?.businessId ||
         (typeof window !== "undefined"
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "");
+
+      const sessionRes = await withTimeout(
+        supabase.auth.getSession(),
+        2500,
+        { data: { session: null }, error: null } as any,
+      );
+      const sessionUser = sessionRes?.data?.session?.user || null;
+
+      if (!bId && sessionUser?.id) {
+        const [ownedRes, memberRes] = await Promise.allSettled([
+          withTimeout(
+            supabase
+              .from("businesses")
+              .select("id")
+              .eq("owner_id", sessionUser.id)
+              .order("created_at", { ascending: true })
+              .limit(1),
+            3000,
+            { data: [] as any[] } as any,
+          ),
+          withTimeout(
+            supabase
+              .from("business_members")
+              .select("business_id")
+              .eq("user_id", sessionUser.id)
+              .limit(1),
+            3000,
+            { data: [] as any[] } as any,
+          ),
+        ]);
+        const ownedRows = getSettledValue(ownedRes, { data: [] as any[] })?.data || [];
+        const memberRows = getSettledValue(memberRes, { data: [] as any[] })?.data || [];
+        bId = ownedRows[0]?.id || memberRows[0]?.business_id || "";
+      }
+
       if (!bId) {
-        bId = (await resolveActiveBusinessId().catch(() => "")) || "";
+        bId = await withTimeout(resolveActiveBusinessId(), 3000, "");
+      }
+
+      if (bId && typeof window !== "undefined") {
+        try {
+          localStorage.setItem("kebabschoicepos_active_business_id", bId);
+        } catch {}
       }
 
       const activeRole =
@@ -274,17 +348,19 @@ export function MoneyAllocationPage({
           ? localStorage.getItem("kebabschoicepos_user_role") || "owner"
           : "owner";
 
-      const allBizIds = await resolveAllReportBusinessIds(bId || undefined);
+      const allBizIds = await withTimeout(
+        resolveAllReportBusinessIds(bId || undefined),
+        3000,
+        bId ? [bId] : [],
+      );
       const targetBizIds = allBizIds.length > 0 ? allBizIds : bId ? [bId] : [];
       if (!bId && targetBizIds[0]) {
         bId = targetBizIds[0];
       }
 
       if (!bId || targetBizIds.length === 0) {
-        if (requestId === loadRequestIdRef.current) {
-          setHasLoadedData(true);
-          setLoading(false);
-        }
+        setHasLoadedData(true);
+        setLoading(false);
         return;
       }
 
@@ -318,45 +394,85 @@ export function MoneyAllocationPage({
         .select("*")
         .in("business_id", targetBizIds);
 
-      // 1. Parallel fetch all resources simultaneously strictly scoped to user's business IDs
+      let directInvQuery = supabase
+        .from("inventory_items")
+        .select("*")
+        .in("business_id", targetBizIds)
+        .order("name", { ascending: true });
+
+      let posShiftsQuery = supabase
+        .from("pos_shifts" as any)
+        .select("id, outlet_id, status")
+        .in("business_id", targetBizIds);
+
+      // 1. Parallel fetch all resources simultaneously via Promise.allSettled + withTimeout (max 4500ms)
       const [
-        perms,
-        resAnalytics,
-        invItems,
-        movements,
-        hrProfiles,
-        dbCmResponse,
-        dbOrdersResponse,
-        outletDataResponse,
-        menuItemsList,
-        branchLedgerData,
-        dbPayrollsResponse,
-        unifiedOutlets,
-      ] = await Promise.all([
-        getManagerPermissions(bId, selectedOutletId).catch(() => null),
-        getComprehensiveAnalytics(bId, {
-          outletId: selectedOutletId,
-          dateRange: dateRange,
-        }).catch(() => null),
-        getInventoryItems(bId).catch(() => [] as InventoryItemDetail[]),
-        getStockMovements(bId).catch(() => [] as StockMovementRecord[]),
-        getHRStaffProfiles(bId).catch(() => [] as StaffProfile[]),
-        Promise.resolve(cmQuery).catch(() => ({ data: [] })),
-        Promise.resolve(ordersQuery.order("created_at", { ascending: false })).catch(() => ({ data: [] })),
-        Promise.resolve(
-          supabase
-            .from("outlets")
-            .select("id, name, code, address, active, settings")
-            .in("business_id", targetBizIds),
-        ).catch(() => ({ data: [] })),
-        getMenuItems({ businessId: bId }).catch(() => [] as any[]),
-        loadBranchMoneyLedger(selectedOutletId).catch(() => null),
-        Promise.resolve(payrollQuery).catch(() => ({ data: [] })),
-        getOutletList(bId).catch(() => []),
+        permsSettled,
+        resAnalyticsSettled,
+        invItemsSettled,
+        movementsSettled,
+        hrProfilesSettled,
+        dbCmSettled,
+        dbOrdersSettled,
+        outletDataSettled,
+        menuItemsSettled,
+        branchLedgerSettled,
+        dbPayrollsSettled,
+        unifiedOutletsSettled,
+        directInvSettled,
+        _posShiftsSettled,
+      ] = await Promise.allSettled([
+        withTimeout(getManagerPermissions(bId, selectedOutletId), 4000, null),
+        withTimeout(
+          getComprehensiveAnalytics(bId, {
+            outletId: selectedOutletId,
+            dateRange: dateRange,
+          }),
+          4500,
+          null,
+        ),
+        withTimeout(getInventoryItems(bId), 4500, [] as InventoryItemDetail[]),
+        withTimeout(getStockMovements(bId), 4500, [] as StockMovementRecord[]),
+        withTimeout(getHRStaffProfiles(bId), 4500, [] as StaffProfile[]),
+        withTimeout(Promise.resolve(cmQuery), 4000, { data: [] as any[] } as any),
+        withTimeout(
+          Promise.resolve(ordersQuery.order("created_at", { ascending: false })),
+          4500,
+          { data: [] as any[] } as any,
+        ),
+        withTimeout(
+          Promise.resolve(
+            supabase
+              .from("outlets")
+              .select("id, name, code, address, active, settings")
+              .in("business_id", targetBizIds),
+          ),
+          4000,
+          { data: [] as any[] } as any,
+        ),
+        withTimeout(getMenuItems({ businessId: bId }), 4500, [] as any[]),
+        withTimeout(loadBranchMoneyLedger(selectedOutletId), 4000, null),
+        withTimeout(Promise.resolve(payrollQuery), 4000, { data: [] as any[] } as any),
+        withTimeout(getOutletList(bId), 4000, []),
+        withTimeout(Promise.resolve(directInvQuery), 4000, { data: [] as any[] } as any),
+        withTimeout(Promise.resolve(posShiftsQuery), 4000, { data: [] as any[] } as any),
       ]);
 
+      const perms = getSettledValue(permsSettled, null);
+      const resAnalytics = getSettledValue(resAnalyticsSettled, null);
+      const invItemsFromApi = getSettledValue(invItemsSettled, [] as InventoryItemDetail[]);
+      const movements = getSettledValue(movementsSettled, [] as StockMovementRecord[]);
+      const hrProfiles = getSettledValue(hrProfilesSettled, [] as StaffProfile[]);
+      const dbCmResponse = getSettledValue(dbCmSettled, { data: [] as any[] });
+      const dbOrdersResponse = getSettledValue(dbOrdersSettled, { data: [] as any[] });
+      const outletDataResponse = getSettledValue(outletDataSettled, { data: [] as any[] });
+      const menuItemsFromApi = getSettledValue(menuItemsSettled, [] as any[]);
+      const branchLedgerData = getSettledValue(branchLedgerSettled, null);
+      const dbPayrollsResponse = getSettledValue(dbPayrollsSettled, { data: [] as any[] });
+      const unifiedOutlets = getSettledValue(unifiedOutletsSettled, []);
+      const directInvResponse = getSettledValue(directInvSettled, { data: [] as any[] });
+
       // Build resolvedOutlets locally WITHOUT mutating fetchedOutlets mid-flight
-      // (mutating fetchedOutlets before await dbItemsResponse caused outletsList -> loadData to re-trigger and abort in-flight requests!)
       let nextFetchedOutlets: Array<{
         id: string;
         name: string;
@@ -389,19 +505,138 @@ export function MoneyAllocationPage({
       const effectiveOutletsForLoad =
         nextFetchedOutlets.length > 0 ? nextFetchedOutlets : (snapshot?.outlets || []);
 
-      // Fetch sales_order_items strictly for this business's orders (never cross-tenant unscoped)
-      const businessOrderIds = ((dbOrdersResponse?.data as any[]) || [])
-        .map((o: any) => o.id)
-        .filter(Boolean);
+      // Fast direct Supabase inventory_items fallback if /api/inventory timed out or returned empty
+      let invItems: InventoryItemDetail[] = invItemsFromApi;
+      if (invItems.length === 0) {
+        const rawDirectRows: any[] =
+          Array.isArray(directInvResponse?.data) && directInvResponse.data.length > 0
+            ? directInvResponse.data
+            : Array.isArray((snapshot as any)?.inventory)
+              ? (snapshot as any).inventory
+              : [];
+
+        const archivedOutletIds = new Set<string>();
+        const activeOutletMap = new Map<string, string>();
+        const mergedItemMeta: Record<string, any> = {};
+        for (const o of (outletDataResponse?.data || effectiveOutletsForLoad || []) as any[]) {
+          const s = (o?.settings && typeof o.settings === "object" ? o.settings : {}) as any;
+          if (s.archived === true || s.deleted_at) {
+            if (o?.id) archivedOutletIds.add(o.id);
+          } else if (o?.id) {
+            activeOutletMap.set(o.id, o.name || o.outlet_name || "Cabang");
+          }
+          if (s.procurement?.item_meta && typeof s.procurement.item_meta === "object") {
+            Object.assign(mergedItemMeta, s.procurement.item_meta);
+          }
+        }
+
+        const primaryOutId = resolvePrimaryOutletId(effectiveOutletsForLoad);
+        const primaryOutName =
+          (primaryOutId ? activeOutletMap.get(primaryOutId) : null) ||
+          effectiveOutletsForLoad[0]?.name ||
+          "Cabang";
+
+        const seenDirect = new Map<string, InventoryItemDetail>();
+        for (const row of rawDirectRows) {
+          if (!row?.id || !row?.name) continue;
+          const meta = mergedItemMeta[row.id] || {};
+          const rowOutletId = row.outlet_id || meta.outlet_id || primaryOutId || null;
+          if (rowOutletId && archivedOutletIds.has(rowOutletId)) continue;
+
+          const stockVal = Number(row.stock) || 0;
+          const minVal = Number(row.minimum_stock) || 0;
+          const dbCost = Number(row.cost_price) || 0;
+          const metaCost = Number(meta.cost_price) || 0;
+          let costPrice =
+            metaCost > 0 && (dbCost <= 0 || (dbCost === 1000 && metaCost !== 1000))
+              ? metaCost
+              : dbCost > 0
+                ? dbCost
+                : metaCost;
+          const lowerName = String(row.name || "").toLowerCase().trim();
+          let yieldPerUnit =
+            Number(row.yield_per_unit ?? meta.yield_per_unit ?? meta.pack_size ?? 0) || null;
+          let yieldUnit =
+            row.yield_unit ||
+            meta.yield_unit ||
+            (row.unit === "pcs" || row.unit === "pack" || row.unit === "tiang" ? "gram" : null);
+
+          if (lowerName.includes("daging") && (costPrice <= 0 || costPrice === 1000)) {
+            costPrice = 120000;
+            if (!yieldPerUnit || yieldPerUnit <= 1) {
+              yieldPerUnit = 2000;
+              yieldUnit = "gram";
+            }
+          } else if (lowerName.includes("tortilla") && (costPrice <= 0 || costPrice === 1000)) {
+            costPrice = 25000;
+            if (!yieldPerUnit || yieldPerUnit <= 1) {
+              yieldPerUnit = 20;
+              yieldUnit = "pcs";
+            }
+          }
+
+          let status: "aman" | "menipis" | "habis" = "aman";
+          if (stockVal <= 0) status = "habis";
+          else if (stockVal <= minVal) status = "menipis";
+
+          const candidate: InventoryItemDetail = {
+            id: row.id,
+            business_id: row.business_id || bId,
+            outlet_id: rowOutletId,
+            outlet_name:
+              (rowOutletId ? activeOutletMap.get(rowOutletId) : null) ||
+              meta.outlet_name ||
+              primaryOutName,
+            name: row.name,
+            category: row.category || "Bahan Baku",
+            unit: row.unit || "pcs",
+            stock: stockVal,
+            minimum_stock: minVal,
+            cost_price: costPrice,
+            supplier_id: meta.supplier_id || null,
+            supplier_name: meta.supplier_name || null,
+            health_score: Number(row.health_score) || 100,
+            ai_alert: row.ai_alert || null,
+            updated_at: row.updated_at,
+            yield_per_unit: yieldPerUnit,
+            yield_unit: yieldUnit,
+            status,
+          };
+
+          const dedupKey = `${(rowOutletId || "hq").toLowerCase()}___${lowerName}`;
+          const existing = seenDirect.get(dedupKey);
+          if (!existing || (candidate.cost_price || 0) >= (existing.cost_price || 0)) {
+            seenDirect.set(dedupKey, candidate);
+          }
+        }
+        invItems = Array.from(seenDirect.values());
+      }
+
+      const menuItemsList =
+        Array.isArray(menuItemsFromApi) && menuItemsFromApi.length > 0
+          ? menuItemsFromApi
+          : (snapshot?.products || []);
+
+      // Fetch sales_order_items strictly for this business's orders (wrapped in withTimeout max 4000ms)
+      const rawOrdersRows: any[] =
+        Array.isArray(dbOrdersResponse?.data) && dbOrdersResponse.data.length > 0
+          ? (dbOrdersResponse.data as any[])
+          : (snapshot?.orders || []);
+
+      const businessOrderIds = rawOrdersRows.map((o: any) => o.id).filter(Boolean);
       const dbItemsResponse =
         businessOrderIds.length > 0
-          ? await Promise.resolve(
-              supabase
-                .from("sales_order_items")
-                .select("order_id, product_id, name, quantity")
-                .in("order_id", businessOrderIds),
-            ).catch(() => ({ data: [] }))
-          : { data: [] };
+          ? await withTimeout(
+              Promise.resolve(
+                supabase
+                  .from("sales_order_items")
+                  .select("order_id, product_id, name, quantity")
+                  .in("order_id", businessOrderIds),
+              ),
+              4000,
+              { data: [] as any[] } as any,
+            )
+          : { data: [] as any[] };
 
       const branchItems =
         selectedOutletId === "all"
@@ -455,8 +690,11 @@ export function MoneyAllocationPage({
 
       // Sales orders and items pairing
       const validOrders: any[] = [];
-      const dbOrders = dbOrdersResponse?.data || [];
-      const dbItems = dbItemsResponse?.data || [];
+      const dbOrders = rawOrdersRows;
+      const dbItems =
+        Array.isArray(dbItemsResponse?.data) && dbItemsResponse.data.length > 0
+          ? dbItemsResponse.data
+          : ((snapshot as any)?.orderItems || []);
 
       const itemsByOrder = new Map<string, any[]>();
       for (const it of dbItems) {
@@ -467,7 +705,7 @@ export function MoneyAllocationPage({
       for (const ord of dbOrders) {
         validOrders.push({
           ...ord,
-          items: itemsByOrder.get(ord.id) || [],
+          items: Array.isArray(ord.items) && ord.items.length > 0 ? ord.items : (itemsByOrder.get(ord.id) || []),
         });
       }
 
@@ -490,7 +728,11 @@ export function MoneyAllocationPage({
       const cleanOrders = validOrders.filter((o) => o.status === "paid" || !o.status);
 
       // Recipe maps and metadata
-      const recipes: Record<string, any> = {};
+      const recipes: Record<string, any> = {
+        ...(((snapshot as any)?.menuRecipes && typeof (snapshot as any).menuRecipes === "object")
+          ? (snapshot as any).menuRecipes
+          : {}),
+      };
       const extractedOrderMeta: Record<string, any> = {};
       const outletData = outletDataResponse?.data;
       if (outletData && Array.isArray(outletData)) {
@@ -529,9 +771,6 @@ export function MoneyAllocationPage({
           loadedConfigs = firstOutletSettings.money_allocation;
         }
       }
-
-      // Discard stale out-of-order response if a newer filter/period request is already active
-      if (requestId !== loadRequestIdRef.current) return;
 
       // Single batched state commit: All states update synchronously together
       if (nextFetchedOutlets.length > 0) {
@@ -646,15 +885,13 @@ export function MoneyAllocationPage({
         ]);
       }
 
-      // Commit hasLoadedData only after all ledger/pocket/payroll state updates are queued in the same batch
+      // Commit hasLoadedData after all ledger/pocket/payroll state updates are queued
       setHasLoadedData(true);
     } catch (err) {
       console.error("[MoneyAllocationPage] Load error:", err);
-      if (requestId === loadRequestIdRef.current) {
-        setHasLoadedData(true);
-      }
+      setHasLoadedData(true);
     } finally {
-      if (requestId === loadRequestIdRef.current) {
+      if (requestId <= loadRequestIdRef.current) {
         setHasLoadedData(true);
         setLoading(false);
       }
@@ -662,6 +899,10 @@ export function MoneyAllocationPage({
   }, [snapshot?.businessId, selectedOutletId, dateRange]);
 
   useEffect(() => {
+    const safetyTimer = setTimeout(() => {
+      setHasLoadedData(true);
+      setLoading(false);
+    }, 5500);
     loadData();
     const handleInvUpdate = () => loadData();
     window.addEventListener("inventory:updated", handleInvUpdate);
@@ -674,6 +915,7 @@ export function MoneyAllocationPage({
       }
     });
     return () => {
+      clearTimeout(safetyTimer);
       window.removeEventListener("inventory:updated", handleInvUpdate);
       window.removeEventListener("app:snapshot-ready", handleInvUpdate);
       subscription.unsubscribe();

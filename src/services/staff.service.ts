@@ -372,10 +372,13 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
 export async function getStaffList(): Promise<StaffItem[]> {
   try {
     const headers = await getAuthHeader();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2800);
     const res = await fetch("/api/list-staff", {
       method: "GET",
       headers,
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
 
     if (res.ok) {
       const data = await res.json();

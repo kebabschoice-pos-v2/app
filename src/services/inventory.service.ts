@@ -575,9 +575,12 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
   // 1. Try serverless endpoint first (runs via supabaseAdmin, bypasses RLS)
   try {
     const authHeader = await getAuthHeader();
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2800);
     const res = await fetch(`/api/inventory?type=items&businessId=${encodeURIComponent(bid)}`, {
       headers: { ...authHeader },
-    });
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
     if (res.ok) {
       const payload = await res.json();
       const list = Array.isArray(payload) ? payload : Array.isArray(payload?.data) ? payload.data : null;
@@ -1456,12 +1459,15 @@ export async function getStockMovements(
   const headers = await getAuthHeader();
 
   try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2800);
     const res = await fetch(
       `/api/inventory?type=stock-movements&businessId=${encodeURIComponent(bid)}`,
       {
         headers,
+        signal: controller.signal,
       },
-    );
+    ).finally(() => clearTimeout(timeoutId));
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {

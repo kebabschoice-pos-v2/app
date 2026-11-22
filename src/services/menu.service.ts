@@ -861,7 +861,12 @@ export async function getMenuItems(filters?: {
   if (filters?.search) params.set("search", filters.search);
 
   try {
-    const res = await fetch(`/api/menu?${params.toString()}`, { headers });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2800);
+    const res = await fetch(`/api/menu?${params.toString()}`, {
+      headers,
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timeoutId));
     if (res.ok) {
       const json = await res.json();
       if (json.success && Array.isArray(json.data)) {

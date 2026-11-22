@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Link, useNavigate } from "@tanstack/react-router";
 import {
   Activity,
@@ -345,20 +346,26 @@ function productFromRow(
     resolvedGroups = [];
   }
 
-  // Sort groups and options by sort_order
+  // Sort groups and options by sort_order, and ensure optional addon/Tambahan groups never force required selection
   if (resolvedGroups && resolvedGroups.length > 0) {
     resolvedGroups = [...resolvedGroups]
       .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-      .map((g, gIdx) => ({
-        ...g,
-        sort_order: g.sort_order ?? gIdx,
-        options: [...(g.options || [])]
-          .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
-          .map((o, oIdx) => ({
-            ...o,
-            sort_order: o.sort_order ?? oIdx,
-          })),
-      }));
+      .map((g, gIdx) => {
+        const isOptionalAddonGroup = /\b(tambahan|topping|add-?on|ekstra|extra)\b/i.test(
+          String(g.name || "").trim(),
+        );
+        return {
+          ...g,
+          is_required: isOptionalAddonGroup ? false : Boolean(g.is_required),
+          sort_order: g.sort_order ?? gIdx,
+          options: [...(g.options || [])]
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+            .map((o, oIdx) => ({
+              ...o,
+              sort_order: o.sort_order ?? oIdx,
+            })),
+        };
+      });
   }
 
   const promoPrice = (row as any).promo_price ?? customization?.promo_price ?? null;
@@ -568,15 +575,25 @@ async function seedWorkspace(businessId: string) {
 }
 
 async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snapshot> {
-  await supabase.from("profiles").upsert(
-    {
-      user_id: userId,
-      display_name: profile.displayName,
-      language: "id",
-      timezone: "Asia/Jakarta",
-    },
-    { onConflict: "user_id" },
-  );
+  const { data: existingProf } = await supabase
+    .from("profiles")
+    .select("display_name")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (existingProf?.display_name && existingProf.display_name.trim()) {
+    profile.displayName = existingProf.display_name.trim();
+  } else {
+    await supabase.from("profiles").upsert(
+      {
+        user_id: userId,
+        display_name: profile.displayName,
+        language: "id",
+        timezone: "Asia/Jakarta",
+      },
+      { onConflict: "user_id" },
+    );
+  }
 
   // 1. Fetch businesses owned by this user
   const { data: ownedBusinesses, error: ownedError } = await supabase
@@ -2500,7 +2517,13 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
   );
 }
 
-function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
+function DashboardPage({
+  snapshot,
+  userName,
+}: {
+  snapshot: Snapshot;
+  userName?: string;
+}) {
   const { t } = useTranslation();
   const [periodFilter, setPeriodFilter] = useState<AnalyticsFilter["dateRange"]>("today");
 
@@ -2772,7 +2795,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
         />
         <StatCard
           label={t("dashboard.profit_margin", "Margin Keuntungan")}
-          value={`${metrics.marginPercentage || 0}%`}
+          value={`${metrics.todayRevenue > 0 ? metrics.marginPercentage || 0 : 0}%`}
           trend={`Laba: ${formatRupiah(metrics.grossProfit || 0)} · HPP: ${formatRupiah(metrics.totalCost || 0)}`}
           icon={TrendingUp}
           tone="primary"
@@ -2973,7 +2996,7 @@ function DashboardPage({ snapshot }: { snapshot: Snapshot }) {
           )}
         </div>
         <Suspense fallback={<AiAssistantPanelFallback />}>
-          <LazyAiAssistantPanel snapshot={snapshot} />
+          <LazyAiAssistantPanel snapshot={snapshot} userName={userName} />
         </Suspense>
       </section>
 
@@ -4760,22 +4783,45 @@ function PosPage({
     });
   };
 
+  const isVariantGroupRequired = (
+    product: Product | null | undefined,
+    group: MenuVariantGroup | null | undefined,
+  ): boolean => {
+    if (!group) return false;
+    const gName = String(group.name || "").trim();
+    const pName = String(product?.name || "").trim();
+    if (/\b(tambahan|topping|add-?on|ekstra|extra)\b/i.test(gName)) {
+      return false;
+    }
+    if (/original/i.test(pName) && /tambahan/i.test(gName)) {
+      return false;
+    }
+    return Boolean(group.is_required);
+  };
+
   // Open Customization Modal
   const handleOpenCustomize = (product: Product) => {
     setCustomizingProduct(product);
 
-    // Initialize variant groups options
+    // Initialize variant groups options (do not force pre-selection on optional groups like Tambahan)
     const vGroups =
       product.variant_groups && product.variant_groups.length > 0 ? product.variant_groups : [];
     const initialGroupSelections: Record<string, MenuVariantOption[]> = {};
 
     vGroups.forEach((group, idx) => {
       const gKey = group.id || group.name || `group-${idx}`;
+      const requiredGroup = isVariantGroupRequired(product, group);
       if (group.selection_type === "single") {
-        const defOpt = group.options.find((o) => o.is_default) || group.options[0];
+        const defOpt = requiredGroup
+          ? group.options.find((o) => o.is_default) || group.options[0]
+          : group.options.find((o) => o.is_default === true) && !/\b(tambahan|topping|add-?on|ekstra|extra)\b/i.test(String(group.name || ""))
+            ? group.options.find((o) => o.is_default === true)
+            : undefined;
         initialGroupSelections[gKey] = defOpt ? [defOpt] : [];
       } else {
-        const defOpts = group.options.filter((o) => o.is_default);
+        const defOpts = requiredGroup
+          ? group.options.filter((o) => o.is_default)
+          : [];
         initialGroupSelections[gKey] = defOpts;
       }
     });
@@ -4851,7 +4897,7 @@ function PosPage({
     // Validasi: Kelompok varian bertanda "Pilihan wajib dipilih" harus diisi
     for (let idx = 0; idx < vGroups.length; idx++) {
       const g = vGroups[idx];
-      if (g && g.is_required !== false) {
+      if (g && isVariantGroupRequired(customizingProduct, g)) {
         const gKey = g.id || g.name || `group-${idx}`;
         const chosen = selectedGroupOptions[gKey] || [];
         if (chosen.length === 0) {
@@ -7516,11 +7562,13 @@ function PosPage({
         </div>
       )}
       {/* PRODUCT CUSTOMIZATION MODAL (STANDAR F&B POS) */}
-      {customizingProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative flex max-h-[92vh] w-full max-w-xl flex-col rounded-[2rem] border border-border bg-card shadow-float overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-border p-5 bg-muted/20">
+      {customizingProduct &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
+            <div className="relative z-[9999] flex max-h-[92vh] w-full max-w-xl flex-col rounded-[2rem] border border-border bg-white dark:bg-slate-900 opacity-100 shadow-2xl overflow-hidden">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between border-b border-border p-5 bg-muted">
               <div className="flex items-center gap-3">
                 <div className="relative size-12 overflow-hidden rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black shrink-0">
                   {customizingProduct.image_url ? (
@@ -7579,6 +7627,7 @@ function PosPage({
                     const gKey = group.id || group.name || `group-${gIdx}`;
                     const currentSelections = selectedGroupOptions[gKey] || [];
                     const isSingle = group.selection_type === "single";
+                    const isGroupRequired = isVariantGroupRequired(customizingProduct, group);
 
                     return (
                       <div
@@ -7591,7 +7640,7 @@ function PosPage({
                               {gIdx + 1}
                             </span>
                             <span className="text-xs font-black text-foreground">{group.name}</span>
-                            {group.is_required !== false ? (
+                            {isGroupRequired ? (
                               <span className="rounded-full bg-muted border border-border px-2 py-0.5 text-[9px] font-bold text-foreground/75">
                                 Pilihan wajib dipilih
                               </span>
@@ -7620,10 +7669,14 @@ function PosPage({
                                 type="button"
                                 onClick={() => {
                                   if (isSingle) {
-                                    setSelectedGroupOptions((prev) => ({
-                                      ...prev,
-                                      [gKey]: [opt],
-                                    }));
+                                    setSelectedGroupOptions((prev) => {
+                                      const current = prev[gKey] || [];
+                                      const alreadySelected = current[0]?.name === opt.name;
+                                      if (alreadySelected && !isGroupRequired) {
+                                        return { ...prev, [gKey]: [] };
+                                      }
+                                      return { ...prev, [gKey]: [opt] };
+                                    });
                                   } else {
                                     setSelectedGroupOptions((prev) => {
                                       const current = prev[gKey] || [];
@@ -7867,7 +7920,8 @@ function PosPage({
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* DYNAMIC QRIS REALTIME PAYMENT MODAL (TAHAP 4) */}
@@ -8421,7 +8475,7 @@ function CustomersPage({
               <Input
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Cari nama, nomor HP, atau menu favorit..."
+                placeholder="Cari nama atau no. HP..."
                 aria-label="Cari pelanggan"
                 className="pl-10 pr-8 h-11 rounded-2xl text-xs bg-card"
               />
@@ -8509,7 +8563,7 @@ function CustomersPage({
                     setSelectedCustomer(customer);
                   }
                 }}
-                className="group rounded-[1.5rem] border border-border bg-card/84 p-5 shadow-soft backdrop-blur-2xl cursor-pointer transition-all hover:border-primary/40 hover:shadow-md text-left focus:outline-none focus:ring-2 focus:ring-primary/40"
+                className="group rounded-[1.5rem] border border-border bg-card p-5 shadow-soft cursor-pointer transition-all hover:border-primary/40 hover:shadow-md text-left focus:outline-none focus:ring-2 focus:ring-primary/40"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex items-center gap-4 min-w-0">
@@ -8564,15 +8618,17 @@ function CustomersPage({
       )}
 
       {/* MODAL DETAIL & RIWAYAT TRANSAKSI PELANGGAN */}
-      {selectedCustomer && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in"
-          onClick={() => setSelectedCustomer(null)}
-        >
+      {selectedCustomer &&
+        typeof document !== "undefined" &&
+        createPortal(
           <div
-            className="relative w-full max-w-xl rounded-[2rem] border border-border bg-card p-6 shadow-float max-h-[88vh] flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
+            className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 animate-in fade-in"
+            onClick={() => setSelectedCustomer(null)}
           >
+            <div
+              className="relative z-[9999] w-full max-w-xl rounded-[2rem] border border-border bg-white dark:bg-slate-900 opacity-100 p-6 shadow-2xl max-h-[88vh] flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
             <div className="flex items-start justify-between gap-3 border-b border-border pb-4">
               <div className="flex items-center gap-3 min-w-0">
                 <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl bg-primary-soft text-primary">
@@ -8720,7 +8776,8 @@ function CustomersPage({
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -10686,7 +10743,7 @@ function ProfilePage({
     <div className="space-y-6 w-full max-w-none">
       <PageTitle
         title="Profil Akun"
-        subtitle="Kelola informasi akun pengguna, simulasi role, dan identitas bisnis."
+        subtitle="Kelola informasi akun pengguna dan identitas bisnis."
       />
       <section className="rounded-2xl border bg-card p-6 shadow-soft">
         <h2 className="text-xl font-black">Profil Pengguna</h2>
@@ -11405,6 +11462,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       const nextProfile: UserProfile = { email: userEmail, displayName: nameFromMetadata };
       setProfile(nextProfile);
       const nextSnapshot = await loadSnapshot(authUser.id, nextProfile);
+      setProfile({ ...nextProfile });
       setSnapshot(nextSnapshot);
       if (typeof window !== "undefined" && nextSnapshot?.businessId) {
         window.dispatchEvent(
@@ -11835,7 +11893,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       return <ProfilePage profile={profile} snapshot={snapshot} onRefresh={refresh} />;
     }
     if (page === "staff") {
-      return <StaffManagement />;
+      return <StaffManagement snapshot={snapshot} />;
     }
     if (page === "outlets" || page === "outlet") {
       return <OutletManagement role={snapshot.role} snapshot={snapshot} onRefresh={refresh} />;
@@ -11870,7 +11928,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     if (page === "login-activity") {
       return <LoginActivityPage />;
     }
-    return <DashboardPage snapshot={snapshot} />;
+    return <DashboardPage snapshot={snapshot} userName={profile.displayName} />;
   }, [page, snapshot, profile, activeCashierName, appManagerPermissions, isSnapshotLoading]);
 
   if (loading) {

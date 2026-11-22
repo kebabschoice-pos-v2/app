@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Bot, Loader2 } from "lucide-react";
 
@@ -26,23 +26,100 @@ interface ChatMessageItem {
   text: string;
 }
 
-const initialChatMessages: ChatMessageItem[] = [
-  {
-    id: "kitapos-ai-welcome",
-    role: "assistant",
-    text: "Selamat pagi, Admin. Saya sudah memantau revenue, stok, dan pola pelanggan hari ini. Tanyakan apa yang perlu diprioritaskan.",
-  },
-];
+function getWibGreeting(now: Date = new Date()): string {
+  let hour = now.getHours();
+  try {
+    const parts = new Intl.DateTimeFormat("id-ID", {
+      timeZone: "Asia/Jakarta",
+      hour: "2-digit",
+      hour12: false,
+    }).formatToParts(now);
+    const hVal = parts.find((p) => p.type === "hour")?.value;
+    if (hVal !== undefined) {
+      const parsed = Number.parseInt(hVal, 10);
+      if (!Number.isNaN(parsed)) hour = parsed % 24;
+    }
+  } catch {}
+  if (hour >= 4 && hour < 11) return "Selamat pagi";
+  if (hour >= 11 && hour < 15) return "Selamat siang";
+  if (hour >= 15 && hour < 18) return "Selamat sore";
+  return "Selamat malam";
+}
+
+function buildWelcomeText(name?: string | null): string {
+  const cleanName = (name || "").trim() || "Owner";
+  return `${getWibGreeting()}, ${cleanName}. Saya sudah memantau revenue, stok, dan pola pelanggan hari ini. Tanyakan apa yang perlu diprioritaskan.`;
+}
 
 function ConversationScrollACLEButton() {
   return <ConversationScrollButton className="bottom-5" />;
 }
 
-export function AiAssistantPanel({ snapshot }: { snapshot: Snapshot }) {
+export function AiAssistantPanel({
+  snapshot,
+  userName,
+}: {
+  snapshot: Snapshot;
+  userName?: string;
+}) {
   const { t } = useTranslation();
   const metrics = calculateSnapshotMetrics(snapshot);
-  const [messages, setMessages] = useState<ChatMessageItem[]>(initialChatMessages);
+  const [resolvedName, setResolvedName] = useState<string>(() => (userName || "").trim());
+  const [messages, setMessages] = useState<ChatMessageItem[]>(() => [
+    {
+      id: "kitapos-ai-welcome",
+      role: "assistant",
+      text: buildWelcomeText(userName),
+    },
+  ]);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const incoming = (userName || "").trim();
+    if (incoming && incoming.toLowerCase() !== "user" && incoming.toLowerCase() !== "admin") {
+      setResolvedName(incoming);
+    }
+    (async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const user = sessionData?.session?.user;
+        if (!user) return;
+        const { data: prof } = await supabase
+          .from("profiles")
+          .select("display_name")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        const dbName = (prof?.display_name || "").trim();
+        const metaName =
+          typeof user.user_metadata?.display_name === "string"
+            ? user.user_metadata.display_name.trim()
+            : typeof user.user_metadata?.full_name === "string"
+              ? user.user_metadata.full_name.trim()
+              : "";
+        const bestName =
+          dbName ||
+          metaName ||
+          incoming ||
+          (user.email ? user.email.split("@")[0] || "Owner" : "Owner");
+        if (active && bestName) {
+          setResolvedName(bestName);
+        }
+      } catch {}
+    })();
+    return () => {
+      active = false;
+    };
+  }, [userName]);
+
+  useEffect(() => {
+    const effectiveName = resolvedName || (userName || "").trim() || "Owner";
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === "kitapos-ai-welcome" ? { ...m, text: buildWelcomeText(effectiveName) } : m,
+      ),
+    );
+  }, [resolvedName, userName]);
 
   const handleSendPrompt = async (promptText: string) => {
     const trimmed = promptText.trim();

@@ -495,11 +495,47 @@ export function PosShiftCashPage() {
             }
 
             if (historyRows && historyRows.length > 0) {
+              // Reconcile cash_in / cash_out for closed shifts directly from shift-scoped cash_movements
+              // (excludes [REVERSAL] entries and eliminates stale unscoped ghost movements e.g. Syfa +Rp 100.000 discrepancy)
+              const histShiftIds = historyRows.map((h: any) => h.id).filter(Boolean);
+              const verifiedInByShift: Record<string, number> = {};
+              const verifiedOutByShift: Record<string, number> = {};
+              let verifiedMovementsLoaded = false;
+
+              if (histShiftIds.length > 0) {
+                try {
+                  const { data: histMovRows, error: histMovErr } = await supabase
+                    .from("cash_movements" as any)
+                    .select("shift_id, type, amount, description")
+                    .eq("business_id", resolvedBid)
+                    .in("shift_id", histShiftIds);
+                  if (!histMovErr && Array.isArray(histMovRows)) {
+                    verifiedMovementsLoaded = true;
+                    for (const m of histMovRows as any[]) {
+                      const sid = m.shift_id;
+                      if (!sid) continue;
+                      const desc = String(m.description || "");
+                      if (desc.startsWith(ORDER_REVERSAL_MARKER)) continue;
+                      const amt = Number(m.amount) || 0;
+                      if (m.type === "in") {
+                        verifiedInByShift[sid] = (verifiedInByShift[sid] || 0) + amt;
+                      } else if (m.type === "out") {
+                        verifiedOutByShift[sid] = (verifiedOutByShift[sid] || 0) + amt;
+                      }
+                    }
+                  }
+                } catch {}
+              }
+
               const mappedHistory: PosShift[] = historyRows.map((h: any) => {
                 const startVal = Number(h.opening_cash || h.starting_cash) || 0;
                 const cashSalesVal = Number(h.cash_sales) || 0;
-                const cashInVal = Number(h.total_cash_in) || 0;
-                const cashOutVal = Number(h.total_cash_out) || 0;
+                const cashInVal = verifiedMovementsLoaded
+                  ? Number(verifiedInByShift[h.id] || 0)
+                  : Number(h.total_cash_in) || 0;
+                const cashOutVal = verifiedMovementsLoaded
+                  ? Number(verifiedOutByShift[h.id] || 0)
+                  : Number(h.total_cash_out) || 0;
                 const expectedVal = startVal + cashSalesVal + cashInVal - cashOutVal;
                 const actualVal =
                   h.actual_ending_cash !== null && h.actual_ending_cash !== undefined
@@ -513,6 +549,27 @@ export function PosShiftCashPage() {
                   (h.outlet_id ? oMap[h.outlet_id] : null) ||
                   resolvedOname ||
                   "Outlet Utama";
+
+                // Self-heal stale variance / total_cash_out in pos_shifts if DB had unscoped movement residue
+                if (
+                  verifiedMovementsLoaded &&
+                  (Number(h.total_cash_in || 0) !== cashInVal ||
+                    Number(h.total_cash_out || 0) !== cashOutVal ||
+                    Number(h.expected_ending_cash || 0) !== expectedVal ||
+                    Number(h.cash_difference || 0) !== diffVal)
+                ) {
+                  Promise.resolve(
+                    supabase
+                      .from("pos_shifts" as any)
+                      .update({
+                        total_cash_in: cashInVal,
+                        total_cash_out: cashOutVal,
+                        expected_ending_cash: expectedVal,
+                        cash_difference: diffVal,
+                      })
+                      .eq("id", h.id),
+                  ).catch(() => {});
+                }
 
                 return {
                   id: h.id,
@@ -1823,16 +1880,16 @@ export function PosShiftCashPage() {
               </thead>
               <tbody className="divide-y divide-border">
                 {shiftHistory.map((s) => {
-                  const rowStart = Number(s.startingCash) || 0;
-                  const rowCashSales = Number(s.cashSales) || 0;
-                  const rowCashIn = Number(s.totalCashIn) || 0;
-                  const rowCashOut = Number(s.totalCashOut) || 0;
-                  const rowExpected = rowStart + rowCashSales + rowCashIn - rowCashOut;
-                  const rowActual =
+                  const openingCash = Number(s.startingCash ?? (s as any).opening_cash) || 0;
+                  const cashSales = Number(s.cashSales ?? (s as any).cash_sales) || 0;
+                  const cashIn = Number(s.totalCashIn ?? (s as any).total_cash_in) || 0;
+                  const cashOut = Number(s.totalCashOut ?? (s as any).total_cash_out) || 0;
+                  const expectedCash = openingCash + cashSales + cashIn - cashOut;
+                  const actualCash =
                     s.actualEndingCash !== undefined && s.actualEndingCash !== null
                       ? Number(s.actualEndingCash)
-                      : rowExpected;
-                  const rowDiff = rowActual - rowExpected;
+                      : expectedCash;
+                  const variance = actualCash - expectedCash;
                   const rowOutletName =
                     (s.outletName && s.outletName.trim()) ||
                     (s.outletId ? outletNameMap[s.outletId] : null) ||
@@ -1855,23 +1912,35 @@ export function PosShiftCashPage() {
                     </td>
                     <td className="py-3 font-bold text-foreground">{s.cashierName}</td>
                     <td className="py-3 text-muted-foreground font-medium">{rowOutletName}</td>
-                    <td className="py-3 text-right font-medium">{formatRupiah(rowStart)}</td>
-                    <td className="py-3 text-right font-medium text-success">
-                      +{formatRupiah(rowCashSales)}
+                    <td className="py-3 text-right font-medium tabular-nums">
+                      {formatRupiah(openingCash)}
                     </td>
-                    <td className="py-3 text-right font-bold text-foreground">
-                      {formatRupiah(rowActual)}
+                    <td className="py-3 text-right font-medium tabular-nums">
+                      <div className="text-success">+{formatRupiah(cashSales)}</div>
+                      {cashIn > 0 && (
+                        <div className="text-[10px] text-success font-medium">
+                          Kas Masuk: +{formatRupiah(cashIn)}
+                        </div>
+                      )}
+                      {cashOut > 0 && (
+                        <div className="text-[10px] text-destructive font-medium">
+                          Kas Keluar: -{formatRupiah(cashOut)}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3 text-right font-bold text-foreground tabular-nums">
+                      {formatRupiah(actualCash)}
                     </td>
                     <td
-                      className={`py-3 text-right font-bold ${
-                        rowDiff === 0
+                      className={`py-3 text-right font-bold tabular-nums ${
+                        variance === 0
                           ? "text-muted-foreground"
-                          : rowDiff > 0
+                          : variance > 0
                             ? "text-success"
                             : "text-destructive"
                       }`}
                     >
-                      {rowDiff > 0 ? `+${formatRupiah(rowDiff)}` : formatRupiah(rowDiff)}
+                      {variance > 0 ? `+${formatRupiah(variance)}` : formatRupiah(variance)}
                     </td>
                     <td className="py-3 text-center">
                       <Badge variant="outline" className="bg-success-soft text-success text-[10px]">

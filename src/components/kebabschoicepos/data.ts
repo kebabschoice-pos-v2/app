@@ -569,7 +569,7 @@ export const calculateSnapshotMetrics = (snapshot: Snapshot) => {
   });
   const estimatedCost = bomMetrics.totalBomCost;
   const grossProfit = bomMetrics.grossProfit;
-  const marginPercentage = bomMetrics.marginPercentage;
+  const marginPercentage = todayRevenue > 0 ? bomMetrics.marginPercentage : 0;
 
   // Outlet performance aggregation (attributing null/orphan outlet_ids to primary active outlet)
   const outletsList = snapshot.outlets || [];

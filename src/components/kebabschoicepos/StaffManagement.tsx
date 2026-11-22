@@ -87,7 +87,7 @@ import {
 import { supabase } from "@/integrations/supabase/client";
 import { getUserRole } from "@/integrations/supabase/role-resolver";
 
-export function StaffManagement() {
+export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
   // Navigation Tabs: staff (Daftar & Profil), attendance (Rekap Absensi), shifts (Jadwal Shift), payroll (Penggajian), manager_permissions (Hak Akses Manager)
   const [activeTab, setActiveTab] = useState<"staff" | "attendance" | "shifts" | "payroll" | "manager_permissions">(
     "staff",
@@ -108,6 +108,7 @@ export function StaffManagement() {
   const [currentUserRole, setCurrentUserRole] = useState<string | null>(null);
 
   const [loading, setLoading] = useState(true);
+  const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
@@ -229,18 +230,23 @@ export function StaffManagement() {
   async function loadData() {
     try {
       setLoading(true);
-      await resolveAuthenticatedUser().catch(() => null);
-      const [staffData, outletData, profilesData, attData, shiftData, prData] = await Promise.all([
+      const authUser = await resolveAuthenticatedUser().catch(() => null);
+      const activeBizId =
+        snapshot?.businessId ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
+          : "") ||
+        undefined;
+
+      // Stage 1 (Fast Critical Path): Fetch core staff list, outlets, and HR profiles immediately
+      // without blocking on heavy monthly payroll generation so Staff & Outlet cards populate on mount.
+      const [staffData, outletData, profilesData] = await Promise.all([
         getStaffList().catch(() => [] as StaffItem[]),
-        getOutletList().catch(() => [] as OutletItem[]),
-        getHRStaffProfiles().catch(() => [] as StaffProfile[]),
-        getAttendanceList().catch(() => [] as StaffAttendance[]),
-        getStaffShifts().catch(() => [] as StaffShift[]),
-        generateMonthlyPayrollList(payrollMonth, payrollYear).catch(() => [] as StaffPayroll[]),
+        getOutletList(activeBizId).catch(() => [] as OutletItem[]),
+        getHRStaffProfiles(activeBizId).catch(() => [] as StaffProfile[]),
       ]);
 
-      // Single source of truth: outlets strictly from getOutletList() scoped to active business(es)
-      // (Never query outlets unscoped across tenants — avoids duplicate "Main Outlet (Belum Ada)" phantom cards)
+      // Single source of truth: outlets strictly from getOutletList() + snapshot.outlets fallback
       const uniqueOutlets: OutletItem[] = [];
       const seenOutlets = new Set<string>();
 
@@ -264,6 +270,7 @@ export function StaffManagement() {
       };
 
       for (const o of outletData) addOutletIfValid(o);
+      for (const so of (snapshot?.outlets || []) as any[]) addOutletIfValid(so);
 
       // Deduplicate staff list by user_id || id, filtering out device accounts
       const uniqueStaff: StaffItem[] = [];
@@ -309,6 +316,29 @@ export function StaffManagement() {
       const existingProfiles = profilesData.filter(
         (p: StaffProfile) => !isOutletDeviceAccount(p, uniqueOutlets),
       );
+      // Also ensure any employee present in HR profiles is included in uniqueStaff
+      for (const ep of existingProfiles) {
+        const epKey = ep.user_id || ep.id;
+        if (epKey && !seenStaff.has(epKey)) {
+          seenStaff.add(epKey);
+          uniqueStaff.push({
+            id: epKey,
+            user_id: epKey,
+            name: ep.full_name || "Karyawan Cabang",
+            email: "",
+            avatar_url: ep.avatar_url || null,
+            role: (ep.role as any) || "cashier",
+            outlet: ep.outlet_name || uniqueOutlets[0]?.name || "Outlet Cabang",
+            outlet_name: ep.outlet_name || uniqueOutlets[0]?.name || "Outlet Cabang",
+            outlet_id: ep.outlet_id || uniqueOutlets[0]?.id || null,
+            outlet_code: "",
+            created_at: ep.created_at || new Date().toISOString(),
+            status: "active",
+            gender: ep.gender || "male",
+          });
+        }
+      }
+
       const profileMap = new Map(existingProfiles.map((p) => [p.user_id || p.id, p]));
 
       const fullProfiles: StaffProfile[] = [...existingProfiles];
@@ -341,22 +371,42 @@ export function StaffManagement() {
         }
       }
 
+      // Commit core staff & outlet directory immediately so page renders with real data
       setStaffList(uniqueStaff);
       setOutlets(uniqueOutlets);
       setHrProfiles(fullProfiles);
+      if (uniqueStaff.length > 0 || uniqueOutlets.length > 0 || authUser) {
+        setHasLoadedInitialData(true);
+      }
+      setLoading(false);
+
+      const firstOutlet = uniqueOutlets[0];
+      if (uniqueOutlets.length > 0 && firstOutlet) {
+        setForm((prev) => ({
+          ...prev,
+          outlet_id: prev.outlet_id || firstOutlet.id || "",
+        }));
+        if (!rosterOutletId || rosterOutletId === "all") {
+          setRosterOutletId(firstOutlet.id);
+        }
+      }
+
+      // Stage 2 (Non-blocking secondary enrichment: Attendance, Shifts, Payroll, Role & Permissions)
+      const [attData, shiftData, prData, perms] = await Promise.all([
+        getAttendanceList().catch(() => [] as StaffAttendance[]),
+        getStaffShifts().catch(() => [] as StaffShift[]),
+        generateMonthlyPayrollList(payrollMonth, payrollYear, undefined, activeBizId).catch(
+          () => [] as StaffPayroll[],
+        ),
+        getManagerPermissions(activeBizId).catch(() => null),
+      ]);
+
       setAttendances(attData);
       setShifts(shiftData);
       setPayrolls(prData.filter((pr: StaffPayroll) => !isOutletDeviceAccount(pr, uniqueOutlets)));
-
-      if (uniqueOutlets.length > 0) {
-        setForm((prev) => ({
-          ...prev,
-          outlet_id: prev.outlet_id || uniqueOutlets[0]?.id || "",
-        }));
-      }
+      if (perms) setSystemManagerPerms(perms);
 
       try {
-        const authUser = await resolveAuthenticatedUser();
         if (authUser) {
           if (authUser.email) {
             setOwnerEmail(authUser.email);
@@ -370,37 +420,26 @@ export function StaffManagement() {
       } catch {
         // ignore
       }
-
-      // Load System Manager Permissions
-      try {
-        const perms = await getManagerPermissions();
-        setSystemManagerPerms(perms);
-      } catch {}
-
-      // Pre-select first outlet if available
-      const firstOutlet = uniqueOutlets[0];
-      if (uniqueOutlets.length > 0 && !form.outlet_id && firstOutlet) {
-        setForm((prev) => ({ ...prev, outlet_id: firstOutlet.id }));
-      }
-      if (uniqueOutlets.length > 0 && (!rosterOutletId || rosterOutletId === "all") && firstOutlet) {
-        setRosterOutletId(firstOutlet.id);
-      }
     } catch (err) {
       console.error("[StaffManagement] Load error:", err);
       toast.error(err instanceof Error ? err.message : "Gagal memuat data staff & HR");
     } finally {
+      setHasLoadedInitialData(true);
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 3000);
+  const snapshotOutletCount = Array.isArray(snapshot?.outlets) ? snapshot.outlets.length : 0;
 
-    loadData().finally(() => {
-      clearTimeout(safetyTimer);
-      setLoading(false);
+  useEffect(() => {
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    loadData().then(() => {
+      // Follow-up check if initial mount ran before auth session / active businessId finished hydrating
+      retryTimer = setTimeout(() => {
+        if (staffList.length === 0 && outlets.length === 0) {
+          loadData();
+        }
+      }, 650);
     });
 
     const handleShiftsUpdate = () => {
@@ -415,18 +454,18 @@ export function StaffManagement() {
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((event) => {
-      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
         loadData();
       }
     });
     return () => {
-      clearTimeout(safetyTimer);
+      if (retryTimer) clearTimeout(retryTimer);
       window.removeEventListener("hr:shifts-updated", handleShiftsUpdate);
       window.removeEventListener("app:snapshot-ready", handleSync);
       window.removeEventListener("outlet:staff-updated", handleSync);
       subscription.unsubscribe();
     };
-  }, [payrollMonth, payrollYear]);
+  }, [payrollMonth, payrollYear, snapshot?.businessId, snapshotOutletCount]);
 
   async function loadRosterData(
     outletId = rosterOutletId,
@@ -1414,23 +1453,39 @@ export function StaffManagement() {
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <div className="rounded-2xl border border-border bg-card p-4 shadow-soft">
               <span className="text-xs text-muted-foreground font-semibold">Total Karyawan</span>
-              <p className="text-2xl font-black">{totalStaff}</p>
+              {(loading || !hasLoadedInitialData) && staffList.length === 0 ? (
+                <div className="mt-1.5 h-7 w-16 rounded-lg bg-muted animate-pulse" />
+              ) : (
+                <p className="text-2xl font-black">{totalStaff}</p>
+              )}
             </div>
             <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
               <span className="text-xs text-muted-foreground font-semibold">
                 Kasir &amp; Barista POS
               </span>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{totalCashiers}</p>
+              {(loading || !hasLoadedInitialData) && staffList.length === 0 ? (
+                <div className="mt-1.5 h-7 w-16 rounded-lg bg-muted animate-pulse" />
+              ) : (
+                <p className="text-2xl font-bold text-foreground tabular-nums">{totalCashiers}</p>
+              )}
             </div>
             <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
               <span className="text-xs text-muted-foreground font-semibold">
                 Store Manager &amp; Admin
               </span>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{totalManagers}</p>
+              {(loading || !hasLoadedInitialData) && staffList.length === 0 ? (
+                <div className="mt-1.5 h-7 w-16 rounded-lg bg-muted animate-pulse" />
+              ) : (
+                <p className="text-2xl font-bold text-foreground tabular-nums">{totalManagers}</p>
+              )}
             </div>
             <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
               <span className="text-xs text-muted-foreground font-semibold">Outlet Terlayani</span>
-              <p className="text-2xl font-bold text-foreground tabular-nums">{outlets.length} Cabang</p>
+              {(loading || !hasLoadedInitialData) && outlets.length === 0 ? (
+                <div className="mt-1.5 h-7 w-24 rounded-lg bg-muted animate-pulse" />
+              ) : (
+                <p className="text-2xl font-bold text-foreground tabular-nums">{outlets.length} Cabang</p>
+              )}
             </div>
           </div>
 
@@ -1466,7 +1521,7 @@ export function StaffManagement() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {loading && outlets.length === 0 ? (
+              {(loading || !hasLoadedInitialData) && outlets.length === 0 ? (
                 Array.from({ length: 2 }).map((_, idx) => (
                   <div
                     key={`outlet-skel-${idx}`}
@@ -1606,7 +1661,7 @@ export function StaffManagement() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border/60">
-                  {loading && filteredStaff.length === 0 ? (
+                  {(loading || !hasLoadedInitialData) && filteredStaff.length === 0 ? (
                     <tr>
                       <td
                         colSpan={currentUserRole !== "cashier" ? 6 : 5}

@@ -33,6 +33,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { formatRupiah, type Snapshot } from "@/components/kebabschoicepos/data";
 import {
   getComprehensiveAnalytics,
@@ -55,7 +56,11 @@ import {
   type StockMovementRecord,
 } from "@/services/inventory.service";
 import { getHRStaffProfiles, type StaffProfile, type StaffPayroll } from "@/services/hr.service";
-import { convertRecipeToInventoryQuantity, getMenuItems } from "@/services/menu.service";
+import {
+  convertRecipeToInventoryQuantity,
+  getMenuItems,
+  resolveActiveBusinessId,
+} from "@/services/menu.service";
 import {
   estimateOrdersBomMetrics,
   normalizeOrderOutletId,
@@ -254,24 +259,34 @@ export function MoneyAllocationPage({
     const requestId = ++loadRequestIdRef.current;
     try {
       setLoading(true);
-      const bId =
+      await resolveAuthenticatedUser().catch(() => null);
+      let bId =
         snapshot?.businessId ||
         (typeof window !== "undefined"
           ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
           : "");
+      if (!bId) {
+        bId = (await resolveActiveBusinessId().catch(() => "")) || "";
+      }
 
       const activeRole =
         typeof window !== "undefined"
           ? localStorage.getItem("kebabschoicepos_user_role") || "owner"
           : "owner";
 
-      if (!bId) {
-        setLoading(false);
-        return;
+      const allBizIds = await resolveAllReportBusinessIds(bId || undefined);
+      const targetBizIds = allBizIds.length > 0 ? allBizIds : bId ? [bId] : [];
+      if (!bId && targetBizIds[0]) {
+        bId = targetBizIds[0];
       }
 
-      const allBizIds = await resolveAllReportBusinessIds(bId);
-      const targetBizIds = allBizIds.length > 0 ? allBizIds : [bId];
+      if (!bId || targetBizIds.length === 0) {
+        if (requestId === loadRequestIdRef.current) {
+          setHasLoadedData(true);
+          setLoading(false);
+        }
+        return;
+      }
 
       const periodFilter = { dateRange, outletId: selectedOutletId };
       const { startIso: periodStartIso, endIso: periodEndIso } = resolveFilterDateBounds(periodFilter);
@@ -340,31 +355,39 @@ export function MoneyAllocationPage({
         getOutletList(bId).catch(() => []),
       ]);
 
+      // Build resolvedOutlets locally WITHOUT mutating fetchedOutlets mid-flight
+      // (mutating fetchedOutlets before await dbItemsResponse caused outletsList -> loadData to re-trigger and abort in-flight requests!)
+      let nextFetchedOutlets: Array<{
+        id: string;
+        name: string;
+        code?: string;
+        address?: string;
+        active?: boolean;
+        settings?: any;
+      }> = [];
       if (unifiedOutlets && unifiedOutlets.length > 0) {
-        setFetchedOutlets(
-          unifiedOutlets.map((o) => ({
+        nextFetchedOutlets = unifiedOutlets.map((o) => ({
+          id: o.id,
+          name: o.name || o.outlet_name,
+          code: o.code,
+          address: o.address,
+          active: o.active,
+          settings: (o as any).settings || {},
+        }));
+      } else if (Array.isArray(outletDataResponse?.data) && outletDataResponse.data.length > 0) {
+        nextFetchedOutlets = (outletDataResponse.data as any[])
+          .filter((o) => !(o.settings as any)?.archived && !(o.settings as any)?.deleted_at)
+          .map((o) => ({
             id: o.id,
-            name: o.name || o.outlet_name,
+            name: o.name,
             code: o.code,
             address: o.address,
-            active: o.active,
-            settings: (o as any).settings || {},
-          })),
-        );
-      } else if (Array.isArray(outletDataResponse?.data) && outletDataResponse.data.length > 0) {
-        setFetchedOutlets(
-          (outletDataResponse.data as any[])
-            .filter((o) => !(o.settings as any)?.archived && !(o.settings as any)?.deleted_at)
-            .map((o) => ({
-              id: o.id,
-              name: o.name,
-              code: o.code,
-              address: o.address,
-              active: o.active !== false,
-              settings: o.settings || {},
-            })),
-        );
+            active: o.active !== false,
+            settings: o.settings || {},
+          }));
       }
+      const effectiveOutletsForLoad =
+        nextFetchedOutlets.length > 0 ? nextFetchedOutlets : (snapshot?.outlets || []);
 
       // Fetch sales_order_items strictly for this business's orders (never cross-tenant unscoped)
       const businessOrderIds = ((dbOrdersResponse?.data as any[]) || [])
@@ -385,7 +408,7 @@ export function MoneyAllocationPage({
           ? invItems
           : invItems.filter((i: any) => {
               if (i.outlet_id) return i.outlet_id === selectedOutletId;
-              const fallbackPrimary = resolvePrimaryOutletId(outletsList);
+              const fallbackPrimary = resolvePrimaryOutletId(effectiveOutletsForLoad);
               return !fallbackPrimary || fallbackPrimary === selectedOutletId;
             });
 
@@ -511,6 +534,9 @@ export function MoneyAllocationPage({
       if (requestId !== loadRequestIdRef.current) return;
 
       // Single batched state commit: All states update synchronously together
+      if (nextFetchedOutlets.length > 0) {
+        setFetchedOutlets(nextFetchedOutlets);
+      }
       setUserRole(activeRole);
       if (perms) setManagerPermissions(perms);
       if (resAnalytics) setAnalytics(resAnalytics);
@@ -530,7 +556,7 @@ export function MoneyAllocationPage({
       const dbPaidByOutlet: Record<string, number> = {};
       for (const pr of dbPayrolls) {
         if (!isDateWithinFilter(pr.payment_date || pr.created_at, periodFilter)) continue;
-        const outKey = normalizeOrderOutletId(pr.outlet_id, outletsList) || "all";
+        const outKey = normalizeOrderOutletId(pr.outlet_id, effectiveOutletsForLoad) || "all";
         dbPaidByOutlet[outKey] = (dbPaidByOutlet[outKey] || 0) + (Number(pr.net_salary) || 0);
       }
 
@@ -629,16 +655,29 @@ export function MoneyAllocationPage({
       }
     } finally {
       if (requestId === loadRequestIdRef.current) {
+        setHasLoadedData(true);
         setLoading(false);
       }
     }
-  }, [snapshot?.businessId, selectedOutletId, dateRange, outletsList]);
+  }, [snapshot?.businessId, selectedOutletId, dateRange]);
 
   useEffect(() => {
     loadData();
     const handleInvUpdate = () => loadData();
     window.addEventListener("inventory:updated", handleInvUpdate);
-    return () => window.removeEventListener("inventory:updated", handleInvUpdate);
+    window.addEventListener("app:snapshot-ready", handleInvUpdate);
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "INITIAL_SESSION" || event === "SIGNED_IN") {
+        loadData();
+      }
+    });
+    return () => {
+      window.removeEventListener("inventory:updated", handleInvUpdate);
+      window.removeEventListener("app:snapshot-ready", handleInvUpdate);
+      subscription.unsubscribe();
+    };
   }, [loadData]);
 
   // Persist Helper (Supabase-authoritative via saveBranchMoneyLedger)
@@ -2383,10 +2422,10 @@ export function MoneyAllocationPage({
               Dicadangkan otomatis per hari operasional aktif ({operationalDaysWithSales} hari) berdasarkan data profil gaji &amp; tunjangan karyawan cabang.
             </p>
           </div>
-          <div className="flex items-center gap-2 mt-2 sm:mt-0">
+          <div className="flex flex-wrap items-center gap-2 mt-2 sm:mt-0 shrink-0">
             <Button
               size="sm"
-              className="rounded-xl font-bold text-xs gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground"
+              className="rounded-xl font-bold text-xs gap-1.5 bg-primary hover:bg-primary/90 text-primary-foreground whitespace-nowrap shrink-0"
               disabled={totalSalarySavings <= 0}
               onClick={() => {
                 setPaySalaryAmount(totalSalarySavings);
@@ -2396,7 +2435,10 @@ export function MoneyAllocationPage({
               <Banknote className="size-3.5" />
               Cairkan Gaji &amp; Tunjangan Tim
             </Button>
-            <Badge variant="outline" className="text-xs font-bold font-mono">
+            <Badge
+              variant="outline"
+              className="rounded-full text-xs font-bold font-mono whitespace-nowrap shrink-0"
+            >
               Saldo Cadangan: {formatRupiah(totalSalarySavings)}
             </Badge>
           </div>

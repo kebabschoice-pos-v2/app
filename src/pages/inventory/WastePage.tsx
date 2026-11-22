@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   Trash2,
@@ -524,9 +525,11 @@ export function WastePage() {
       </div>
 
       {/* MODAL: Catat Barang Terbuang */}
-      {modalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
-          <div className="relative z-50 w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[2rem] border border-border bg-background p-6 shadow-float">
+      {modalOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
+            <div className="relative z-[9999] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-[2rem] border border-border bg-white dark:bg-slate-900 opacity-100 p-6 shadow-2xl">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
               <div className="flex items-center gap-2">
                 <div className="flex size-9 items-center justify-center rounded-xl bg-rose-500/10 text-rose-600">
@@ -683,7 +686,7 @@ export function WastePage() {
                 <Input
                   value={wasteNotes}
                   onChange={(e) => setWasteNotes(e.target.value)}
-                  placeholder="Contoh: Mati lampu / bahan kadaluwarsa / kemasan rusak"
+                  placeholder="Contoh: Mati lampu / bahan kedaluwarsa / kemasan rusak"
                   className="mt-1 rounded-2xl"
                 />
               </div>
@@ -708,7 +711,8 @@ export function WastePage() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import {
   ClipboardList,
@@ -400,11 +401,13 @@ export function StockOpnamePage() {
       </div>
 
       {/* MODAL: Sesi Stock Opname Baru (Full Checklist) */}
-      {newOpnameModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
-          <div className="relative z-50 flex max-h-[90vh] w-full max-w-4xl flex-col rounded-[2rem] border border-border bg-background shadow-float overflow-hidden">
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-border p-5 bg-muted/60 shrink-0">
+      {newOpnameModal &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
+            <div className="relative z-[9999] flex max-h-[90vh] w-full max-w-4xl flex-col rounded-[2rem] border border-border bg-white dark:bg-slate-900 opacity-100 shadow-2xl overflow-hidden">
+              {/* Header */}
+              <div className="flex items-center justify-between border-b border-border p-5 bg-muted shrink-0">
               <div className="flex items-center gap-3">
                 <div className="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
                   <ClipboardList className="size-5" />
@@ -573,13 +576,17 @@ export function StockOpnamePage() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* MODAL: Detail Opname Record */}
-      {detailModalOpen && selectedOpname && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-in fade-in">
-          <div className="relative z-50 flex max-h-[90vh] w-full max-w-2xl flex-col rounded-[2rem] border border-border bg-background p-6 shadow-float overflow-hidden">
+      {detailModalOpen &&
+        selectedOpname &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
+            <div className="relative z-[9999] flex max-h-[90vh] w-full max-w-2xl flex-col rounded-[2rem] border border-border bg-white dark:bg-slate-900 opacity-100 p-6 shadow-2xl overflow-hidden">
             <div className="flex items-center justify-between border-b border-border pb-4 mb-4">
               <div>
                 <h3 className="text-lg font-black">Detail Stock Opname</h3>
@@ -648,7 +655,8 @@ export function StockOpnamePage() {
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

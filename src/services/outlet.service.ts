@@ -1242,7 +1242,7 @@ export async function resolveActiveStaffOutlet(
   let userBusinessIds: string[] = [];
   if (uid) {
     try {
-      if (typeof window !== "undefined") {
+      if (import.meta.env.DEV && typeof window !== "undefined") {
         const simRole = localStorage.getItem("kebabschoicepos_simulated_role");
         if (simRole === "owner" || simRole === "admin") isOwnerOrAdmin = true;
       }

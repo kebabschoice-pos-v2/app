@@ -86,8 +86,29 @@ export function SecuritySettingsPage() {
 
       await saveManagerPermissions(managerPermissions);
 
-      // Also persist to current user's outlets
-      const { data: outlets } = await supabase.from("outlets").select("id").limit(10);
+      // Also persist to current user's outlets strictly scoped by business_id
+      let activeBusinessId =
+        typeof window !== "undefined"
+          ? localStorage.getItem("kebabschoicepos_active_business_id") || ""
+          : "";
+      if (!activeBusinessId) {
+        const { data: authData } = await supabase.auth.getUser();
+        if (authData?.user?.id) {
+          const { data: ownedBiz } = await supabase
+            .from("businesses")
+            .select("id")
+            .eq("owner_id", authData.user.id)
+            .order("created_at", { ascending: true })
+            .limit(1);
+          activeBusinessId = ownedBiz?.[0]?.id || "";
+        }
+      }
+
+      let outletsQuery = supabase.from("outlets").select("id");
+      if (activeBusinessId) {
+        outletsQuery = outletsQuery.eq("business_id", activeBusinessId);
+      }
+      const { data: outlets } = await outletsQuery.limit(25);
       if (outlets && outlets.length > 0) {
         for (const out of outlets) {
           await setOutletSupervisorPin(out.id, cleanPin);

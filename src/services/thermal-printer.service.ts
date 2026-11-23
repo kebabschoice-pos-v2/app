@@ -5,7 +5,7 @@
  */
 
 export type PaperSize = "58mm" | "80mm";
-export type PrinterConnectionType = "bluetooth" | "usb" | "none";
+export type PrinterConnectionType = "bluetooth" | "usb" | "rawbt" | "none";
 export type PrinterConnectionStatus = "disconnected" | "connecting" | "connected";
 
 export interface ConnectedPrinterInfo {
@@ -38,6 +38,8 @@ export interface ThermalReceiptPayload {
   tableNumber?: string;
   cashierName?: string;
   customerName?: string | null;
+  customerQueueName?: string | null;
+  ojolOrderCode?: string | null;
   paymentMethod: string;
   createdAt?: string;
   date?: string;
@@ -46,6 +48,9 @@ export interface ThermalReceiptPayload {
   discount?: number;
   serviceCharge?: number;
   tax?: number;
+  taxName?: string;
+  taxRate?: number;
+  taxMode?: "exclusive" | "inclusive";
   total: number;
   cashTendered?: number;
   change?: number;
@@ -133,6 +138,7 @@ function notifyListeners() {
  * Load saved printer settings from localStorage
  */
 export function getSavedPrinterConfig(): {
+  connectionType?: string;
   paperSize: PaperSize;
   openCashDrawer: boolean;
   autoCut: boolean;
@@ -149,6 +155,7 @@ export function getSavedPrinterConfig(): {
     if (raw) {
       const parsed = JSON.parse(raw);
       return {
+        connectionType: parsed.connectionType || "bluetooth",
         paperSize: parsed.paperSize === "80mm" ? "80mm" : "58mm",
         openCashDrawer: parsed.openCashDrawer !== false,
         autoCut: parsed.autoCut !== false,
@@ -277,7 +284,15 @@ export function encodeEscPosReceipt(payload: ThermalReceiptPayload): Uint8Array 
   if (payload.cashierName) {
     appendLine(`Kasir: ${payload.cashierName}`);
   }
-  if (payload.customerName) {
+  if (payload.customerQueueName) {
+    appendLine(`Antrean: ${payload.customerQueueName}`);
+  }
+  if (payload.ojolOrderCode) {
+    appendLine(`Kode Ojol: ${payload.ojolOrderCode}`);
+  }
+  if (payload.customerName && payload.customerName !== payload.customerQueueName) {
+    appendLine(`Pelanggan: ${payload.customerName}`);
+  } else if (payload.customerName && !payload.customerQueueName) {
     appendLine(`Pelanggan: ${payload.customerName}`);
   }
 
@@ -310,7 +325,9 @@ export function encodeEscPosReceipt(payload: ThermalReceiptPayload): Uint8Array 
     appendLine(padLine("Biaya Layanan", formatCurrency(payload.serviceCharge), maxChars));
   }
   if (payload.tax && payload.tax > 0) {
-    appendLine(padLine("Pajak Resto (PB1)", formatCurrency(payload.tax), maxChars));
+    const rateNum = payload.taxRate !== undefined && payload.taxRate > 0 ? payload.taxRate : 10;
+    const taxLabel = `Pajak Resto PB1 (${rateNum}%)`;
+    appendLine(padLine(taxLabel, formatCurrency(payload.tax), maxChars));
   }
 
   appendBytes(ESC_POS.BOLD_ON);
@@ -537,6 +554,69 @@ export async function connectUsbPrinter(): Promise<boolean> {
 }
 
 /**
+ * Convert Uint8Array ESC/POS binary buffer to Base64 string for RawBT URL scheme
+ */
+export function uint8ArrayToBase64(bytes: Uint8Array): string {
+  let binary = "";
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i] ?? 0);
+  }
+  if (typeof btoa === "function") {
+    return btoa(binary);
+  }
+  if (typeof Buffer !== "undefined") {
+    return Buffer.from(bytes).toString("base64");
+  }
+  return "";
+}
+
+/**
+ * Dispatch ESC/POS binary buffer to Android RawBT Bluetooth Classic (SPP) bridge
+ * via the `rawbt:base64,${base64Data}` URL scheme.
+ */
+export function sendToRawBT(data: Uint8Array): boolean {
+  if (!isClient()) return false;
+  try {
+    const base64Data = uint8ArrayToBase64(data);
+    if (!base64Data) return false;
+    const rawbtUrl = `rawbt:base64,${base64Data}`;
+    window.location.href = rawbtUrl;
+    return true;
+  } catch (err) {
+    console.warn("[ThermalPrinter] RawBT dispatch warning:", err);
+    return false;
+  }
+}
+
+/**
+ * Activate RawBT (Bluetooth Android SPP Classic) connection mode
+ */
+export async function connectRawBtPrinter(): Promise<boolean> {
+  const cfg = getSavedPrinterConfig();
+  currentPrinterInfo = {
+    type: "rawbt",
+    name: "RawBT (Bluetooth Android)",
+    status: "connected",
+    paperSize: cfg.paperSize,
+    openCashDrawerOnCash: cfg.openCashDrawer,
+  };
+
+  if (isClient()) {
+    try {
+      const raw = localStorage.getItem("kebabschoicepos_printer_settings");
+      const parsed = raw ? JSON.parse(raw) : {};
+      localStorage.setItem(
+        "kebabschoicepos_printer_settings",
+        JSON.stringify({ ...parsed, connectionType: "rawbt" }),
+      );
+    } catch {}
+  }
+
+  notifyListeners();
+  return true;
+}
+
+/**
  * Disconnect current active printer
  */
 export async function disconnectPrinter(): Promise<void> {
@@ -579,6 +659,12 @@ export async function kickCashDrawer(): Promise<boolean> {
       await activeUsbDevice.transferOut(activeUsbEndpoint, kickBytes);
       return true;
     }
+    if (
+      (currentPrinterInfo.status === "connected" && currentPrinterInfo.type === "rawbt") ||
+      getSavedPrinterConfig().connectionType === "rawbt"
+    ) {
+      return sendToRawBT(kickBytes);
+    }
     return false;
   } catch (err) {
     console.warn("[ThermalPrinter] Cash drawer kick error:", err);
@@ -587,7 +673,7 @@ export async function kickCashDrawer(): Promise<boolean> {
 }
 
 /**
- * Print receipt directly via Thermal Printer (BT/USB), with graceful fallback to window.print()
+ * Print receipt directly via Thermal Printer (BT/USB/RawBT), with graceful fallback to window.print()
  */
 export async function printReceipt(
   payload: ThermalReceiptPayload,
@@ -602,8 +688,8 @@ export async function printReceipt(
       payload.openDrawer ?? (cfg.openCashDrawer && payload.paymentMethod.toLowerCase() === "cash"),
   };
 
-  // 1. Try Direct Thermal Printing if connected
-  if (currentPrinterInfo.status === "connected") {
+  // 1. Try Direct Thermal Printing if connected (Web Bluetooth / Web USB / RawBT)
+  if (currentPrinterInfo.status === "connected" || cfg.connectionType === "rawbt") {
     try {
       const buffer = encodeEscPosReceipt(effectivePayload);
       if (activeBtCharacteristic) {
@@ -613,6 +699,11 @@ export async function printReceipt(
       if (activeUsbDevice) {
         await activeUsbDevice.transferOut(activeUsbEndpoint, buffer);
         return { success: true, mode: "thermal" };
+      }
+      if (currentPrinterInfo.type === "rawbt" || cfg.connectionType === "rawbt") {
+        if (sendToRawBT(buffer)) {
+          return { success: true, mode: "thermal" };
+        }
       }
     } catch (err) {
       console.warn("[ThermalPrinter] Direct print failed, falling back to browser print:", err);

@@ -12,6 +12,7 @@ import {
   ChevronDown,
   Boxes,
   CreditCard,
+  Delete,
   DollarSign,
   Download,
   ImageIcon,
@@ -1197,10 +1198,15 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     };
   });
 
+  const simulatedRoleInDev =
+    import.meta.env.DEV && typeof window !== "undefined"
+      ? localStorage.getItem("kebabschoicepos_simulated_role")
+      : null;
+  const isDirectBusinessOwner = Boolean(business?.owner_id && business.owner_id === userId);
   const resolvedEffectiveRole =
-    (typeof window !== "undefined" && localStorage.getItem("kebabschoicepos_simulated_role")) ||
+    simulatedRoleInDev ||
     membership?.role ||
-    "owner";
+    (isDirectBusinessOwner ? "owner" : "cashier");
   const isOwnerOrAdminSnapshot = ["owner", "admin", "hq"].includes(
     String(resolvedEffectiveRole).toLowerCase(),
   );
@@ -3245,6 +3251,8 @@ function ReceiptModal({
                   orderNumber: data.orderNumber,
                   cashierName: data.cashierName,
                   customerName: data.customerName,
+                  customerQueueName: data.customerQueueName,
+                  ojolOrderCode: data.ojolOrderCode,
                   orderType: data.orderType,
                   tableNumber: data.tableNumber,
                   createdAt: data.createdAt,
@@ -3260,6 +3268,9 @@ function ReceiptModal({
                   discount: data.discountAmount,
                   serviceCharge: data.serviceChargeAmount,
                   tax: data.taxAmount,
+                  taxName: data.taxName,
+                  taxRate: data.taxRate,
+                  taxMode: data.taxMode,
                   total: data.total,
                   paymentMethod: data.paymentMethod,
                   cashTendered: data.cashReceived ?? data.total,
@@ -3943,6 +3954,7 @@ function PosPage({
   activeCashierName?: string;
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
@@ -4449,8 +4461,8 @@ function PosPage({
   const [customerQueueName, setCustomerQueueName] = useState<string>("");
   const [ojolOrderCode, setOjolOrderCode] = useState<string>("");
 
-  // Antrean Tersimpan (Hold Orders) State
-  const [heldOrders, setHeldOrders] = useState<HeldOrder[]>(() => {
+  // Antrean Tersimpan (Hold Orders) State — persisted globally in localStorage, filtered strictly per branch
+  const [allHeldOrders, setAllHeldOrders] = useState<HeldOrder[]>(() => {
     if (typeof window !== "undefined") {
       try {
         const raw = localStorage.getItem("kebabschoicepos_held_orders");
@@ -4459,6 +4471,17 @@ function PosPage({
     }
     return [];
   });
+  const heldOrders = useMemo(
+    () =>
+      allHeldOrders.filter(
+        (held) =>
+          !held.outletId ||
+          !selectedOutletId ||
+          selectedOutletId === "all" ||
+          held.outletId === selectedOutletId,
+      ),
+    [allHeldOrders, selectedOutletId],
+  );
   const [heldOrdersModalOpen, setHeldOrdersModalOpen] = useState(false);
 
   const handleHoldOrder = () => {
@@ -4481,8 +4504,8 @@ function PosPage({
       discountType,
       discountValue,
     };
-    const updated = [newHold, ...heldOrders];
-    setHeldOrders(updated);
+    const updated = [newHold, ...allHeldOrders];
+    setAllHeldOrders(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
     }
@@ -4495,7 +4518,7 @@ function PosPage({
     setOrderNotes("");
     setDiscountValue(0);
     toast.success("Antrean Berhasil Ditahan (Hold)", {
-      description: `Pesanan "${newHold.customerQueueName || 'Antrean #' + updated.length}" (${newHold.items.length} item) tersimpan sementara.`,
+      description: `Pesanan "${newHold.customerQueueName || 'Antrean #' + (heldOrders.length + 1)}" (${newHold.items.length} item) tersimpan sementara.`,
     });
   };
 
@@ -4514,8 +4537,8 @@ function PosPage({
     setDiscountType(held.discountType || "nominal");
     setDiscountValue(held.discountValue || 0);
 
-    const updated = heldOrders.filter((h) => h.id !== held.id);
-    setHeldOrders(updated);
+    const updated = allHeldOrders.filter((h) => h.id !== held.id);
+    setAllHeldOrders(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
     }
@@ -4526,8 +4549,8 @@ function PosPage({
   };
 
   const handleDeleteHeldOrder = (id: string) => {
-    const updated = heldOrders.filter((h) => h.id !== id);
-    setHeldOrders(updated);
+    const updated = allHeldOrders.filter((h) => h.id !== id);
+    setAllHeldOrders(updated);
     if (typeof window !== "undefined") {
       localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
     }
@@ -5599,6 +5622,7 @@ function PosPage({
    * Tidak ada NMID/payload palsu yang dibuat — hanya audit trail konfirmasi manual.
    */
   const handleConfirmStaticQrisPayment = async () => {
+    if (isCheckingQris || isSettlingQris) return;
     if (!qrisModalData || !qrisPendingOrder) return;
     if (!snapshot.businessId) {
       toast.error("Bisnis tidak terdeteksi. Muat ulang halaman lalu coba lagi.");
@@ -5629,6 +5653,19 @@ function PosPage({
 
   // Checkout transaction
   async function checkout() {
+    if (activeShift?.status !== "open") {
+      toast.error("Kasir belum buka shift. Buka shift terlebih dahulu sebelum menerima transaksi.", {
+        description: "Buka shift kasir aktif di menu Shift & Kas agar seluruh transaksi tercatat.",
+        action: {
+          label: "Buka Shift",
+          onClick: () => {
+            navigate({ to: "/pos/shift-cash" });
+          },
+        },
+      });
+      return;
+    }
+
     if (!snapshot.businessId || cart.length === 0) {
       toast.info("Tambahkan produk dulu sebelum checkout.");
       return;
@@ -5971,24 +6008,178 @@ function PosPage({
       }
     }
 
+    // Automated Recipe / BOM Inventory Depletion WITH UNIT CONVERSION
+    const deductedInventory: Record<string, number> = {};
+    const deductedProducts: Record<string, number> = {};
+
     if (isQueuedOffline) {
+      // Compute offline BOM stock_depletions (recipe + add-ons) & product_depletions from in-memory snapshot
+      const offlineStockDepletions: NonNullable<OfflineTransaction["stock_depletions"]> = [];
+      const offlineProductDepletions: NonNullable<OfflineTransaction["product_depletions"]> = [];
+      const cachedMenuRecipes = (snapshot.menuRecipes as Record<string, any>) || {};
+
+      const resolveLocalTargetInv = (ing: {
+        inventory_item_id?: string | null;
+        ingredient_name?: string | null;
+      }) => {
+        let origInv: any = null;
+        if (ing.inventory_item_id) {
+          origInv = (snapshot.inventory || []).find((i) => i.id === ing.inventory_item_id) || null;
+        }
+        if (!origInv && ing.ingredient_name) {
+          const lowerName = ing.ingredient_name.trim().toLowerCase();
+          origInv =
+            (snapshot.inventory || []).find(
+              (i) =>
+                (!chosenOutletId || i.outlet_id === chosenOutletId) &&
+                i.name.trim().toLowerCase() === lowerName,
+            ) ||
+            (snapshot.inventory || []).find((i) => i.name.trim().toLowerCase() === lowerName) ||
+            null;
+        }
+        if (!origInv) return null;
+        if (chosenOutletId && origInv.outlet_id && origInv.outlet_id !== chosenOutletId) {
+          const branchInv = (snapshot.inventory || []).find(
+            (i) =>
+              i.outlet_id === chosenOutletId &&
+              i.name.trim().toLowerCase() === origInv.name.trim().toLowerCase(),
+          );
+          if (branchInv) return branchInv;
+        }
+        return origInv;
+      };
+
+      for (const cartItem of cart) {
+        if (cartItem.id && !cartItem.id.startsWith("demo-")) {
+          offlineProductDepletions.push({
+            product_id: cartItem.id,
+            quantity: cartItem.quantity,
+          });
+          deductedProducts[cartItem.id] = (deductedProducts[cartItem.id] || 0) + cartItem.quantity;
+        }
+
+        const localRecipe =
+          cartItem.recipe ||
+          snapshot.products.find((p) => p.id === cartItem.id)?.recipe ||
+          cachedMenuRecipes[cartItem.id] ||
+          null;
+
+        const ingredientsToDeplete: Array<{
+          inventory_item_id?: string | null;
+          ingredient_name?: string | null;
+          quantity: number;
+          unit?: string;
+          label: string;
+        }> = [];
+
+        if (localRecipe && Array.isArray(localRecipe.items)) {
+          for (const ing of localRecipe.items) {
+            ingredientsToDeplete.push({
+              inventory_item_id: ing.inventory_item_id,
+              ingredient_name: (ing as any).ingredient_name,
+              quantity: Number(ing.quantity) || 1,
+              unit: ing.unit || "gram",
+              label: `${cartItem.quantity}x ${cartItem.name}`,
+            });
+          }
+        }
+
+        // Also include add-ons / toppings for offline BOM depletion
+        const addOnList: Array<{ name: string }> = [];
+        if (Array.isArray(cartItem.selected_addons)) {
+          for (const addon of cartItem.selected_addons) {
+            if (addon?.name) addOnList.push(addon);
+          }
+        }
+        if (Array.isArray(cartItem.selected_variant_groups)) {
+          for (const vg of cartItem.selected_variant_groups) {
+            const gName = (vg.group_name || "").toLowerCase();
+            if (
+              gName.includes("topping") ||
+              gName.includes("addon") ||
+              gName.includes("extra") ||
+              gName.includes("tambahan")
+            ) {
+              for (const opt of vg.options || []) {
+                if (opt?.name) addOnList.push(opt);
+              }
+            }
+          }
+        }
+        for (const addon of addOnList) {
+          const rawName = addon.name.trim();
+          const lower = rawName.toLowerCase();
+          let estimatedQty = 1;
+          let estimatedUnit = "pcs";
+          if (
+            lower.includes("daging") ||
+            lower.includes("beef") ||
+            lower.includes("ayam") ||
+            lower.includes("chicken")
+          ) {
+            estimatedQty = 20;
+            estimatedUnit = "gram";
+          } else if (lower.includes("keju") || lower.includes("cheese")) {
+            estimatedQty = 15;
+            estimatedUnit = "gram";
+          } else if (lower.includes("saus") || lower.includes("sauce") || lower.includes("mayo")) {
+            estimatedQty = 15;
+            estimatedUnit = "ml";
+          }
+          const cleanName = rawName.replace(/^(extra|tambah|tambahan|\+)\s+/i, "").trim();
+          ingredientsToDeplete.push({
+            ingredient_name: cleanName || rawName,
+            quantity: estimatedQty,
+            unit: estimatedUnit,
+            label: `${cartItem.quantity}x ${cartItem.name} (+${rawName})`,
+          });
+        }
+
+        for (const ing of ingredientsToDeplete) {
+          const targetInv = resolveLocalTargetInv(ing);
+          if (!targetInv) continue;
+          const rawNeeded = (Number(ing.quantity) || 1) * cartItem.quantity;
+          const convertedQty = convertRecipeToInventoryQuantity(
+            rawNeeded,
+            ing.unit || "gram",
+            targetInv.unit || "kg",
+            targetInv.yield_per_unit,
+            targetInv.yield_unit,
+          );
+          if (convertedQty > 0) {
+            offlineStockDepletions.push({
+              inventory_item_id: targetInv.id,
+              quantity: convertedQty,
+              unit: targetInv.unit || ing.unit || "gram",
+              product_name: ing.label,
+            });
+            deductedInventory[targetInv.id] =
+              (deductedInventory[targetInv.id] || 0) + convertedQty;
+          }
+        }
+      }
+
       // Mode Offline: simpan transaksi ke IndexedDB pending_transactions dengan idempotency_key
       const offlineTx: OfflineTransaction = {
         idempotency_key: idempotencyKey,
         order_number: orderNumber,
         business_id: snapshot.businessId,
         outlet_id: chosenOutletId || "all",
+        shift_id: activeShift?.id || null,
+        cash_amount: paymentMethod === "cash" ? safeTotal : 0,
         cashier_name: profile?.displayName || "Kasir",
         customer_id: effectiveCustomerId,
         customer_name: effectiveCustomerName,
         payment_method: paymentMethod,
-        total,
+        total: safeTotal,
         created_at: new Date().toISOString(),
         items: cart,
         status: "pending",
         retry_count: 0,
         raw_order_payload: orderPayload,
         raw_order_items_payload: orderItemsPayload,
+        stock_depletions: offlineStockDepletions,
+        product_depletions: offlineProductDepletions,
       };
 
       await queueOfflineTransaction(offlineTx);
@@ -6054,10 +6245,6 @@ function PosPage({
         }
       }
     }
-
-    // Automated Recipe / BOM Inventory Depletion WITH UNIT CONVERSION
-    const deductedInventory: Record<string, number> = {};
-    const deductedProducts: Record<string, number> = {};
 
     if (!isQueuedOffline && order && order.id) {
       try {
@@ -6354,7 +6541,7 @@ function PosPage({
             ? "Pelanggan Baru"
             : "Umum";
   const isPosBrowserOnline =
-    typeof window === "undefined" || window.navigator.onLine !== false || browserOnline;
+    browserOnline && (typeof window === "undefined" || window.navigator.onLine !== false);
 
   return (
     <div className="grid min-h-[calc(100vh-8rem)] gap-4 xl:grid-cols-[1fr_24.5rem]">
@@ -7049,7 +7236,7 @@ function PosPage({
                       <Button
                         variant="outline"
                         size="icon-sm"
-                        className="h-8 w-8 rounded-xl bg-background"
+                        className="min-h-[38px] min-w-[38px] h-[38px] w-[38px] rounded-xl bg-background"
                         onClick={() => changeQuantity(itemKey, -1)}
                         aria-label="Kurangi"
                       >
@@ -7059,7 +7246,7 @@ function PosPage({
                       <Button
                         variant="outline"
                         size="icon-sm"
-                        className="h-8 w-8 rounded-xl bg-background"
+                        className="min-h-[38px] min-w-[38px] h-[38px] w-[38px] rounded-xl bg-background"
                         onClick={() => changeQuantity(itemKey, 1)}
                         aria-label="Tambah"
                       >
@@ -7068,7 +7255,7 @@ function PosPage({
                       <Button
                         variant="ghost"
                         size="icon-sm"
-                        className="h-8 w-8 text-muted-foreground hover:text-destructive p-0"
+                        className="min-h-[38px] min-w-[38px] h-[38px] w-[38px] text-muted-foreground hover:text-destructive p-0"
                         onClick={() => removeCartItem(itemKey)}
                         aria-label="Hapus"
                       >
@@ -7186,6 +7373,22 @@ function PosPage({
               variant="hero"
               disabled={cart.length === 0}
               onClick={() => {
+                if (activeShift?.status !== "open") {
+                  toast.error(
+                    "Kasir belum buka shift. Buka shift terlebih dahulu sebelum menerima transaksi.",
+                    {
+                      description:
+                        "Buka shift kasir aktif di menu Shift & Kas agar seluruh transaksi tercatat.",
+                      action: {
+                        label: "Buka Shift",
+                        onClick: () => {
+                          navigate({ to: "/pos/shift-cash" });
+                        },
+                      },
+                    },
+                  );
+                  return;
+                }
                 setActiveCartPopover(null);
                 setIsPaymentModalOpen(true);
               }}
@@ -7366,7 +7569,7 @@ function PosPage({
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="h-8 rounded-xl text-xs font-bold px-1 bg-background hover:bg-primary/10 border-primary/20"
+                        className="min-h-[38px] min-w-[38px] rounded-xl text-xs font-bold px-1 bg-background hover:bg-primary/10 border-primary/20"
                         onClick={() =>
                           setCashTendered((prev) => {
                             const nextVal = Math.max(total, (prev || total) + inc.add);
@@ -7382,7 +7585,7 @@ function PosPage({
                       type="button"
                       size="sm"
                       variant="ghost"
-                      className="h-8 rounded-xl text-xs font-bold px-1 text-muted-foreground hover:text-rose-500"
+                      className="min-h-[38px] min-w-[38px] rounded-xl text-xs font-bold px-1 text-muted-foreground hover:text-rose-500"
                       onClick={() => handleNumpadPress("clear")}
                     >
                       Reset
@@ -7397,14 +7600,15 @@ function PosPage({
                           key={key}
                           type="button"
                           onClick={() => handleNumpadPress(key)}
+                          aria-label={key === "backspace" ? "Hapus digit" : key}
                           className={cn(
-                            "min-h-[48px] rounded-2xl border border-border text-lg font-black transition-all active:scale-95 cursor-pointer select-none",
+                            "min-h-[48px] rounded-2xl border border-border text-lg font-black transition-all active:scale-95 cursor-pointer select-none flex items-center justify-center",
                             key === "backspace"
                               ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
                               : "bg-secondary/60 text-foreground hover:bg-secondary",
                           )}
                         >
-                          {key === "backspace" ? "⌫" : key}
+                          {key === "backspace" ? <Delete className="w-5 h-5" /> : key}
                         </button>
                       ),
                     )}
@@ -8124,7 +8328,7 @@ function PosPage({
                     <Button
                       type="button"
                       className="h-11 rounded-xl text-xs font-bold gap-1.5 shadow-brand"
-                      disabled={isCheckingQris}
+                      disabled={isCheckingQris || isSettlingQris}
                       onClick={handleConfirmStaticQrisPayment}
                     >
                       <CheckCircle2 className="size-4" />
@@ -8988,6 +9192,7 @@ function OrdersPage({
   isLoading?: boolean;
 }) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
 
@@ -9751,6 +9956,21 @@ function OrdersPage({
 
       // 2.5. Stock Reversal: Return raw materials (BOM) & product stock to inventory
       const reversalType = actionModal.mode === "refund" ? "refund_reversal" : "void_reversal";
+      const recordLocalProcurementReversal = (revMov: Record<string, any>) => {
+        if (typeof window === "undefined") return;
+        try {
+          const localKey = `procurement_store_${businessId}`;
+          const rawStore = localStorage.getItem(localKey);
+          const store = rawStore ? JSON.parse(rawStore) : {};
+          const localEntry = {
+            id: `mov-rev-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            ...revMov,
+          };
+          store.stock_movements = [localEntry, ...(store.stock_movements || [])].slice(0, 500);
+          localStorage.setItem(localKey, JSON.stringify(store));
+        } catch {}
+      };
+
       try {
         // A. Look up previous stock_movements for this order (scoped by business_id)
         const { data: prevMovements } = await (supabase as any)
@@ -9782,8 +10002,7 @@ function OrdersPage({
                   .eq("id", mov.inventory_item_id)
                   .eq("business_id", businessId);
 
-                // Log reversal stock movement
-                await supabase.from("stock_movements" as any).insert({
+                const revPayload = {
                   business_id: businessId,
                   inventory_item_id: mov.inventory_item_id,
                   outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
@@ -9796,60 +10015,165 @@ function OrdersPage({
                   remaining_stock: restoredStock,
                   notes: `${actionModal.mode.toUpperCase()} Reversal #${ordNumber}: Pengembalian stok bahan baku (Otorisasi: ${authorizedBy})`,
                   created_at: new Date().toISOString(),
-                });
+                };
+
+                // Log reversal stock movement in DB & local procurement_store
+                await supabase.from("stock_movements" as any).insert(revPayload);
+                recordLocalProcurementReversal(revPayload);
               }
             }
           }
         } else {
-          // B. Fallback: inspect sales_order_items if no stock_movements were recorded
+          // B. Fallback: inspect sales_order_items (with resolveMenuRecipe + add-ons/toppings restoration)
           const { data: orderItems } = await supabase
             .from("sales_order_items")
-            .select("product_id, quantity, name")
+            .select("product_id, quantity, name, selected_options")
             .eq("order_id", ordId);
 
-          for (const itm of orderItems || []) {
+          const cachedMenuRecipes = (snapshot.menuRecipes as Record<string, any>) || {};
+
+          for (const itm of (orderItems || []) as any[]) {
             const prod = snapshot.products.find((p) => p.id === itm.product_id);
-            if (prod?.recipe && Array.isArray(prod.recipe.items)) {
-              for (const ing of prod.recipe.items) {
-                if (ing.inventory_item_id) {
-                  const rawNeeded = (Number(ing.quantity) || 1) * (Number(itm.quantity) || 1);
-                  const { data: invRow } = await (supabase.from("inventory_items" as any))
-                    .select("id, stock, unit, name, yield_per_unit, yield_unit")
-                    .eq("id", ing.inventory_item_id)
-                    .eq("business_id", businessId)
-                    .maybeSingle();
+            const resolvedRecipe = await resolveMenuRecipe(
+              {
+                id: itm.product_id || "",
+                name: itm.name || prod?.name || "Menu",
+                quantity: Number(itm.quantity) || 1,
+                price: 0,
+                recipe: prod?.recipe,
+              } as any,
+              businessId,
+              resolvedOutletId,
+              cachedMenuRecipes,
+            );
 
-                  if (invRow) {
-                    const row = invRow as any;
-                    const convertedQty = convertRecipeToInventoryQuantity(
-                      rawNeeded,
-                      ing.unit || "gram",
-                      row.unit || "kg",
-                      row.yield_per_unit,
-                      row.yield_unit,
-                    );
-                    const restoredStock = (Number(row.stock) || 0) + convertedQty;
-                    await (supabase.from("inventory_items" as any))
-                      .update({ stock: restoredStock, updated_at: new Date().toISOString() })
-                      .eq("id", ing.inventory_item_id)
-                      .eq("business_id", businessId);
+            const ingredientsToRestore: Array<{
+              inventory_item_id?: string | null;
+              ingredient_name?: string | null;
+              quantity: number;
+              unit?: string;
+            }> = [];
 
-                    await supabase.from("stock_movements" as any).insert({
-                      business_id: businessId,
-                      inventory_item_id: ing.inventory_item_id,
-                      outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
-                      reference_id: isValidUuid(ordId) ? ordId : null,
-                      reference_type: "pos_order",
-                      type: reversalType,
-                      movement_type: reversalType,
-                      quantity: convertedQty,
-                      unit: row.unit || ing.unit || "gram",
-                      remaining_stock: restoredStock,
-                      notes: `${actionModal.mode.toUpperCase()} Reversal #${ordNumber}: Pengembalian ${itm.quantity}x ${itm.name} (Otorisasi: ${authorizedBy})`,
-                      created_at: new Date().toISOString(),
-                    });
+            if (resolvedRecipe && Array.isArray(resolvedRecipe.items)) {
+              for (const ing of resolvedRecipe.items) {
+                ingredientsToRestore.push({
+                  inventory_item_id: ing.inventory_item_id,
+                  ingredient_name: (ing as any).ingredient_name,
+                  quantity: Number(ing.quantity) || 1,
+                  unit: ing.unit || "gram",
+                });
+              }
+            }
+
+            // Restore add-ons / toppings from selected_options if present
+            const selOpts = (itm as any).selected_options || {};
+            const addOnList: Array<{ name: string }> = [];
+            if (Array.isArray(selOpts.addons)) {
+              for (const a of selOpts.addons) {
+                if (a?.name) addOnList.push(a);
+              }
+            }
+            if (Array.isArray(selOpts.variant_groups)) {
+              for (const vg of selOpts.variant_groups) {
+                const gName = (vg?.group_name || "").toLowerCase();
+                if (
+                  gName.includes("topping") ||
+                  gName.includes("addon") ||
+                  gName.includes("extra") ||
+                  gName.includes("tambahan")
+                ) {
+                  for (const opt of vg.options || []) {
+                    if (opt?.name) addOnList.push(opt);
                   }
                 }
+              }
+            }
+            for (const addon of addOnList) {
+              const rawName = String(addon.name || "").trim();
+              const lower = rawName.toLowerCase();
+              let estimatedQty = 1;
+              let estimatedUnit = "pcs";
+              if (
+                lower.includes("daging") ||
+                lower.includes("beef") ||
+                lower.includes("ayam") ||
+                lower.includes("chicken")
+              ) {
+                estimatedQty = 20;
+                estimatedUnit = "gram";
+              } else if (lower.includes("keju") || lower.includes("cheese")) {
+                estimatedQty = 15;
+                estimatedUnit = "gram";
+              } else if (
+                lower.includes("saus") ||
+                lower.includes("sauce") ||
+                lower.includes("mayo")
+              ) {
+                estimatedQty = 15;
+                estimatedUnit = "ml";
+              }
+              const cleanName = rawName.replace(/^(extra|tambah|tambahan|\+)\s+/i, "").trim();
+              ingredientsToRestore.push({
+                ingredient_name: cleanName || rawName,
+                quantity: estimatedQty,
+                unit: estimatedUnit,
+              });
+            }
+
+            for (const ing of ingredientsToRestore) {
+              const rawNeeded = (Number(ing.quantity) || 1) * (Number(itm.quantity) || 1);
+              let invRow: any = null;
+              if (ing.inventory_item_id) {
+                const { data: byId } = await (supabase.from("inventory_items" as any) as any)
+                  .select("id, stock, unit, name, yield_per_unit, yield_unit")
+                  .eq("id", ing.inventory_item_id)
+                  .eq("business_id", businessId)
+                  .maybeSingle();
+                invRow = byId;
+              }
+              if (!invRow && ing.ingredient_name) {
+                let byNameQ = (supabase.from("inventory_items" as any) as any)
+                  .select("id, stock, unit, name, yield_per_unit, yield_unit")
+                  .eq("business_id", businessId)
+                  .ilike("name", ing.ingredient_name.trim());
+                if (isValidUuid(resolvedOutletId)) {
+                  byNameQ = byNameQ.eq("outlet_id", resolvedOutletId);
+                }
+                const { data: byNameRows } = await byNameQ.limit(1);
+                invRow = byNameRows?.[0] || null;
+              }
+
+              if (invRow) {
+                const row = invRow as any;
+                const convertedQty = convertRecipeToInventoryQuantity(
+                  rawNeeded,
+                  ing.unit || "gram",
+                  row.unit || "kg",
+                  row.yield_per_unit,
+                  row.yield_unit,
+                );
+                const restoredStock = (Number(row.stock) || 0) + convertedQty;
+                await (supabase.from("inventory_items" as any) as any)
+                  .update({ stock: restoredStock, updated_at: new Date().toISOString() })
+                  .eq("id", row.id)
+                  .eq("business_id", businessId);
+
+                const revPayload = {
+                  business_id: businessId,
+                  inventory_item_id: row.id,
+                  outlet_id: isValidUuid(resolvedOutletId) ? resolvedOutletId : null,
+                  reference_id: isValidUuid(ordId) ? ordId : null,
+                  reference_type: "pos_order",
+                  type: reversalType,
+                  movement_type: reversalType,
+                  quantity: convertedQty,
+                  unit: row.unit || ing.unit || "gram",
+                  remaining_stock: restoredStock,
+                  notes: `${actionModal.mode.toUpperCase()} Reversal #${ordNumber}: Pengembalian ${itm.quantity}x ${itm.name} (Otorisasi: ${authorizedBy})`,
+                  created_at: new Date().toISOString(),
+                };
+                await supabase.from("stock_movements" as any).insert(revPayload);
+                recordLocalProcurementReversal(revPayload);
               }
             }
           }
@@ -9883,7 +10207,29 @@ function OrdersPage({
         console.warn("[StockReversal] Stock reversal warning:", stockRevErr);
       }
 
-      // 3. Immediate local update with authorized_by and actionReason
+      // 3. Immediate local update with authorized_by and actionReason + sync localStorage recent_orders
+      if (typeof window !== "undefined") {
+        try {
+          const rawRecent = localStorage.getItem("kebabschoicepos_recent_orders");
+          if (rawRecent) {
+            const parsedRecent = JSON.parse(rawRecent);
+            if (Array.isArray(parsedRecent)) {
+              const updatedRecent = parsedRecent.map((r: any) =>
+                r && (r.id === ordId || r.order_number === ordNumber)
+                  ? {
+                      ...r,
+                      status: newStatus,
+                      actionReason: actionReason.trim(),
+                      authorized_by: authorizedBy,
+                    }
+                  : r,
+              );
+              localStorage.setItem("kebabschoicepos_recent_orders", JSON.stringify(updatedRecent));
+            }
+          }
+        } catch {}
+      }
+
       setLocalOrders((prev) =>
         prev.map((o) =>
           o.id === ordId
@@ -10604,121 +10950,125 @@ function OrdersPage({
       )}
 
       {/* SUPERVISOR CONFIRMATION MODAL (REFUND / VOID) */}
-      {actionModal.isOpen && actionModal.order && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative w-full max-w-md rounded-[2rem] border border-border bg-card p-6 shadow-float animate-in zoom-in-95">
-            <div className="flex items-center justify-between border-b border-border pb-4">
-              <div className="flex items-center gap-2">
-                <div
-                  className={cn(
-                    "flex size-10 items-center justify-center rounded-2xl",
-                    actionModal.mode === "refund"
-                      ? "bg-muted text-foreground/75"
-                      : "bg-destructive/15 text-destructive",
-                  )}
-                >
-                  {actionModal.mode === "refund" ? (
-                    <RotateCcw className="size-5" />
-                  ) : (
-                    <XCircle className="size-5" />
-                  )}
+      {actionModal.isOpen &&
+        actionModal.order &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in">
+            <div className="relative z-[9999] w-full max-w-md rounded-[2rem] border border-border bg-white dark:bg-slate-900 p-6 shadow-float animate-in zoom-in-95">
+              <div className="flex items-center justify-between border-b border-border pb-4">
+                <div className="flex items-center gap-2">
+                  <div
+                    className={cn(
+                      "flex size-10 items-center justify-center rounded-2xl",
+                      actionModal.mode === "refund"
+                        ? "bg-muted text-foreground/75"
+                        : "bg-destructive/15 text-destructive",
+                    )}
+                  >
+                    {actionModal.mode === "refund" ? (
+                      <RotateCcw className="size-5" />
+                    ) : (
+                      <XCircle className="size-5" />
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-black tracking-normal">
+                      {actionModal.mode === "refund" ? "Otorisasi Refund" : "Otorisasi Void"}
+                    </h3>
+                    <p className="text-xs text-muted-foreground">
+                      Order #{actionModal.order.order_number}
+                    </p>
+                  </div>
                 </div>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="rounded-xl size-8"
+                  onClick={() => setActionModal({ isOpen: false, mode: "refund", order: null })}
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <div className="rounded-xl bg-secondary/50 p-3 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Nilai Transaksi:</span>
+                    <span className="font-black text-foreground">
+                      {formatRupiah(actionModal.order.total)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Metode Bayar:</span>
+                    <span className="font-bold uppercase text-foreground">
+                      {actionModal.order.payment_method}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Input Alasan */}
                 <div>
-                  <h3 className="text-lg font-black tracking-normal">
-                    {actionModal.mode === "refund" ? "Otorisasi Refund" : "Otorisasi Void"}
-                  </h3>
-                  <p className="text-xs text-muted-foreground">
-                    Order #{actionModal.order.order_number}
+                  <label className="text-xs font-black uppercase tracking-wider text-muted-foreground block mb-1">
+                    Alasan {actionModal.mode === "refund" ? "Refund" : "Void"} (Wajib):
+                  </label>
+                  <Input
+                    value={actionReason}
+                    onChange={(e) => setActionReason(e.target.value)}
+                    placeholder="Misal: Pelanggan salah pesan, Salah input kasir..."
+                    className="rounded-xl text-xs bg-background h-10"
+                  />
+                </div>
+
+                {/* Input PIN Supervisor */}
+                <div>
+                  <label className="text-xs font-black uppercase tracking-wider text-muted-foreground block mb-1">
+                    PIN Supervisor (Otorisasi):
+                  </label>
+                  <Input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    value={supervisorPin}
+                    onChange={(e) => setSupervisorPin(e.target.value)}
+                    placeholder="Masukkan PIN Supervisor"
+                    className="rounded-xl text-xs bg-background h-10"
+                  />
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Otorisasi diperlukan untuk mengubah status transaksi dan menyesuaikan kas shift.
+                    PIN diatur Owner di menu Keamanan (/security).
                   </p>
                 </div>
               </div>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="rounded-xl size-8"
-                onClick={() => setActionModal({ isOpen: false, mode: "refund", order: null })}
-              >
-                <X className="size-4" />
-              </Button>
-            </div>
 
-            <div className="mt-4 space-y-4">
-              <div className="rounded-xl bg-secondary/50 p-3 text-xs space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Nilai Transaksi:</span>
-                  <span className="font-black text-foreground">
-                    {formatRupiah(actionModal.order.total)}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Metode Bayar:</span>
-                  <span className="font-bold uppercase text-foreground">
-                    {actionModal.order.payment_method}
-                  </span>
-                </div>
-              </div>
-
-              {/* Input Alasan */}
-              <div>
-                <label className="text-xs font-black uppercase tracking-wider text-muted-foreground block mb-1">
-                  Alasan {actionModal.mode === "refund" ? "Refund" : "Void"} (Wajib):
-                </label>
-                <Input
-                  value={actionReason}
-                  onChange={(e) => setActionReason(e.target.value)}
-                  placeholder="Misal: Pelanggan salah pesan, Salah input kasir..."
-                  className="rounded-xl text-xs bg-background h-10"
-                />
-              </div>
-
-              {/* Input PIN Supervisor */}
-              <div>
-                <label className="text-xs font-black uppercase tracking-wider text-muted-foreground block mb-1">
-                  PIN Supervisor (Otorisasi):
-                </label>
-                <Input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={6}
-                  value={supervisorPin}
-                  onChange={(e) => setSupervisorPin(e.target.value)}
-                  placeholder="Masukkan PIN Supervisor"
-                  className="rounded-xl text-xs bg-background h-10"
-                />
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Otorisasi diperlukan untuk mengubah status transaksi dan menyesuaikan kas shift.
-                  PIN diatur Owner di menu Keamanan (/security).
-                </p>
+              <div className="mt-6 flex items-center justify-end gap-2.5">
+                <Button
+                  variant="outline"
+                  className="rounded-xl font-bold text-xs"
+                  onClick={() => setActionModal({ isOpen: false, mode: "refund", order: null })}
+                >
+                  Batal
+                </Button>
+                <Button
+                  variant={actionModal.mode === "refund" ? "default" : "destructive"}
+                  className="rounded-xl font-bold text-xs gap-1.5"
+                  disabled={isActionSubmitting}
+                  onClick={handleConfirmAction}
+                >
+                  {isActionSubmitting ? (
+                    <Loader2 className="size-3.5 animate-spin" />
+                  ) : actionModal.mode === "refund" ? (
+                    <RotateCcw className="size-3.5" />
+                  ) : (
+                    <XCircle className="size-3.5" />
+                  )}
+                  Konfirmasi {actionModal.mode === "refund" ? "Refund" : "Void"}
+                </Button>
               </div>
             </div>
-
-            <div className="mt-6 flex items-center justify-end gap-2.5">
-              <Button
-                variant="outline"
-                className="rounded-xl font-bold text-xs"
-                onClick={() => setActionModal({ isOpen: false, mode: "refund", order: null })}
-              >
-                Batal
-              </Button>
-              <Button
-                variant={actionModal.mode === "refund" ? "default" : "destructive"}
-                className="rounded-xl font-bold text-xs gap-1.5"
-                disabled={isActionSubmitting}
-                onClick={handleConfirmAction}
-              >
-                {isActionSubmitting ? (
-                  <Loader2 className="size-3.5 animate-spin" />
-                ) : actionModal.mode === "refund" ? (
-                  <RotateCcw className="size-3.5" />
-                ) : (
-                  <XCircle className="size-3.5" />
-                )}
-                Konfirmasi {actionModal.mode === "refund" ? "Refund" : "Void"}
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* POS RECEIPT MODAL FOR RE-PRINT */}
       <ReceiptModal

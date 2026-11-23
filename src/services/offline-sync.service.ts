@@ -14,6 +14,8 @@ export interface OfflineTransaction {
   order_number: string;
   business_id: string;
   outlet_id: string;
+  shift_id?: string | null;
+  cash_amount?: number;
   cashier_name: string;
   customer_id?: string | null;
   customer_name?: string | null;
@@ -500,10 +502,20 @@ export async function syncPendingTransactions(
                 .select("id, stock, name, unit, cost_price, yield_per_unit, yield_unit")
                 .eq("id", dep.inventory_item_id)
                 .eq("business_id", tx.business_id);
-              if (tx.outlet_id) {
+              if (tx.outlet_id && tx.outlet_id !== "all") {
                 invQuery = invQuery.eq("outlet_id", tx.outlet_id);
               }
-              const { data: currentInv, error: invLookupErr } = await invQuery.maybeSingle();
+              let { data: currentInv, error: invLookupErr } = await invQuery.maybeSingle();
+              if (!currentInv && !invLookupErr && tx.outlet_id && tx.outlet_id !== "all") {
+                // Fallback if ingredient is central/shared without outlet_id match
+                const fallbackInv = await (supabase.from("inventory_items") as any)
+                  .select("id, stock, name, unit, cost_price, yield_per_unit, yield_unit")
+                  .eq("id", dep.inventory_item_id)
+                  .eq("business_id", tx.business_id)
+                  .maybeSingle();
+                currentInv = fallbackInv.data;
+                invLookupErr = fallbackInv.error;
+              }
               if (invLookupErr) {
                 console.error("[OfflineSync] Inventory lookup failed:", invLookupErr.message);
                 continue;
@@ -540,7 +552,7 @@ export async function syncPendingTransactions(
                 const { error: movementError } = await supabase.from("stock_movements" as any).insert({
                   business_id: tx.business_id,
                   inventory_item_id: dep.inventory_item_id,
-                  outlet_id: tx.outlet_id,
+                  outlet_id: tx.outlet_id && tx.outlet_id !== "all" ? tx.outlet_id : null,
                   order_id: orderId,
                   reference_id: orderId,
                   reference_type: "pos_order",
@@ -561,7 +573,7 @@ export async function syncPendingTransactions(
                   const { error: retryError } = await supabase.from("stock_movements" as any).insert({
                     business_id: tx.business_id,
                     inventory_item_id: dep.inventory_item_id,
-                    outlet_id: tx.outlet_id,
+                    outlet_id: tx.outlet_id && tx.outlet_id !== "all" ? tx.outlet_id : null,
                     reference_id: orderId,
                     reference_type: "pos_order",
                     type: "pos_sale",
@@ -597,6 +609,62 @@ export async function syncPendingTransactions(
                   .eq("id", pDep.product_id);
               }
             } catch {}
+          }
+        }
+
+        // 6. Idempotent update of pos_shifts cash_sales & expected_ending_cash for offline cash orders
+        // Runs strictly inside `if (!orderId)` (newly inserted order only) to guarantee zero double-counting.
+        const isCashTx =
+          String(tx.payment_method || "").toLowerCase() === "cash" ||
+          String(tx.payment_method || "").toLowerCase() === "tunai";
+        const cashToAdd = Number(tx.cash_amount ?? tx.total) || 0;
+        if (isCashTx && cashToAdd > 0 && tx.business_id) {
+          try {
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            const validShiftUuid = tx.shift_id && uuidRegex.test(tx.shift_id) ? tx.shift_id : null;
+            const validOutletUuid = tx.outlet_id && uuidRegex.test(tx.outlet_id) ? tx.outlet_id : null;
+
+            let shiftRow: any = null;
+            if (validShiftUuid) {
+              const { data: byId } = await supabase
+                .from("pos_shifts" as any)
+                .select("id, starting_cash, opening_cash, cash_sales, total_cash_in, total_cash_out, expected_ending_cash")
+                .eq("id", validShiftUuid)
+                .eq("business_id", tx.business_id)
+                .maybeSingle();
+              shiftRow = byId;
+            }
+            if (!shiftRow && validOutletUuid) {
+              const { data: byOutlet } = await supabase
+                .from("pos_shifts" as any)
+                .select("id, starting_cash, opening_cash, cash_sales, total_cash_in, total_cash_out, expected_ending_cash")
+                .eq("business_id", tx.business_id)
+                .eq("outlet_id", validOutletUuid)
+                .eq("status", "open")
+                .order("created_at", { ascending: false })
+                .limit(1);
+              shiftRow = byOutlet?.[0] || null;
+            }
+
+            if (shiftRow?.id) {
+              const baseStartCash = Number(shiftRow.starting_cash ?? shiftRow.opening_cash) || 0;
+              const newCashSales = (Number(shiftRow.cash_sales) || 0) + cashToAdd;
+              const totalCashIn = Number(shiftRow.total_cash_in) || 0;
+              const totalCashOut = Number(shiftRow.total_cash_out) || 0;
+              const newExpected = baseStartCash + newCashSales + totalCashIn - totalCashOut;
+
+              await supabase
+                .from("pos_shifts" as any)
+                .update({
+                  cash_sales: newCashSales,
+                  expected_ending_cash: newExpected,
+                  updated_at: new Date().toISOString(),
+                })
+                .eq("id", shiftRow.id)
+                .eq("business_id", tx.business_id);
+            }
+          } catch (shiftSyncErr) {
+            console.warn("[OfflineSync] pos_shifts cash_sales sync warning:", shiftSyncErr);
           }
         }
       }

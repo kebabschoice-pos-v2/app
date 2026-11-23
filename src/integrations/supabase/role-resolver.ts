@@ -92,6 +92,44 @@ export async function getUserRole(userId: string): Promise<AppRole> {
     return "owner";
   }
 
+  // Outlet device account fallback (outlets.settings.outlet_login_email / outlet_login_account)
+  try {
+    const { data: authData } = await supabase.auth.getUser();
+    const userEmailLower = authData?.user?.email?.trim().toLowerCase() || "";
+    const { data: outletRows } = await supabase
+      .from("outlets")
+      .select("id, settings")
+      .limit(50);
+
+    if (outletRows && outletRows.length > 0) {
+      const matchedOutlet = outletRows.find((o: any) => {
+        const s = o?.settings;
+        if (!s || typeof s !== "object") return false;
+        if (
+          userEmailLower &&
+          s.outlet_login_email &&
+          String(s.outlet_login_email).trim().toLowerCase() === userEmailLower
+        ) {
+          return true;
+        }
+        if (
+          userEmailLower &&
+          s.outlet_login_account?.email &&
+          String(s.outlet_login_account.email).trim().toLowerCase() === userEmailLower
+        ) {
+          return true;
+        }
+        if (userId && s.outlet_login_account?.user_id === userId) {
+          return true;
+        }
+        return false;
+      });
+      if (matchedOutlet) {
+        return "cashier";
+      }
+    }
+  } catch {}
+
   return null;
 }
 

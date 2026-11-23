@@ -10,6 +10,7 @@ import {
   WalletCards,
   PowerOff,
   Sparkles,
+  Smartphone,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import { supabase } from "@/integrations/supabase/client";
 import {
   connectBluetoothPrinter,
   connectUsbPrinter,
+  connectRawBtPrinter,
   disconnectPrinter,
   subscribePrinterStatus,
   kickCashDrawer,
@@ -28,7 +30,7 @@ import {
 } from "@/services/thermal-printer.service";
 
 export function PrinterSettingsPage() {
-  const [connectionType, setConnectionType] = useState<"bluetooth" | "usb" | "lan" | "wifi">(
+  const [connectionType, setConnectionType] = useState<"bluetooth" | "rawbt" | "usb" | "lan" | "wifi">(
     "bluetooth",
   );
   const [paperSize, setPaperSize] = useState<"58mm" | "80mm">("58mm");
@@ -103,7 +105,7 @@ export function PrinterSettingsPage() {
       setPrinterInfo(info);
       if (info.status === "connected") {
         setPrinterName(info.name);
-        if (info.type === "bluetooth" || info.type === "usb") {
+        if (info.type === "bluetooth" || info.type === "usb" || info.type === "rawbt") {
           setConnectionType(info.type);
         }
       }
@@ -181,6 +183,23 @@ export function PrinterSettingsPage() {
       }
     } catch (err: any) {
       toast.error("Gagal menghubungkan printer USB: " + err.message);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  const handleConnectRawBt = async () => {
+    setIsConnecting(true);
+    try {
+      const ok = await connectRawBtPrinter();
+      if (ok) {
+        setConnectionType("rawbt");
+        toast.success("Mode RawBT (Bluetooth Android) diaktifkan!", {
+          description: "Struk ESC/POS akan dikirim via aplikasi RawBT (rawbt:base64).",
+        });
+      }
+    } catch (err: any) {
+      toast.error("Gagal mengaktifkan mode RawBT: " + err.message);
     } finally {
       setIsConnecting(false);
     }
@@ -318,6 +337,17 @@ export function PrinterSettingsPage() {
                     type="button"
                     variant="outline"
                     size="sm"
+                    onClick={handleConnectRawBt}
+                    disabled={isConnecting}
+                    className="rounded-xl text-xs font-bold gap-1.5"
+                  >
+                    <Smartphone className="size-3.5" />
+                    RawBT (Bluetooth Android)
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={handleConnectUsb}
                     disabled={isConnecting}
                     className="rounded-xl text-xs font-bold gap-1.5"
@@ -337,13 +367,19 @@ export function PrinterSettingsPage() {
             <Printer className="size-5 text-primary" />
             <h2 className="text-lg font-bold">Koneksi Printer Struk</h2>
           </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {[
               {
                 id: "bluetooth",
-                label: "Bluetooth",
+                label: "Bluetooth (BLE)",
                 icon: Bluetooth,
-                desc: "Paling umum untuk tablet/HP",
+                desc: "Web Bluetooth GATT langsung",
+              },
+              {
+                id: "rawbt",
+                label: "RawBT (Bluetooth Android)",
+                icon: Smartphone,
+                desc: "Jembatan Bluetooth Classic SPP",
               },
               { id: "usb", label: "USB Direct", icon: Usb, desc: "Kabel langsung ke PC/POS" },
               {
@@ -360,7 +396,12 @@ export function PrinterSettingsPage() {
                 <button
                   key={conn.id}
                   type="button"
-                  onClick={() => setConnectionType(conn.id as any)}
+                  onClick={() => {
+                    setConnectionType(conn.id as any);
+                    if (conn.id === "rawbt") {
+                      connectRawBtPrinter().catch(() => {});
+                    }
+                  }}
                   className={`flex flex-col items-center justify-center p-4 rounded-2xl border text-center transition-all ${
                     selected
                       ? "border-primary bg-primary/10 text-primary font-bold shadow-soft"
@@ -369,11 +410,17 @@ export function PrinterSettingsPage() {
                 >
                   <Icon className="size-6 mb-2" />
                   <span className="text-sm font-bold">{conn.label}</span>
-                  <span className="text-[10px] text-muted-foreground mt-1">{conn.desc}</span>
+                  <span className="text-xs text-muted-foreground mt-1">{conn.desc}</span>
                 </button>
               );
             })}
           </div>
+
+          {connectionType === "rawbt" && (
+            <div className="rounded-xl border border-primary/25 bg-primary/5 px-3.5 py-2.5 text-xs text-foreground">
+              Aplikasi <strong>RawBT</strong> gratis dari Play Store digunakan sebagai jembatan Bluetooth Classic (SPP) untuk printer thermal Eppos, Panda, VSC, dan RPP02N di tablet Android.
+            </div>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2 pt-2">
             <div>

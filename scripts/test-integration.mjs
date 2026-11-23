@@ -3764,6 +3764,86 @@ test("Verifies stable useEffect dependencies in PosPage/OrdersPage, Discount Rp 
   );
 });
 
+// --- TEST 114: Tablet Field-Trial Hardening — Mandatory Open Shift Guard, Full Offline BOM/Shift Sync, RawBT Thermal Bridge, Role Security & Touch Ergonomics ---
+console.log("\n▶ 114. TABLET FIELD-TRIAL HARDENING: MANDATORY OPEN SHIFT, OFFLINE BOM/SHIFT SYNC, RAWBT ANDROID PRINTER, ROLE SECURITY & TOUCH ERGONOMICS");
+test("Enforces mandatory open shift before checkout, offline BOM/product/shift sync, RawBT Bluetooth Classic Android bridge, DEV-only simulated_role & least-privilege role resolution, and tablet touch ergonomics", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const offlineSyncCode = read("src/services/offline-sync.service.ts");
+  const printerServiceCode = read("src/services/thermal-printer.service.ts");
+  const printerSettingsCode = read("src/pages/settings/PrinterSettingsPage.tsx");
+  const roleResolverCode = read("src/integrations/supabase/role-resolver.ts");
+  const outletServiceCode = read("src/services/outlet.service.ts");
+  const securityPageCode = read("src/pages/account/SecuritySettingsPage.tsx");
+
+  // 1. Mandatory open shift guard before checkout (both Lanjut Bayar and checkout())
+  assert.ok(
+    posAppCode.includes('activeShift?.status !== "open"') &&
+      posAppCode.includes(
+        "Kasir belum buka shift. Buka shift terlebih dahulu sebelum menerima transaksi.",
+      ) &&
+      posAppCode.includes('navigate({ to: "/pos/shift-cash" })'),
+    "PosPage must block checkout when activeShift?.status !== 'open' and provide quick action to /pos/shift-cash",
+  );
+
+  // 2. Full offline sync (stock_depletions, product_depletions, shift_id, cash_amount) & accurate online status expression
+  assert.ok(
+    posAppCode.includes("stock_depletions: offlineStockDepletions") &&
+      posAppCode.includes("product_depletions: offlineProductDepletions") &&
+      posAppCode.includes("shift_id: activeShift?.id || null") &&
+      posAppCode.includes('cash_amount: paymentMethod === "cash" ? safeTotal : 0') &&
+      posAppCode.includes(
+        'browserOnline && (typeof window === "undefined" || window.navigator.onLine !== false)',
+      ) &&
+      offlineSyncCode.includes("cash_sales: newCashSales") &&
+      offlineSyncCode.includes("expected_ending_cash: newExpected"),
+    "Offline checkout must persist BOM stock_depletions, product_depletions, shift_id, and cash_amount, and syncPendingTransactions must update pos_shifts idempotently",
+  );
+
+  // 3. RawBT (Bluetooth Android) thermal bridge & complete ESC/POS receipt fields
+  assert.ok(
+    printerServiceCode.includes('`rawbt:base64,${base64Data}`') &&
+      printerServiceCode.includes("connectRawBtPrinter") &&
+      printerServiceCode.includes("customerQueueName") &&
+      printerServiceCode.includes("ojolOrderCode") &&
+      printerServiceCode.includes("`Pajak Resto PB1 (${rateNum}%)`") &&
+      printerSettingsCode.includes("RawBT (Bluetooth Android)") &&
+      printerSettingsCode.includes("Play Store"),
+    "thermal-printer.service and PrinterSettingsPage must support RawBT (rawbt:base64,...) and include customerQueueName, ojolOrderCode, and dynamic PB1 % on ESC/POS receipts",
+  );
+
+  // 4. Role security (import.meta.env.DEV on simulated_role, least-privilege fallback, outlet_login_email in getUserRole), business-scoped PIN, QRIS static guard, void/refund cache & per-branch hold orders
+  assert.ok(
+    posAppCode.includes('import.meta.env.DEV && typeof window !== "undefined"') &&
+      !posAppCode.includes('membership?.role ||\n    "owner"') &&
+      posAppCode.includes('isDirectBusinessOwner ? "owner" : "cashier"') &&
+      outletServiceCode.includes('if (import.meta.env.DEV && typeof window !== "undefined")') &&
+      roleResolverCode.includes("s.outlet_login_email") &&
+      securityPageCode.includes('outletsQuery = outletsQuery.eq("business_id", activeBusinessId)'),
+    "simulated_role must be gated by import.meta.env.DEV, role fallback must use least-privilege 'cashier', getUserRole must check outlet_login_email, and SecuritySettingsPage must scope outlets by business_id",
+  );
+  assert.ok(
+    posAppCode.includes("if (isCheckingQris || isSettlingQris) return;") &&
+      posAppCode.includes("disabled={isCheckingQris || isSettlingQris}") &&
+      posAppCode.includes("recordLocalProcurementReversal") &&
+      posAppCode.includes("held.outletId === selectedOutletId"),
+    "PosPage must guard static QRIS confirmation against double-tap, sync void/refund reversals to local recent_orders & procurement_store, and filter heldOrders by outletId",
+  );
+
+  // 5. Tablet touch ergonomics & solid portal Void/Refund authorization modal
+  assert.ok(
+    posAppCode.includes('<Delete className="w-5 h-5" />') &&
+      posAppCode.includes("min-h-[38px] min-w-[38px]") &&
+      posAppCode.includes(
+        'fixed inset-0 z-[9998] flex items-center justify-center bg-black/60',
+      ) &&
+      posAppCode.includes(
+        'relative z-[9999] w-full max-w-md rounded-[2rem] border border-border bg-white dark:bg-slate-900',
+      ),
+    "Numpad backspace must render <Delete className='w-5 h-5' />, Smart Cart & quick cash buttons must use min-h-[38px] min-w-[38px], and Void/Refund modal must render via createPortal with solid z-[9999] panel",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

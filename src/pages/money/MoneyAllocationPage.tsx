@@ -56,6 +56,7 @@ import {
   type StockMovementRecord,
 } from "@/services/inventory.service";
 import { getHRStaffProfiles, type StaffProfile, type StaffPayroll } from "@/services/hr.service";
+import { isOwnerAccount, isOutletDeviceAccount } from "@/services/staff.service";
 import {
   convertRecipeToInventoryQuantity,
   getMenuItems,
@@ -72,8 +73,15 @@ export interface PackConfig {
   pack_price: number;
 }
 
+export interface BranchAllocationRatio {
+  operationalPct: number; // default 30
+  ownerPct: number;       // default 70
+}
+
 export interface OperationalExpensePocket {
   id: string;
+  outlet_id?: string;
+  outlet_name?: string;
   name: string;
   category: "kios" | "listrik" | "parkir" | "operasional_lain";
   target_monthly?: number; // target nominal bulanan (misal Rp 1.000.000)
@@ -246,10 +254,18 @@ export function MoneyAllocationPage({
 
   // Add Op Pocket
   const [isAddingOp, setIsAddingOp] = useState(false);
+  const [newOpOutletId, setNewOpOutletId] = useState<string>("");
   const [newOpName, setNewOpName] = useState("");
   const [newOpCategory, setNewOpCategory] = useState<OperationalExpensePocket["category"]>("kios");
   const [newOpMonthly, setNewOpMonthly] = useState<number>(1000000);
   const [newOpDaily, setNewOpDaily] = useState<number>(50000);
+
+  // Per-Branch Operational vs Owner Allocation Ratio (default 30% / 70%)
+  const [branchRatios, setBranchRatios] = useState<Record<string, BranchAllocationRatio>>({});
+  const [isRatioModalOpen, setIsRatioModalOpen] = useState(false);
+  const [ratioModalOutletId, setRatioModalOutletId] = useState<string>("");
+  const [editOpRatioPct, setEditOpRatioPct] = useState<number>(30);
+  const [savingRatio, setSavingRatio] = useState(false);
 
   const [fetchedOutlets, setFetchedOutlets] = useState<Array<{ id: string; name: string; code?: string; address?: string; active?: boolean; settings?: any }>>([]);
 
@@ -267,6 +283,19 @@ export function MoneyAllocationPage({
     }
     return Array.from(map.values());
   }, [fetchedOutlets, snapshot?.outlets]);
+
+  useEffect(() => {
+    const defaultOutId =
+      selectedOutletId !== "all"
+        ? selectedOutletId
+        : resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "";
+    if (defaultOutId) {
+      setNewOpOutletId(defaultOutId);
+      if (!ratioModalOutletId) {
+        setRatioModalOutletId(defaultOutId);
+      }
+    }
+  }, [selectedOutletId, outletsList, ratioModalOutletId]);
 
   // Clean old dummy data from localStorage if found
   useEffect(() => {
@@ -405,6 +434,11 @@ export function MoneyAllocationPage({
         .select("id, outlet_id, status")
         .in("business_id", targetBizIds);
 
+      let directStaffProfilesQuery = supabase
+        .from("staff_profiles" as any)
+        .select("*")
+        .in("business_id", targetBizIds);
+
       // 1. Parallel fetch all resources simultaneously via Promise.allSettled + withTimeout (max 4500ms)
       const [
         permsSettled,
@@ -421,6 +455,7 @@ export function MoneyAllocationPage({
         unifiedOutletsSettled,
         directInvSettled,
         _posShiftsSettled,
+        directStaffProfilesSettled,
       ] = await Promise.allSettled([
         withTimeout(getManagerPermissions(bId, selectedOutletId), 4000, null),
         withTimeout(
@@ -456,6 +491,7 @@ export function MoneyAllocationPage({
         withTimeout(getOutletList(bId), 4000, []),
         withTimeout(Promise.resolve(directInvQuery), 4000, { data: [] as any[] } as any),
         withTimeout(Promise.resolve(posShiftsQuery), 4000, { data: [] as any[] } as any),
+        withTimeout(Promise.resolve(directStaffProfilesQuery), 4000, { data: [] as any[] } as any),
       ]);
 
       const perms = getSettledValue(permsSettled, null);
@@ -471,6 +507,7 @@ export function MoneyAllocationPage({
       const dbPayrollsResponse = getSettledValue(dbPayrollsSettled, { data: [] as any[] });
       const unifiedOutlets = getSettledValue(unifiedOutletsSettled, []);
       const directInvResponse = getSettledValue(directInvSettled, { data: [] as any[] });
+      const directStaffProfilesResponse = getSettledValue(directStaffProfilesSettled, { data: [] as any[] });
 
       // Build resolvedOutlets locally WITHOUT mutating fetchedOutlets mid-flight
       let nextFetchedOutlets: Array<{
@@ -561,18 +598,20 @@ export function MoneyAllocationPage({
             meta.yield_unit ||
             (row.unit === "pcs" || row.unit === "pack" || row.unit === "tiang" ? "gram" : null);
 
-          if (lowerName.includes("daging") && (costPrice <= 0 || costPrice === 1000)) {
-            costPrice = 120000;
+          if (lowerName.includes("daging") || lowerName.includes("beef")) {
+            if (costPrice <= 0 || costPrice === 1000) costPrice = 120000;
             if (!yieldPerUnit || yieldPerUnit <= 1) {
               yieldPerUnit = 2000;
               yieldUnit = "gram";
             }
-          } else if (lowerName.includes("tortilla") && (costPrice <= 0 || costPrice === 1000)) {
-            costPrice = 25000;
+            if (!yieldUnit) yieldUnit = "gram";
+          } else if (lowerName.includes("tortilla") || lowerName.includes("kulit")) {
+            if (costPrice <= 0 || costPrice === 1000) costPrice = 25000;
             if (!yieldPerUnit || yieldPerUnit <= 1) {
               yieldPerUnit = 20;
               yieldUnit = "pcs";
             }
+            if (!yieldUnit) yieldUnit = "pcs";
           }
 
           let status: "aman" | "menipis" | "habis" = "aman";
@@ -611,6 +650,35 @@ export function MoneyAllocationPage({
         }
         invItems = Array.from(seenDirect.values());
       }
+
+      // Normalize yield_per_unit & yield_unit on all invItems (whether from API or direct fallback)
+      invItems = invItems.map((it) => {
+        const lowerName = String(it.name || "").toLowerCase().trim();
+        let costPrice = Number(it.cost_price) || 0;
+        let yieldPerUnit = Number(it.yield_per_unit) || null;
+        let yieldUnit = it.yield_unit || null;
+        if (lowerName.includes("daging") || lowerName.includes("beef")) {
+          if (costPrice <= 0 || costPrice === 1000) costPrice = 120000;
+          if (!yieldPerUnit || yieldPerUnit <= 1) {
+            yieldPerUnit = 2000;
+            yieldUnit = "gram";
+          }
+          if (!yieldUnit) yieldUnit = "gram";
+        } else if (lowerName.includes("tortilla") || lowerName.includes("kulit")) {
+          if (costPrice <= 0 || costPrice === 1000) costPrice = 25000;
+          if (!yieldPerUnit || yieldPerUnit <= 1) {
+            yieldPerUnit = 20;
+            yieldUnit = "pcs";
+          }
+          if (!yieldUnit) yieldUnit = "pcs";
+        }
+        return {
+          ...it,
+          cost_price: costPrice,
+          yield_per_unit: yieldPerUnit,
+          yield_unit: yieldUnit,
+        };
+      });
 
       const menuItemsList =
         Array.isArray(menuItemsFromApi) && menuItemsFromApi.length > 0
@@ -754,39 +822,214 @@ export function MoneyAllocationPage({
         }
       }
 
-      // Money Ledger / Settings
-      let loadedConfigs: MoneyAllocationSettings | null = branchLedgerData as MoneyAllocationSettings | null;
-      if (!loadedConfigs && typeof window !== "undefined") {
+      // Unify active operational branch staff (non-OWNER) from hrProfiles + direct staff_profiles + outlets.settings.outlet_staff_roster
+      const unifiedStaffMap = new Map<string, StaffProfile>();
+      const seenStaffNames = new Set<string>();
+      const primaryActiveOutId = resolvePrimaryOutletId(effectiveOutletsForLoad);
+      const primaryActiveOutName =
+        effectiveOutletsForLoad.find((o) => o.id === primaryActiveOutId)?.name ||
+        effectiveOutletsForLoad[0]?.name ||
+        "Cabang";
+
+      const addResolvedStaffProfile = (p: any, fallbackOutId?: string | null, fallbackOutName?: string) => {
+        if (!p || isOwnerAccount(p) || isOutletDeviceAccount(p, effectiveOutletsForLoad)) return;
+        const fullName = String(p.full_name || p.name || "").trim();
+        if (!fullName || fullName.toLowerCase() === "iky") return;
+        const key = String(
+          p.user_id ||
+            p.id ||
+            `emp-${fallbackOutId || "hq"}-${fullName.toLowerCase().replace(/[^a-z0-9]/g, "_")}`,
+        );
+        const nameLower = fullName.toLowerCase();
+        if (unifiedStaffMap.has(key) || seenStaffNames.has(nameLower)) return;
+        seenStaffNames.add(nameLower);
+        const resolvedOutId = p.outlet_id || fallbackOutId || primaryActiveOutId || null;
+        const resolvedOutName =
+          p.outlet_name ||
+          (resolvedOutId
+            ? effectiveOutletsForLoad.find((o) => o.id === resolvedOutId)?.name
+            : null) ||
+          fallbackOutName ||
+          primaryActiveOutName;
+
+        unifiedStaffMap.set(key, {
+          id: p.id || `hr-prof-${key}`,
+          user_id: key,
+          business_id: p.business_id || bId,
+          outlet_id: resolvedOutId,
+          outlet_name: resolvedOutName,
+          full_name: fullName,
+          phone: p.phone || "-",
+          address: p.address || "-",
+          avatar_url: p.avatar_url || null,
+          job_title:
+            p.job_title ||
+            (String(p.role || "").toLowerCase() === "manager" ? "Store Manager" : "Kasir POS"),
+          role: (p.role as any) || "cashier",
+          gender: p.gender || "male",
+          employment_status: p.employment_status || "Tetap",
+          join_date: p.join_date || p.created_at || "2026-01-01",
+          base_salary: Number(p.base_salary) > 0 ? Number(p.base_salary) : 2000000,
+          daily_allowance: Number(p.daily_allowance) >= 0 ? Number(p.daily_allowance) : 25000,
+          late_deduction: Number(p.late_deduction) >= 0 ? Number(p.late_deduction) : 20000,
+          absence_deduction: Number(p.absence_deduction) >= 0 ? Number(p.absence_deduction) : 80000,
+        });
+      };
+
+      for (const hp of hrProfiles || []) {
+        addResolvedStaffProfile(hp);
+      }
+      for (const dsp of (directStaffProfilesResponse?.data as any[]) || []) {
+        addResolvedStaffProfile(dsp);
+      }
+      for (const out of effectiveOutletsForLoad) {
+        const s = (out?.settings && typeof out.settings === "object" ? out.settings : {}) as any;
+        if (s.archived === true || s.deleted_at) continue;
+        const hrProfsMap = s.hr_profiles && typeof s.hr_profiles === "object" ? s.hr_profiles : {};
+        const rosterArr: any[] = Array.isArray(s.outlet_staff_roster) ? s.outlet_staff_roster : [];
+        for (const emp of rosterArr) {
+          const empKey = emp?.user_id || emp?.id;
+          const extraHr = empKey && hrProfsMap[empKey] ? hrProfsMap[empKey] : {};
+          addResolvedStaffProfile({ ...emp, ...extraHr }, out.id, out.name);
+        }
+        for (const [uid, hp] of Object.entries(hrProfsMap)) {
+          addResolvedStaffProfile({ ...(hp as any), user_id: uid }, out.id, out.name);
+        }
+      }
+      const resolvedStaffProfiles = Array.from(unifiedStaffMap.values());
+
+      // Build unified Money Ledger, Per-Branch Operational Pockets & Allocation Ratios across active outlets
+      const mergedPackConfigs: Record<string, PackConfig> = {};
+      const mergedSpentAmounts: Record<string, number> = {};
+      const mergedManualAdded: Record<string, number> = {};
+      const mergedSalaryPaid: Record<string, number> = {};
+      const mergedHistory: MoneyAllocationHistoryItem[] = [];
+      const seenHistoryIds = new Set<string>();
+      const mergedOpPockets: OperationalExpensePocket[] = [];
+      const seenOpPocketKeys = new Set<string>();
+      const loadedBranchRatios: Record<string, BranchAllocationRatio> = {};
+
+      const mergeLedgerIntoAccumulator = (
+        ledger: any,
+        defaultOutletId?: string | null,
+        defaultOutletName?: string | null,
+      ) => {
+        if (!ledger || typeof ledger !== "object") return;
+        if (ledger.pack_configs && typeof ledger.pack_configs === "object") {
+          Object.assign(mergedPackConfigs, ledger.pack_configs);
+        }
+        for (const [k, v] of Object.entries(ledger.spent_amounts || {})) {
+          mergedSpentAmounts[k] = Math.max(Number(mergedSpentAmounts[k] || 0), Number(v) || 0);
+        }
+        for (const [k, v] of Object.entries(ledger.manual_added || {})) {
+          mergedManualAdded[k] = Math.max(Number(mergedManualAdded[k] || 0), Number(v) || 0);
+        }
+        for (const [k, v] of Object.entries(ledger.salary_paid || {})) {
+          mergedSalaryPaid[k] = Math.max(Number(mergedSalaryPaid[k] || 0), Number(v) || 0);
+        }
+        for (const h of Array.isArray(ledger.history) ? ledger.history : []) {
+          if (h?.id && !seenHistoryIds.has(h.id)) {
+            seenHistoryIds.add(h.id);
+            mergedHistory.push(h);
+          }
+        }
+        for (const op of Array.isArray(ledger.opPockets) ? ledger.opPockets : []) {
+          if (!op?.id) continue;
+          const opOutId = op.outlet_id || defaultOutletId || primaryActiveOutId || "all";
+          const opOutName =
+            op.outlet_name ||
+            effectiveOutletsForLoad.find((o) => o.id === opOutId)?.name ||
+            defaultOutletName ||
+            primaryActiveOutName;
+          const dedupKey = `${opOutId}__${op.id}`;
+          if (!seenOpPocketKeys.has(dedupKey)) {
+            seenOpPocketKeys.add(dedupKey);
+            mergedOpPockets.push({
+              ...op,
+              outlet_id: opOutId,
+              outlet_name: opOutName,
+            });
+          }
+        }
+      };
+
+      if (typeof window !== "undefined") {
         try {
-          const raw = localStorage.getItem(STORAGE_KEY);
-          if (raw) loadedConfigs = JSON.parse(raw);
+          const rawGlobal = localStorage.getItem(STORAGE_KEY);
+          if (rawGlobal) {
+            mergeLedgerIntoAccumulator(JSON.parse(rawGlobal), primaryActiveOutId, primaryActiveOutName);
+          }
         } catch {}
       }
 
-      if (!loadedConfigs && Array.isArray(outletDataResponse?.data) && outletDataResponse.data.length > 0) {
-        const firstOutletSettings = ((outletDataResponse.data[0] as any)?.settings as any) || {};
-        if (firstOutletSettings.money_allocation_ledger) {
-          loadedConfigs = firstOutletSettings.money_allocation_ledger;
-        } else if (firstOutletSettings.money_allocation) {
-          loadedConfigs = firstOutletSettings.money_allocation;
-        }
+      if (branchLedgerData) {
+        mergeLedgerIntoAccumulator(
+          branchLedgerData,
+          selectedOutletId !== "all" ? selectedOutletId : primaryActiveOutId,
+          selectedOutletId !== "all"
+            ? effectiveOutletsForLoad.find((o) => o.id === selectedOutletId)?.name
+            : primaryActiveOutName,
+        );
       }
 
-      // Single batched state commit: All states update synchronously together
-      if (nextFetchedOutlets.length > 0) {
-        setFetchedOutlets(nextFetchedOutlets);
+      for (const out of effectiveOutletsForLoad) {
+        const s = (out?.settings && typeof out.settings === "object" ? out.settings : {}) as any;
+        if (s.archived === true || s.deleted_at) continue;
+
+        // Per-branch allocation ratio (default 30% Operasional / 70% Owner)
+        let opPct = 30;
+        if (
+          s.allocation_ratio &&
+          typeof s.allocation_ratio.operationalPct === "number" &&
+          s.allocation_ratio.operationalPct >= 0 &&
+          s.allocation_ratio.operationalPct <= 100
+        ) {
+          opPct = Math.round(s.allocation_ratio.operationalPct);
+        } else if (typeof window !== "undefined") {
+          try {
+            const rawRatio = localStorage.getItem(`kebabschoicepos_allocation_ratio_${out.id}`);
+            if (rawRatio) {
+              const parsedRatio = JSON.parse(rawRatio);
+              if (typeof parsedRatio?.operationalPct === "number") {
+                opPct = Math.round(parsedRatio.operationalPct);
+              }
+            }
+          } catch {}
+        }
+        loadedBranchRatios[out.id] = {
+          operationalPct: opPct,
+          ownerPct: Math.max(0, 100 - opPct),
+        };
+
+        // Per-branch operational_pots from outlets.settings.operational_pots or localStorage
+        let branchOpPots: any[] = Array.isArray(s.operational_pots) ? s.operational_pots : [];
+        if (branchOpPots.length === 0 && typeof window !== "undefined") {
+          try {
+            const rawBranchOp = localStorage.getItem(`kebabschoicepos_operational_pots_${out.id}`);
+            if (rawBranchOp) {
+              const parsedOp = JSON.parse(rawBranchOp);
+              if (Array.isArray(parsedOp)) branchOpPots = parsedOp;
+            }
+          } catch {}
+        }
+        for (const op of branchOpPots) {
+          if (!op?.id) continue;
+          const dedupKey = `${out.id}__${op.id}`;
+          if (!seenOpPocketKeys.has(dedupKey)) {
+            seenOpPocketKeys.add(dedupKey);
+            mergedOpPockets.push({
+              ...op,
+              outlet_id: out.id,
+              outlet_name: out.name,
+            });
+          }
+        }
+
+        const outLedger = s.money_allocation_ledger || s.money_allocation;
+        if (outLedger) {
+          mergeLedgerIntoAccumulator(outLedger, out.id, out.name);
+        }
       }
-      setUserRole(activeRole);
-      if (perms) setManagerPermissions(perms);
-      if (resAnalytics) setAnalytics(resAnalytics);
-      setInventoryList(branchItems);
-      setStockMovements(movements || []);
-      setStaffProfiles(hrProfiles || []);
-      setCashMovements(cmList);
-      setSalesOrders(cleanOrders);
-      setOrderMetaMap(extractedOrderMeta);
-      setMenuProducts(menuItemsList || []);
-      setMenuRecipes(recipes);
 
       // Reconcile paid payrolls from Supabase staff_payrolls table with branch ledger salary_paid
       const dbPayrolls = ((dbPayrollsResponse?.data as unknown as StaffPayroll[]) || []).filter(
@@ -798,62 +1041,19 @@ export function MoneyAllocationPage({
         const outKey = normalizeOrderOutletId(pr.outlet_id, effectiveOutletsForLoad) || "all";
         dbPaidByOutlet[outKey] = (dbPaidByOutlet[outKey] || 0) + (Number(pr.net_salary) || 0);
       }
+      for (const [outKey, paidSum] of Object.entries(dbPaidByOutlet)) {
+        mergedSalaryPaid[outKey] = Math.max(Number(mergedSalaryPaid[outKey] || 0), paidSum);
+      }
 
-      if (loadedConfigs) {
-        if (loadedConfigs.pack_configs) setPackConfigs(loadedConfigs.pack_configs);
-        if (loadedConfigs.spent_amounts) setSpentAmounts(loadedConfigs.spent_amounts);
-        if (loadedConfigs.manual_added) setManualAdded(loadedConfigs.manual_added);
-        if (loadedConfigs.salary_paid || Object.keys(dbPaidByOutlet).length > 0) {
-          const mergedSalaryPaid: Record<string, number> = { ...(loadedConfigs.salary_paid || {}) };
-          for (const [outKey, paidSum] of Object.entries(dbPaidByOutlet)) {
-            mergedSalaryPaid[outKey] = Math.max(Number(mergedSalaryPaid[outKey] || 0), paidSum);
-          }
-          setSalaryPaid(mergedSalaryPaid);
-        }
-        if (loadedConfigs.history) setHistory(loadedConfigs.history);
-        if (loadedConfigs.opPockets && loadedConfigs.opPockets.length > 0) {
-          setOpPockets(loadedConfigs.opPockets);
-        } else {
-          setOpPockets([
-            {
-              id: "op-sewa-kios",
-              name: "Sewa Tempat / Kios Cabang",
-              category: "kios",
-              target_monthly: 1000000,
-              daily_allocation: 50000,
-              days_collected: 0,
-              accumulated_balance: 0,
-              total_paid: 0,
-            },
-            {
-              id: "op-listrik",
-              name: "Listrik & Air Cabang",
-              category: "listrik",
-              target_monthly: 300000,
-              daily_allocation: 10000,
-              days_collected: 0,
-              accumulated_balance: 0,
-              total_paid: 0,
-            },
-            {
-              id: "op-parkir-sampah",
-              name: "Iuran Kebersihan & Parkiran",
-              category: "parkir",
-              target_monthly: 300000,
-              daily_allocation: 10000,
-              days_collected: 0,
-              accumulated_balance: 0,
-              total_paid: 0,
-            },
-          ]);
-        }
-      } else {
-        if (Object.keys(dbPaidByOutlet).length > 0) {
-          setSalaryPaid(dbPaidByOutlet);
-        }
-        setOpPockets([
+      // Ensure at least primary active outlet has default operational pockets if none exist yet
+      if (mergedOpPockets.length === 0) {
+        const defaultOutId = primaryActiveOutId || effectiveOutletsForLoad[0]?.id || "all";
+        const defaultOutName = primaryActiveOutName || "Cabang Utama";
+        mergedOpPockets.push(
           {
             id: "op-sewa-kios",
+            outlet_id: defaultOutId,
+            outlet_name: defaultOutName,
             name: "Sewa Tempat / Kios Cabang",
             category: "kios",
             target_monthly: 1000000,
@@ -864,6 +1064,8 @@ export function MoneyAllocationPage({
           },
           {
             id: "op-listrik",
+            outlet_id: defaultOutId,
+            outlet_name: defaultOutName,
             name: "Listrik & Air Cabang",
             category: "listrik",
             target_monthly: 300000,
@@ -874,6 +1076,8 @@ export function MoneyAllocationPage({
           },
           {
             id: "op-parkir-sampah",
+            outlet_id: defaultOutId,
+            outlet_name: defaultOutName,
             name: "Iuran Kebersihan & Parkiran",
             category: "parkir",
             target_monthly: 300000,
@@ -882,8 +1086,31 @@ export function MoneyAllocationPage({
             accumulated_balance: 0,
             total_paid: 0,
           },
-        ]);
+        );
       }
+
+      // Single batched state commit: All states update synchronously together
+      if (nextFetchedOutlets.length > 0) {
+        setFetchedOutlets(nextFetchedOutlets);
+      }
+      setBranchRatios(loadedBranchRatios);
+      setUserRole(activeRole);
+      if (perms) setManagerPermissions(perms);
+      if (resAnalytics) setAnalytics(resAnalytics);
+      setInventoryList(branchItems);
+      setStockMovements(movements || []);
+      setStaffProfiles(resolvedStaffProfiles);
+      setCashMovements(cmList);
+      setSalesOrders(cleanOrders);
+      setOrderMetaMap(extractedOrderMeta);
+      setMenuProducts(menuItemsList || []);
+      setMenuRecipes(recipes);
+      setPackConfigs(mergedPackConfigs);
+      setSpentAmounts(mergedSpentAmounts);
+      setManualAdded(mergedManualAdded);
+      setSalaryPaid(mergedSalaryPaid);
+      setHistory(mergedHistory);
+      setOpPockets(mergedOpPockets);
 
       // Commit hasLoadedData after all ledger/pocket/payroll state updates are queued
       setHasLoadedData(true);
@@ -922,7 +1149,7 @@ export function MoneyAllocationPage({
     };
   }, [loadData]);
 
-  // Persist Helper (Supabase-authoritative via saveBranchMoneyLedger)
+  // Persist Helper (Supabase-authoritative via saveBranchMoneyLedger + per-outlet operational_pots)
   async function persistSettings(
     newConfigs = packConfigs,
     newSpent = spentAmounts,
@@ -940,16 +1167,106 @@ export function MoneyAllocationPage({
       salary_paid: newSalaryPaid,
     };
 
+    const primaryOutId = resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "";
+
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+        for (const out of outletsList) {
+          const branchOps = newOp.filter((p) => (p.outlet_id || primaryOutId) === out.id);
+          localStorage.setItem(
+            `kebabschoicepos_operational_pots_${out.id}`,
+            JSON.stringify(branchOps),
+          );
+        }
       } catch {}
     }
 
     try {
       await saveBranchMoneyLedger(selectedOutletId, payload);
+      // Persist operational_pots per outlet in outlets.settings.operational_pots
+      for (const out of outletsList) {
+        const branchOps = newOp.filter((p) => (p.outlet_id || primaryOutId) === out.id);
+        const curSettings = (out.settings && typeof out.settings === "object" ? out.settings : {}) as any;
+        const curLedger = curSettings.money_allocation_ledger || curSettings.money_allocation || {};
+        const nextSettings = {
+          ...curSettings,
+          operational_pots: branchOps,
+          money_allocation_ledger: {
+            ...curLedger,
+            pack_configs: { ...(curLedger.pack_configs || {}), ...newConfigs },
+            spent_amounts: { ...(curLedger.spent_amounts || {}), ...newSpent },
+            manual_added: { ...(curLedger.manual_added || {}), ...newManual },
+            salary_paid: { ...(curLedger.salary_paid || {}), ...newSalaryPaid },
+            opPockets: branchOps,
+            history: newHist,
+          },
+        };
+        await supabase
+          .from("outlets")
+          .update({ settings: nextSettings, updated_at: new Date().toISOString() })
+          .eq("id", out.id);
+      }
     } catch (e) {
       console.warn("[persistSettings] saveBranchMoneyLedger warning:", e);
+    }
+  }
+
+  async function handleSaveAllocationRatio() {
+    const targetOutId =
+      ratioModalOutletId ||
+      (selectedOutletId !== "all" ? selectedOutletId : resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "");
+    if (!targetOutId) {
+      toast.error("Pilih cabang terlebih dahulu");
+      return;
+    }
+    const clampedOp = Math.min(100, Math.max(0, Math.round(Number(editOpRatioPct) || 0)));
+    const nextRatio: BranchAllocationRatio = {
+      operationalPct: clampedOp,
+      ownerPct: 100 - clampedOp,
+    };
+    setSavingRatio(true);
+    try {
+      setBranchRatios((prev) => ({ ...prev, [targetOutId]: nextRatio }));
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(
+            `kebabschoicepos_allocation_ratio_${targetOutId}`,
+            JSON.stringify(nextRatio),
+          );
+        } catch {}
+      }
+      const targetOut = outletsList.find((o) => o.id === targetOutId);
+      const curSettings =
+        targetOut?.settings && typeof targetOut.settings === "object"
+          ? { ...targetOut.settings }
+          : {};
+      await supabase
+        .from("outlets")
+        .update({
+          settings: {
+            ...curSettings,
+            allocation_ratio: nextRatio,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", targetOutId);
+
+      setFetchedOutlets((prev) =>
+        prev.map((o) =>
+          o.id === targetOutId
+            ? { ...o, settings: { ...(o.settings || {}), allocation_ratio: nextRatio } }
+            : o,
+        ),
+      );
+      setIsRatioModalOpen(false);
+      toast.success(
+        `Rasio alokasi ${targetOut?.name || "Cabang"} disimpan: ${nextRatio.operationalPct}% Operasional / ${nextRatio.ownerPct}% Owner`,
+      );
+    } catch (err: any) {
+      toast.error("Gagal menyimpan rasio alokasi", { description: err?.message });
+    } finally {
+      setSavingRatio(false);
     }
   }
 
@@ -1421,13 +1738,18 @@ export function MoneyAllocationPage({
     0,
   );
 
-  // 4. Celengan Gaji & Tunjangan Tim Cabang + Kas Keluar Laci Kasir Cabang
+  // 4. Celengan Gaji & Tunjangan Tim Cabang + Kas Keluar Laci Kasir Cabang (Strictly non-OWNER operational branch staff)
   const branchStaffProfiles = useMemo(() => {
+    const primaryOutId = resolvePrimaryOutletId(outletsList);
     return staffProfiles.filter((p) => {
+      if (isOwnerAccount(p) || p.full_name.trim().toLowerCase() === "iky") return false;
       if (selectedOutletId === "all") return true;
-      return !p.outlet_id || p.outlet_id === selectedOutletId;
+      const pOutletId = p.outlet_id
+        ? normalizeOrderOutletId(p.outlet_id, outletsList)
+        : primaryOutId;
+      return !pOutletId || pOutletId === selectedOutletId;
     });
-  }, [staffProfiles, selectedOutletId]);
+  }, [staffProfiles, selectedOutletId, outletsList]);
 
   const dailyStaffSalaryTotal = useMemo(() => {
     return branchStaffProfiles.reduce((sum, p) => {
@@ -1465,6 +1787,54 @@ export function MoneyAllocationPage({
 
   const totalExpenseAndSalaryPaid = currentSalaryPaid + totalCashOut;
 
+  // Per-Branch Allocation Ratio Resolution (default 30% Operasional / 70% Owner)
+  const getOutletOpRatioPct = useCallback(
+    (outId?: string | null): number => {
+      const primaryOutId = resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "";
+      const key = outId && outId !== "all" ? outId : primaryOutId;
+      return branchRatios[key]?.operationalPct ?? 30;
+    },
+    [branchRatios, outletsList],
+  );
+
+  const activeOpRatioPct = useMemo(() => {
+    if (selectedOutletId !== "all") {
+      return getOutletOpRatioPct(selectedOutletId);
+    }
+    if (outletsList.length === 1 && outletsList[0]?.id) {
+      return getOutletOpRatioPct(outletsList[0].id);
+    }
+    if (outletsList.length > 1) {
+      const sum = outletsList.reduce((acc, o) => acc + getOutletOpRatioPct(o.id), 0);
+      return Math.round(sum / outletsList.length);
+    }
+    return 30;
+  }, [selectedOutletId, outletsList, getOutletOpRatioPct]);
+
+  const activeOwnerRatioPct = Math.max(0, 100 - activeOpRatioPct);
+
+  // Scoped Operational Pockets per selectedOutletId
+  const scopedOpPockets = useMemo(() => {
+    const primaryOutId = resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "";
+    const activeIds = new Set(outletsList.map((o) => o.id));
+    return opPockets
+      .map((op) => {
+        const resolvedId =
+          op.outlet_id && activeIds.has(op.outlet_id) ? op.outlet_id : primaryOutId;
+        const resolvedName =
+          outletsList.find((o) => o.id === resolvedId)?.name || op.outlet_name || "Cabang";
+        return {
+          ...op,
+          outlet_id: resolvedId,
+          outlet_name: resolvedName,
+        };
+      })
+      .filter((op) => {
+        if (selectedOutletId === "all") return true;
+        return op.outlet_id === selectedOutletId;
+      });
+  }, [opPockets, outletsList, selectedOutletId]);
+
   // 5. Computed Operational Pockets (Proportional to active sales days, capped by remaining cash after BOM & expenses)
   const computedOpPockets = useMemo(() => {
     const availableCashAfterBomAndExpense = Math.max(
@@ -1472,7 +1842,7 @@ export function MoneyAllocationPage({
       totalOmzet - totalBomFromSales - totalExpenseAndSalaryPaid,
     );
 
-    const unconstrained = opPockets.map((op) => {
+    const unconstrained = scopedOpPockets.map((op) => {
       const days = Math.max(op.days_collected ?? 0, operationalDaysWithSales);
       const dailyTarget =
         Number(op.daily_allocation) || Math.round((Number(op.target_monthly) || 0) / 30);
@@ -1489,11 +1859,15 @@ export function MoneyAllocationPage({
 
     const totalTarget = unconstrained.reduce((sum, op) => sum + op.target_allocation, 0);
 
-    // Profit First: Batasi alokasi celengan operasional maksimal 30% dari Laba Kotor berjalan agar laba murni owner terlindungi
-    const maxOpCap = Math.round(availableCashAfterBomAndExpense * 0.30);
+    // Profit First: Batasi alokasi celengan operasional sesuai rasio cabang (default 30% dari Laba Kotor berjalan) agar laba murni owner terlindungi
+    const defaultOpCap = Math.round(availableCashAfterBomAndExpense * 0.30);
+    const maxOpCap =
+      activeOpRatioPct === 30
+        ? defaultOpCap
+        : Math.round(availableCashAfterBomAndExpense * (activeOpRatioPct / 100));
     const availableForOp = Math.min(availableCashAfterBomAndExpense, maxOpCap);
 
-    // Cap realized balance to availableForOp (max 30% of gross profit) so Card 2 + Card 3 + Card 4 + Card 5 === Card 1
+    // Cap realized balance to availableForOp so Card 2 + Card 3 + Card 4 + Card 5 === Card 1
     let allocatedSoFar = 0;
     const positiveIndices = unconstrained
       .map((op, idx) => (op.target_allocation > 0 ? idx : -1))
@@ -1518,7 +1892,14 @@ export function MoneyAllocationPage({
         accumulated_balance: balance,
       };
     });
-  }, [opPockets, operationalDaysWithSales, totalOmzet, totalBomFromSales, totalExpenseAndSalaryPaid]);
+  }, [
+    scopedOpPockets,
+    operationalDaysWithSales,
+    totalOmzet,
+    totalBomFromSales,
+    totalExpenseAndSalaryPaid,
+    activeOpRatioPct,
+  ]);
 
   const totalMonthlyOpTarget = useMemo(() => {
     return computedOpPockets.reduce(
@@ -1528,18 +1909,17 @@ export function MoneyAllocationPage({
     );
   }, [computedOpPockets]);
 
-  // 6. Financial KPI Totals (Balanced Zero-Sum Accounting Equation: Card2 + Card3 + Card4 + Card5 = Card1)
+  // 6. Financial KPI Totals (Honest Cash Accounting: reveals negative cash deficit when expenses exceed gross profit)
   const ownerProfitTransferDeduction = Number(spentAmounts["__owner_profit__"] || 0);
   const emergencyFundTransferDeduction = Number(spentAmounts["__emergency_fund__"] || 0);
 
   const rawTotalOpSavings = computedOpPockets.reduce((sum, op) => sum + op.accumulated_balance, 0);
   const totalOpSavings = Math.max(0, rawTotalOpSavings - emergencyFundTransferDeduction);
 
-  const baseProfit = Math.max(
-    0,
-    Math.round(totalOmzet - totalBomFromSales - rawTotalOpSavings - currentSalaryPaid - totalCashOut),
+  const baseProfit = Math.round(
+    totalOmzet - totalBomFromSales - rawTotalOpSavings - currentSalaryPaid - totalCashOut,
   );
-  const labaBersihMurni = Math.max(0, Math.round(baseProfit - ownerProfitTransferDeduction));
+  const labaBersihMurni = Math.round(baseProfit - ownerProfitTransferDeduction);
 
   // ACTION: Cairkan Gaji & Tunjangan Tim
   async function handleDisburseSalary() {
@@ -1893,14 +2273,28 @@ export function MoneyAllocationPage({
     toast.success(`Berhasil potong saldo operasional sebesar ${formatRupiah(amount)}`);
   }
 
-  // ACTION: Tambah Pos Operasional Baru
+  // ACTION: Tambah Pos Operasional Baru (Wajib terikat ke outlet_id)
   async function handleAddOpPocket() {
     if (!newOpName.trim()) {
       toast.error("Nama pos operasional tidak boleh kosong");
       return;
     }
+    const targetOutId =
+      newOpOutletId ||
+      (selectedOutletId !== "all"
+        ? selectedOutletId
+        : resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "");
+    if (!targetOutId) {
+      toast.error("Pilih cabang / outlet untuk pos biaya ini");
+      return;
+    }
+    const targetOutName =
+      outletsList.find((o) => o.id === targetOutId)?.name || "Cabang";
+
     const newPocket: OperationalExpensePocket = {
       id: `op-${Date.now()}`,
+      outlet_id: targetOutId,
+      outlet_name: targetOutName,
       name: newOpName.trim(),
       category: newOpCategory,
       target_monthly: Number(newOpMonthly) || 300000,
@@ -1916,7 +2310,7 @@ export function MoneyAllocationPage({
 
     setIsAddingOp(false);
     setNewOpName("");
-    toast.success("Pos celengan operasional berhasil ditambahkan!");
+    toast.success(`Pos biaya "${newPocket.name}" berhasil ditambahkan untuk ${targetOutName}!`);
   }
 
   // ACTION: Hapus Pos Operasional
@@ -2081,7 +2475,9 @@ export function MoneyAllocationPage({
               {formatRupiah(totalOpSavings)}
             </p>
             <p className="mt-1 text-xs text-muted-foreground font-medium">
-              30% Laba Kotor (Target: {formatRupiah(totalMonthlyOpTarget)}/bln)
+              {selectedOutletId === "all" && outletsList.length > 1
+                ? `Sesuai rasio masing-masing cabang (Target: ${formatRupiah(totalMonthlyOpTarget)}/bln)`
+                : `${activeOpRatioPct}% Laba Kotor (Target: ${formatRupiah(totalMonthlyOpTarget)}/bln)`}
             </p>
           </div>
 
@@ -2120,13 +2516,21 @@ export function MoneyAllocationPage({
               </div>
               <p
                 className={`mt-2 text-lg xl:text-xl font-bold tracking-tight whitespace-nowrap font-mono ${
-                  labaBersihMurni < 0 ? "text-rose-600" : "text-foreground"
+                  labaBersihMurni < 0 ? "text-destructive" : "text-foreground"
                 }`}
               >
                 {formatRupiah(labaBersihMurni)}
               </p>
-              <p className="mt-1 text-xs text-muted-foreground font-medium">
-                70% Laba Kotor siap tarik
+              <p
+                className={`mt-1 text-xs font-medium ${
+                  labaBersihMurni < 0 ? "text-destructive font-semibold" : "text-muted-foreground"
+                }`}
+              >
+                {labaBersihMurni < 0
+                  ? "Defisit kas (pengeluaran melebihi laba)"
+                  : selectedOutletId === "all" && outletsList.length > 1
+                    ? `Sesuai rasio masing-masing cabang (${activeOwnerRatioPct}% Laba Kotor)`
+                    : `${activeOwnerRatioPct}% Laba Kotor siap tarik`}
               </p>
             </div>
           ) : (
@@ -2162,6 +2566,7 @@ export function MoneyAllocationPage({
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {outletsList.map((out) => {
+                const primaryOutId = resolvePrimaryOutletId(outletsList);
                 const outOrders = normalizedSalesOrders.filter((o) => o.outlet_id === out.id);
                 const outBom = estimateOrdersBomMetrics({
                   orders: outOrders,
@@ -2171,11 +2576,27 @@ export function MoneyAllocationPage({
                   inventoryItems: inventoryList,
                 });
                 const outRevenue = outBom.totalRevenue;
-                const outBomSavings = outBom.totalBomCost;
+                const outBomFromSales = outBom.totalBomCost;
+                const outItems = inventoryList.filter((it) => {
+                  const itOutId = it.outlet_id
+                    ? normalizeOrderOutletId(it.outlet_id, outletsList)
+                    : primaryOutId;
+                  return itOutId === out.id;
+                });
+                const outManualAdded = outItems.reduce(
+                  (sum, it) => sum + (Number(manualAdded[it.id]) || 0),
+                  0,
+                );
+                const outSpent = outItems.reduce(
+                  (sum, it) => sum + (Number(spentAmounts[it.id]) || 0),
+                  0,
+                );
+                const outBomSavings = Math.max(0, outBomFromSales - outSpent + outManualAdded);
                 const outDays = new Set(
                   outOrders.map((o) => (o.created_at || "").slice(0, 10)),
                 ).size;
-                const rawOutOpCost = computedOpPockets.reduce(
+                const outBranchOps = computedOpPockets.filter((op) => op.outlet_id === out.id);
+                const rawOutOpCost = outBranchOps.reduce(
                   (sum, op) =>
                     sum +
                     Math.round(
@@ -2195,14 +2616,14 @@ export function MoneyAllocationPage({
                   .reduce((sum, m) => sum + (Number(m.amount) || 0), 0);
                 const outAvailableForOp = Math.max(
                   0,
-                  outRevenue - outBomSavings - outSalaryPaid - outCashOut,
+                  outRevenue - outBomFromSales - outSalaryPaid - outCashOut,
                 );
-                const maxOutOpCap = Math.round(outAvailableForOp * 0.30);
+                const outOpRatioPct = getOutletOpRatioPct(out.id);
+                const maxOutOpCap = Math.round(outAvailableForOp * (outOpRatioPct / 100));
                 const effectiveOutOpBudget = Math.min(outAvailableForOp, maxOutOpCap);
                 const outOpCost = Math.min(effectiveOutOpBudget, rawOutOpCost);
-                const outProfit = Math.max(
-                  0,
-                  outRevenue - outBomSavings - outOpCost - outSalaryPaid - outCashOut,
+                const outProfit = Math.round(
+                  outRevenue - outBomFromSales - outOpCost - outSalaryPaid - outCashOut,
                 );
 
                 return (
@@ -2214,9 +2635,14 @@ export function MoneyAllocationPage({
                       <span className="font-black text-xs text-foreground truncate">
                         {out.name}
                       </span>
-                      <Badge variant="outline" className="text-xs font-mono font-bold">
-                        {out.code || "CABANG"}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <Badge variant="secondary" className="text-xs font-mono">
+                          {outOpRatioPct}% / {100 - outOpRatioPct}%
+                        </Badge>
+                        <Badge variant="outline" className="text-xs font-mono font-bold">
+                          {out.code || "CABANG"}
+                        </Badge>
+                      </div>
                     </div>
                     <div className="space-y-1.5 text-xs">
                       <div className="flex justify-between text-muted-foreground">
@@ -2228,7 +2654,7 @@ export function MoneyAllocationPage({
                       <div className="flex justify-between text-muted-foreground">
                         <span>2. Celengan Bahan (BOM):</span>
                         <span className="font-normal text-foreground tabular-nums">
-                          -{formatRupiah(outBomSavings)}
+                          {formatRupiah(outBomSavings)}
                         </span>
                       </div>
                       <div className="flex justify-between text-muted-foreground">
@@ -2237,8 +2663,16 @@ export function MoneyAllocationPage({
                           -{formatRupiah(outOpCost)}
                         </span>
                       </div>
+                      {(outSalaryPaid + outCashOut) > 0 && (
+                        <div className="flex justify-between text-muted-foreground">
+                          <span>4. Kas &amp; Gaji Keluar:</span>
+                          <span className="font-normal text-foreground tabular-nums">
+                            -{formatRupiah(outSalaryPaid + outCashOut)}
+                          </span>
+                        </div>
+                      )}
                       <div className="flex justify-between pt-1.5 border-t border-border/60 font-semibold text-foreground">
-                        <span>4. Estimasi Profit Bersih:</span>
+                        <span>{(outSalaryPaid + outCashOut) > 0 ? "5." : "4."} Estimasi Profit Bersih:</span>
                         <span
                           className={`font-bold tabular-nums ${
                             outProfit < 0 ? "text-destructive" : "text-foreground"
@@ -2247,6 +2681,11 @@ export function MoneyAllocationPage({
                           {formatRupiah(outProfit)}
                         </span>
                       </div>
+                      {outProfit < 0 && (
+                        <p className="text-xs text-destructive font-medium text-right">
+                          Defisit kas (pengeluaran melebihi laba)
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -2332,7 +2771,7 @@ export function MoneyAllocationPage({
                         )}
                       </h3>
                       <span className="text-[11px] font-medium text-muted-foreground block mt-0.5">
-                        {formatRupiah(pocket.pack_price)} / {pocket.item.unit || "pack"} • {pocket.item.yield_per_unit || pocket.pack_size || 20} {pocket.item.yield_unit || "pcs"}
+                        {formatRupiah(pocket.pack_price)} / {pocket.item.unit || "pack"} • {Number(pocket.item.yield_per_unit || pocket.pack_size || 20).toLocaleString("id-ID")} {pocket.item.yield_unit || "pcs"}
                       </span>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
@@ -2444,28 +2883,72 @@ export function MoneyAllocationPage({
             <Button
               size="sm"
               variant="outline"
+              className="rounded-xl font-bold text-xs gap-1.5 whitespace-nowrap shrink-0"
+              onClick={() => {
+                const defaultOutId =
+                  selectedOutletId !== "all"
+                    ? selectedOutletId
+                    : resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "";
+                setRatioModalOutletId(defaultOutId);
+                setEditOpRatioPct(getOutletOpRatioPct(defaultOutId));
+                setIsRatioModalOpen(true);
+              }}
+            >
+              <Settings className="size-3.5" />
+              Atur Rasio Alokasi ({activeOpRatioPct}% / {activeOwnerRatioPct}%)
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
               className="rounded-xl font-bold text-xs gap-1 whitespace-nowrap shrink-0"
-              onClick={() => setIsAddingOp(!isAddingOp)}
+              onClick={() => {
+                const defaultOutId =
+                  selectedOutletId !== "all"
+                    ? selectedOutletId
+                    : resolvePrimaryOutletId(outletsList) || outletsList[0]?.id || "";
+                if (defaultOutId) setNewOpOutletId(defaultOutId);
+                setIsAddingOp(!isAddingOp);
+              }}
             >
               <Plus className="size-3.5" />
               Tambah Pos Biaya
             </Button>
+            <Badge variant="outline" className="text-xs font-bold font-mono whitespace-nowrap shrink-0">
+              Total Target: {formatRupiah(totalMonthlyOpTarget)}/bln
+            </Badge>
             <Badge variant="outline" className="text-xs font-bold font-mono whitespace-nowrap shrink-0">
               Total Saldo: {formatRupiah(totalOpSavings)}
             </Badge>
           </div>
         </div>
 
-        {/* Form Tambah Pos Operasional */}
+        {/* Form Tambah Pos Operasional (Per Cabang) */}
         {isAddingOp && (
           <div className="rounded-2xl border border-border/60 bg-muted/40 p-4 space-y-3">
             <h4 className="font-bold text-xs text-foreground">
-              Buat Pos Celengan Operasional Baru
+              Buat Pos Celengan Operasional Baru (Per Cabang)
             </h4>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
               <div>
                 <label className="text-xs font-bold text-muted-foreground block mb-1">
-                  Nama Pos Pengeluaran
+                  Cabang / Outlet *
+                </label>
+                <select
+                  aria-label="Pilih Cabang Pos Biaya Operasional"
+                  value={newOpOutletId}
+                  onChange={(e) => setNewOpOutletId(e.target.value)}
+                  className="h-9 w-full rounded-xl border border-input bg-card px-3 text-xs font-bold text-foreground"
+                >
+                  {outletsList.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-muted-foreground block mb-1">
+                  Nama Pos Pengeluaran *
                 </label>
                 <Input
                   value={newOpName}
@@ -2540,14 +3023,21 @@ export function MoneyAllocationPage({
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {computedOpPockets.map((op) => (
             <div
-              key={op.id}
+              key={`${op.outlet_id || "hq"}-${op.id}`}
               className="rounded-2xl border border-border bg-card/60 hover:bg-card/90 transition-all p-4.5 flex flex-col justify-between shadow-xs"
             >
               <div>
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <h3 className="font-black text-sm text-foreground truncate">{op.name}</h3>
-                    <span className="text-xs font-bold text-muted-foreground">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <h3 className="font-black text-sm text-foreground truncate">{op.name}</h3>
+                      <Badge variant="secondary" className="text-xs font-semibold shrink-0">
+                        {op.outlet_name ||
+                          outletsList.find((o) => o.id === op.outlet_id)?.name ||
+                          "Cabang"}
+                      </Badge>
+                    </div>
+                    <span className="text-xs font-bold text-muted-foreground block">
                       Target: {formatRupiah(op.daily_allocation)} / hari
                     </span>
                   </div>
@@ -2677,6 +3167,12 @@ export function MoneyAllocationPage({
               <Banknote className="size-3.5" />
               Cairkan Gaji &amp; Tunjangan Tim
             </Button>
+            <Badge
+              variant="secondary"
+              className="rounded-full text-xs font-bold font-mono whitespace-nowrap shrink-0"
+            >
+              {branchStaffProfiles.length} Staf Aktif • {formatRupiah(dailyStaffSalaryTotal)}/hari
+            </Badge>
             <Badge
               variant="outline"
               className="rounded-full text-xs font-bold font-mono whitespace-nowrap shrink-0"
@@ -3455,6 +3951,114 @@ export function MoneyAllocationPage({
                 onClick={handleExecuteTopUp}
               >
                 {topUpLoading ? "Memproses..." : "Konfirmasi Suntik Saldo"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 7: Atur Rasio Alokasi Operasional vs Owner per Cabang */}
+      {isRatioModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-3xl border border-border bg-white dark:bg-slate-900 opacity-100 p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="size-10 rounded-2xl bg-muted text-foreground/75 flex items-center justify-center">
+                <Settings className="size-5" />
+              </div>
+              <div>
+                <h3 className="font-black text-base text-foreground">
+                  Atur Rasio Alokasi Laba Kotor Cabang
+                </h3>
+                <p className="text-xs text-muted-foreground">
+                  Sesuaikan porsi maksimal Celengan Operasional vs Laba Bersih Owner per cabang.
+                </p>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-bold text-foreground block mb-1">
+                  Cabang / Outlet *
+                </label>
+                <select
+                  aria-label="Pilih Cabang untuk Rasio Alokasi"
+                  value={ratioModalOutletId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setRatioModalOutletId(nextId);
+                    setEditOpRatioPct(getOutletOpRatioPct(nextId));
+                  }}
+                  className="w-full rounded-xl border border-input bg-card p-2.5 text-xs font-bold text-foreground"
+                >
+                  {outletsList.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="text-xs font-bold text-foreground block mb-1">
+                  Rasio Celengan Operasional (% dari Laba Kotor):
+                </label>
+                <Input
+                  type="number"
+                  min={0}
+                  max={100}
+                  value={editOpRatioPct}
+                  onChange={(e) => {
+                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    setEditOpRatioPct(val);
+                  }}
+                  className="rounded-xl font-mono text-base font-bold"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {[20, 30, 40, 45, 50].map((pct) => (
+                    <Button
+                      key={pct}
+                      type="button"
+                      size="sm"
+                      variant={editOpRatioPct === pct ? "default" : "outline"}
+                      className="h-7 text-xs rounded-lg px-2.5 font-mono"
+                      onClick={() => setEditOpRatioPct(pct)}
+                    >
+                      {pct}% / {100 - pct}%
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-muted/40 border border-border/60 p-3.5 space-y-1.5 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Batas Maksimal Celengan Operasional:</span>
+                  <span className="font-mono font-bold text-foreground">
+                    {Math.min(100, Math.max(0, Math.round(editOpRatioPct)))}% Laba Kotor
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Porsi Laba Bersih Murni Owner:</span>
+                  <span className="font-mono font-bold text-foreground">
+                    {Math.max(0, 100 - Math.min(100, Math.max(0, Math.round(editOpRatioPct))))}% Laba Kotor
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="ghost"
+                className="rounded-xl text-xs"
+                onClick={() => setIsRatioModalOpen(false)}
+              >
+                Batal
+              </Button>
+              <Button
+                disabled={savingRatio}
+                className="rounded-xl font-bold shadow-brand bg-primary hover:bg-primary/90 text-primary-foreground text-xs"
+                onClick={handleSaveAllocationRatio}
+              >
+                {savingRatio ? "Menyimpan..." : "Simpan Rasio Cabang"}
               </Button>
             </div>
           </div>

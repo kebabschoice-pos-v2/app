@@ -33,7 +33,7 @@ import {
   type MonthlyRosterSchedule,
 } from "@/services/hr.service";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
-import { getStaffList, isOutletDeviceAccount, type StaffItem } from "@/services/staff.service";
+import { getStaffList, isOutletDeviceAccount, isOwnerAccount, type StaffItem } from "@/services/staff.service";
 
 interface AttendancePageProps {
   initialTab?: "in" | "out" | "history" | "shifts";
@@ -118,15 +118,18 @@ export function AttendancePage({
   // Selected Employee for Attendance
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
 
-  // Branch staff filtered for active outlet
+  // Branch staff filtered for active outlet (strictly operational branch staff, excluding OWNER)
   const branchStaffProfiles = useMemo(() => {
-    const filtered = staffList.filter(
+    const nonOwners = staffList.filter(
+      (s) => !isOwnerAccount(s) && s.full_name.trim().toLowerCase() !== "iky",
+    );
+    const filtered = nonOwners.filter(
       (s) => !s.outlet_id || s.outlet_id === activeOutlet.id || s.outlet_id === "all",
     );
-    return filtered.length > 0 ? filtered : staffList;
+    return filtered.length > 0 ? filtered : nonOwners;
   }, [staffList, activeOutlet.id]);
 
-  // Always keep selectedStaffId synced to a valid member of branchStaffProfiles
+  // Always keep selectedStaffId synced to a valid operational member of branchStaffProfiles
   useEffect(() => {
     if (branchStaffProfiles.length === 0) return;
     const isStillValid = branchStaffProfiles.some((p) => p.user_id === selectedStaffId);
@@ -136,12 +139,12 @@ export function AttendancePage({
           ? localStorage.getItem("kebabschoicepos_active_cashier_name")
           : null;
       const found =
-        (activeCashier
+        (activeCashier && activeCashier.trim().toLowerCase() !== "iky"
           ? branchStaffProfiles.find(
               (p) => p.full_name.trim().toLowerCase() === activeCashier.trim().toLowerCase(),
             )
           : null) ||
-        branchStaffProfiles.find((p) => p.user_id === profile?.id) ||
+        branchStaffProfiles.find((p) => p.user_id === profile?.id && !isOwnerAccount(p)) ||
         branchStaffProfiles[0];
       if (found) setSelectedStaffId(found.user_id);
     }
@@ -194,10 +197,13 @@ export function AttendancePage({
         ),
       ]);
 
-      // Unify HR profiles + getStaffList() + snapshot.outlets roster so dropdown never shows 0 options
-      const mergedProfiles: StaffProfile[] = [...profiles];
-      const seenKeys = new Set<string>(profiles.map((p) => p.user_id));
-      const seenNames = new Set<string>(profiles.map((p) => p.full_name.trim().toLowerCase()));
+      // Unify HR profiles + getStaffList() + snapshot.outlets roster (strictly operational branch staff, excluding OWNER)
+      const nonOwnerInitial = profiles.filter(
+        (p) => !isOwnerAccount(p) && p.full_name.trim().toLowerCase() !== "iky",
+      );
+      const mergedProfiles: StaffProfile[] = [...nonOwnerInitial];
+      const seenKeys = new Set<string>(nonOwnerInitial.map((p) => p.user_id));
+      const seenNames = new Set<string>(nonOwnerInitial.map((p) => p.full_name.trim().toLowerCase()));
       const outletListForCheck = (snapshot?.outlets as any[]) || [];
 
       for (const st of rawStaffList) {
@@ -206,9 +212,11 @@ export function AttendancePage({
         if (
           !key ||
           !cleanName ||
+          cleanName.toLowerCase() === "iky" ||
           seenKeys.has(key) ||
           seenNames.has(cleanName.toLowerCase()) ||
-          isOutletDeviceAccount(st, outletListForCheck)
+          isOutletDeviceAccount(st, outletListForCheck) ||
+          isOwnerAccount(st)
         ) {
           continue;
         }
@@ -240,7 +248,14 @@ export function AttendancePage({
         const rosterArr: any[] = Array.isArray(s.outlet_staff_roster) ? s.outlet_staff_roster : [];
         for (const emp of rosterArr) {
           const cleanName = String(emp.name || emp.full_name || "").trim();
-          if (!cleanName || isOutletDeviceAccount(emp, outletListForCheck)) continue;
+          if (
+            !cleanName ||
+            cleanName.toLowerCase() === "iky" ||
+            isOutletDeviceAccount(emp, outletListForCheck) ||
+            isOwnerAccount(emp)
+          ) {
+            continue;
+          }
           const key =
             emp.user_id ||
             emp.id ||
@@ -270,7 +285,7 @@ export function AttendancePage({
       setAttendances(attList);
       if (roster) setRosterSchedule(roster);
 
-      // Preselect active cashier from shift, logged-in user, or first available staff member
+      // Preselect active cashier from shift or first available operational branch staff member (never Owner)
       if (mergedProfiles.length > 0) {
         const activeCashier =
           typeof window !== "undefined"
@@ -283,12 +298,12 @@ export function AttendancePage({
         const currentIsValid = candidateProfiles.some((p) => p.user_id === selectedStaffId);
         if (!selectedStaffId || !currentIsValid) {
           const found =
-            (activeCashier
+            (activeCashier && activeCashier.trim().toLowerCase() !== "iky"
               ? candidateProfiles.find(
                   (p) => p.full_name.trim().toLowerCase() === activeCashier.trim().toLowerCase(),
                 )
               : null) ||
-            candidateProfiles.find((p) => p.user_id === profile?.id) ||
+            candidateProfiles.find((p) => p.user_id === profile?.id && !isOwnerAccount(p)) ||
             candidateProfiles[0];
           if (found) setSelectedStaffId(found.user_id);
         }

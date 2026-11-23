@@ -28,7 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { cacheOutletCatalog, isOnline } from "@/services/offline-sync.service";
 import { getOutletList, resolveActiveStaffOutlet } from "@/services/outlet.service";
 import { getTodayOutletRoster, getStaffShifts, type StaffShift } from "@/services/hr.service";
-import { getStaffList, type StaffItem } from "@/services/staff.service";
+import { getStaffList, isOwnerAccount, isOutletDeviceAccount, type StaffItem } from "@/services/staff.service";
 import { formatRupiahInput, parseNumberFromDots } from "@/lib/input-formatters";
 import { cn } from "@/lib/utils";
 
@@ -131,6 +131,7 @@ export function PosShiftCashPage() {
       const clean = String(rawName || "").trim();
       if (!clean) return;
       const lower = clean.toLowerCase();
+      if (lower === "iky" || lower === "owner" || String(role || "").toLowerCase() === "owner") return;
       if (lower === activeCashierLower || seen.has(lower)) return;
       seen.add(lower);
       const isMorning = todayRoster?.morningStaff.includes(clean);
@@ -271,7 +272,6 @@ export function PosShiftCashPage() {
 
         const resolvedCashier =
           prof?.display_name || emailName.charAt(0).toUpperCase() + emailName.slice(1);
-        setCashierName(resolvedCashier);
 
         // Fetch User's Business ID (respecting active business in localStorage if owned/membered)
         const [{ data: ownedBusList }, { data: memBusList }] = await Promise.all([
@@ -282,9 +282,20 @@ export function PosShiftCashPage() {
             .order("created_at", { ascending: true }),
           supabase
             .from("business_members")
-            .select("business_id")
+            .select("business_id, role")
             .eq("user_id", data.user.id),
         ]);
+        const isCurrentUserOwner =
+          (Array.isArray(ownedBusList) && ownedBusList.length > 0) ||
+          (memBusList || []).some((m: any) => String(m?.role || "").toLowerCase() === "owner") ||
+          (typeof window !== "undefined" &&
+            localStorage.getItem("kebabschoicepos_user_role") === "owner");
+
+        // Owner can enter POS to monitor/inspect without becoming the default shift cashier
+        if (!isCurrentUserOwner && resolvedCashier.trim().toLowerCase() !== "iky") {
+          setCashierName(resolvedCashier);
+        }
+
         const bizIds = Array.from(
           new Set([
             ...(ownedBusList || []).map((b) => b.id),
@@ -337,40 +348,95 @@ export function PosShiftCashPage() {
         setOutletId(resolvedOid);
         setOutletName(resolvedOname);
 
-        // Load today's staff roster from HR service
+        // Load today's staff roster from HR service (strictly excluding Owner)
         getTodayOutletRoster(resolvedOid).then((roster) => {
-          setTodayRoster(roster);
+          const cleanRoster = {
+            morningStaff: (roster.morningStaff || []).filter(
+              (n) => n && n.trim().toLowerCase() !== "iky" && n.trim().toLowerCase() !== "owner",
+            ),
+            nightStaff: (roster.nightStaff || []).filter(
+              (n) => n && n.trim().toLowerCase() !== "iky" && n.trim().toLowerCase() !== "owner",
+            ),
+            offOrLeaveStaff: (roster.offOrLeaveStaff || []).filter(
+              (o) =>
+                o?.name &&
+                o.name.trim().toLowerCase() !== "iky" &&
+                o.name.trim().toLowerCase() !== "owner",
+            ),
+          };
+          setTodayRoster(cleanRoster);
           setTeamMembersInput((prev) => {
             if (prev.trim()) return prev;
             const currentHour = new Date().getHours();
-            if (currentHour < 15 && roster.morningStaff.length > 0) {
-              return roster.morningStaff.join(", ");
-            } else if (currentHour >= 15 && roster.nightStaff.length > 0) {
-              return roster.nightStaff.join(", ");
+            if (currentHour < 15 && cleanRoster.morningStaff.length > 0) {
+              return cleanRoster.morningStaff.join(", ");
+            } else if (currentHour >= 15 && cleanRoster.nightStaff.length > 0) {
+              return cleanRoster.nightStaff.join(", ");
             }
             return prev;
           });
         });
 
-        // Load branch staff for quick cashier picker
+        // Load operational branch staff for quick cashier picker (strictly excluding Owner)
         getStaffList()
           .then((list) => {
-            const filtered = list.filter(
-              (s) => !s.outlet_id || s.outlet_id === resolvedOid || s.outlet_id === "all",
+            const combinedStaff: StaffItem[] = [...list];
+            const seenNames = new Set(combinedStaff.map((s) => s.name.trim().toLowerCase()));
+            for (const o of allUserOutlets) {
+              if (resolvedOid && resolvedOid !== "all" && resolvedOid !== "default" && o.id !== resolvedOid) {
+                continue;
+              }
+              const sObj = (o.settings && typeof o.settings === "object" ? o.settings : {}) as any;
+              const rosterArr: any[] = Array.isArray(sObj.outlet_staff_roster) ? sObj.outlet_staff_roster : [];
+              for (const emp of rosterArr) {
+                if (isOwnerAccount(emp) || isOutletDeviceAccount(emp)) continue;
+                const nm = String(emp.name || emp.full_name || "").trim();
+                if (!nm || nm.toLowerCase() === "iky" || seenNames.has(nm.toLowerCase())) continue;
+                seenNames.add(nm.toLowerCase());
+                combinedStaff.push({
+                  id: emp.id || emp.user_id || `emp-${o.id}-${nm}`,
+                  user_id: emp.user_id || emp.id || `emp-${o.id}-${nm}`,
+                  name: nm,
+                  email: emp.email || "",
+                  avatar_url: emp.avatar_url || null,
+                  role: (emp.role as any) || "cashier",
+                  outlet: o.name || resolvedOname,
+                  outlet_name: o.name || resolvedOname,
+                  outlet_id: o.id,
+                  outlet_code: o.code || "",
+                  created_at: emp.created_at || new Date().toISOString(),
+                  status: "active",
+                });
+              }
+            }
+
+            const filtered = combinedStaff.filter(
+              (s) =>
+                !isOwnerAccount(s) &&
+                s.name.trim().toLowerCase() !== "iky" &&
+                (!s.outlet_id || s.outlet_id === resolvedOid || s.outlet_id === "all"),
             );
             setBranchStaffList(filtered);
 
             const savedCashier = localStorage.getItem("kebabschoicepos_active_cashier_name");
-            if (savedCashier) {
+            const isSavedCashierValidStaff =
+              savedCashier &&
+              savedCashier.trim().toLowerCase() !== "iky" &&
+              (!isCurrentUserOwner ||
+                savedCashier.trim().toLowerCase() !== resolvedCashier.trim().toLowerCase()) &&
+              filtered.some((st) => st.name.trim().toLowerCase() === savedCashier.trim().toLowerCase());
+
+            if (isSavedCashierValidStaff && savedCashier) {
               setCashierName(savedCashier);
             } else if (filtered.length > 0) {
               const currentHour = new Date().getHours();
               getTodayOutletRoster(resolvedOid)
                 .then((roster) => {
-                  const scheduled =
+                  const scheduled = (
                     currentHour < 15
                       ? roster?.morningStaff || []
-                      : roster?.nightStaff || [];
+                      : roster?.nightStaff || []
+                  ).filter((n) => n.trim().toLowerCase() !== "iky");
                   const match = filtered.find((st) => scheduled.includes(st.name));
                   if (match) {
                     setCashierName(match.name);

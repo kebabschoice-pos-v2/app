@@ -400,6 +400,79 @@ export async function loadBranchMoneyLedger(outletId?: string | null): Promise<B
   }
 
   if (!outletId || outletId === "all" || outletId === "default") {
+    try {
+      const bid = await resolveActiveBusinessId();
+      if (bid) {
+        const { data: activeOutlets } = await supabase
+          .from("outlets")
+          .select("id, name, settings")
+          .eq("business_id", bid);
+        if (Array.isArray(activeOutlets) && activeOutlets.length > 0) {
+          const mergedSpent: Record<string, number> = { ...(defaultLedger.spent_amounts || {}) };
+          const mergedManual: Record<string, number> = { ...(defaultLedger.manual_added || {}) };
+          const mergedPackConfigs: Record<string, any> = { ...(defaultLedger.pack_configs || {}) };
+          const mergedSalaryPaid: Record<string, number> = { ...(defaultLedger.salary_paid || {}) };
+          const mergedHistory: any[] = [...(defaultLedger.history || [])];
+          const seenHistIds = new Set(mergedHistory.map((h: any) => h?.id).filter(Boolean));
+          const mergedOpPockets: any[] = [];
+          const seenOpIds = new Set<string>();
+
+          for (const out of activeOutlets) {
+            if (isOutletDeletedOrArchived(out)) continue;
+            const s = (out.settings as any) || {};
+            const ledger = s.money_allocation_ledger || s.money_allocation;
+            if (ledger) {
+              for (const [k, v] of Object.entries(ledger.spent_amounts || {})) {
+                mergedSpent[k] = Math.max(Number(mergedSpent[k] || 0), Number(v) || 0);
+              }
+              for (const [k, v] of Object.entries(ledger.manual_added || {})) {
+                mergedManual[k] = Math.max(Number(mergedManual[k] || 0), Number(v) || 0);
+              }
+              if (ledger.pack_configs && typeof ledger.pack_configs === "object") {
+                Object.assign(mergedPackConfigs, ledger.pack_configs);
+              }
+              for (const [k, v] of Object.entries(ledger.salary_paid || {})) {
+                mergedSalaryPaid[k] = Math.max(Number(mergedSalaryPaid[k] || 0), Number(v) || 0);
+              }
+              for (const h of Array.isArray(ledger.history) ? ledger.history : []) {
+                if (h?.id && !seenHistIds.has(h.id)) {
+                  seenHistIds.add(h.id);
+                  mergedHistory.push(h);
+                }
+              }
+            }
+            const branchOps: any[] = Array.isArray(s.operational_pots)
+              ? s.operational_pots
+              : Array.isArray(ledger?.opPockets)
+                ? ledger.opPockets
+                : [];
+            for (const op of branchOps) {
+              if (!op?.id) continue;
+              const scopedOpId = op.outlet_id ? `${op.outlet_id}__${op.id}` : `${out.id}__${op.id}`;
+              if (!seenOpIds.has(scopedOpId) && !seenOpIds.has(op.id)) {
+                seenOpIds.add(scopedOpId);
+                seenOpIds.add(op.id);
+                mergedOpPockets.push({
+                  ...op,
+                  outlet_id: op.outlet_id || out.id,
+                  outlet_name: op.outlet_name || out.name,
+                });
+              }
+            }
+          }
+
+          return {
+            ...defaultLedger,
+            spent_amounts: mergedSpent,
+            manual_added: mergedManual,
+            pack_configs: mergedPackConfigs,
+            salary_paid: mergedSalaryPaid,
+            history: mergedHistory,
+            opPockets: mergedOpPockets.length > 0 ? mergedOpPockets : defaultLedger.opPockets,
+          };
+        }
+      }
+    } catch {}
     return defaultLedger;
   }
 
@@ -594,13 +667,32 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
           } else if (stockVal <= minVal) {
             status = "menipis";
           }
+          const lowerName = String(item.name || "").toLowerCase().trim();
+          let costPrice = Number(item.cost_price ?? 0);
+          let yieldPerUnit = Number(item.yield_per_unit) || null;
+          let yieldUnit = item.yield_unit || null;
+          if (lowerName.includes("daging") || lowerName.includes("beef")) {
+            if (costPrice <= 0) costPrice = 120000;
+            if (!yieldPerUnit || yieldPerUnit <= 1) {
+              yieldPerUnit = 2000;
+              yieldUnit = "gram";
+            }
+            if (!yieldUnit) yieldUnit = "gram";
+          } else if (lowerName.includes("tortilla") || lowerName.includes("kulit")) {
+            if (costPrice <= 0) costPrice = 25000;
+            if (!yieldPerUnit || yieldPerUnit <= 1) {
+              yieldPerUnit = 20;
+              yieldUnit = "pcs";
+            }
+            if (!yieldUnit) yieldUnit = "pcs";
+          }
           return {
             ...item,
             stock: stockVal,
             minimum_stock: minVal,
-            cost_price: Number(item.cost_price ?? 0),
-            yield_per_unit: Number(item.yield_per_unit) || null,
-            yield_unit: item.yield_unit || null,
+            cost_price: costPrice,
+            yield_per_unit: yieldPerUnit,
+            yield_unit: yieldUnit,
             status,
           };
         });
@@ -726,16 +818,26 @@ export async function getInventoryItems(businessId?: string): Promise<InventoryI
     const keyName = item.name.toLowerCase().trim();
 
     // Default fallbacks only if uninitialized (cost_price <= 0). Never overwrite user customizations!
-    if (keyName.includes("daging") && item.cost_price <= 0) {
-      item.cost_price = 120000;
+    if (keyName.includes("daging") || keyName.includes("beef")) {
+      if (item.cost_price <= 0) {
+        item.cost_price = 120000;
+      }
       if (!item.yield_per_unit || item.yield_per_unit <= 1) {
         item.yield_per_unit = 2000;
         item.yield_unit = "gram";
       }
-    } else if (keyName.includes("tortilla") && item.cost_price <= 0) {
-      item.cost_price = 25000;
+      if (!item.yield_unit) {
+        item.yield_unit = "gram";
+      }
+    } else if (keyName.includes("tortilla") || keyName.includes("kulit")) {
+      if (item.cost_price <= 0) {
+        item.cost_price = 25000;
+      }
       if (!item.yield_per_unit || item.yield_per_unit <= 1) {
         item.yield_per_unit = 20;
+        item.yield_unit = "pcs";
+      }
+      if (!item.yield_unit) {
         item.yield_unit = "pcs";
       }
     }

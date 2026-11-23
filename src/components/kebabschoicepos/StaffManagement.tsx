@@ -60,6 +60,7 @@ import {
   createBranchEmployee,
   deleteStaffAccount,
   isOutletDeviceAccount,
+  isOwnerAccount,
   type StaffItem,
   type CreateStaffInput,
 } from "@/services/staff.service";
@@ -141,6 +142,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
 
   const [loading, setLoading] = useState(true);
   const [hasLoadedInitialData, setHasLoadedInitialData] = useState(false);
+  const hasLoadedDataRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
@@ -261,7 +263,10 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
 
   async function loadData() {
     try {
-      setLoading(true);
+      // Only show skeleton loader on cold load when no staff/outlet data has loaded yet
+      if (!hasLoadedDataRef.current) {
+        setLoading(true);
+      }
 
       // Immediate hydration from snapshot?.outlets if already available (zero wait on network)
       if (Array.isArray(snapshot?.outlets) && snapshot.outlets.length > 0 && outlets.length === 0) {
@@ -295,7 +300,11 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
               emp.user_id ||
               emp.id ||
               `emp-${so.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-            if (!seenSnapStaff.has(empId) && !isOutletDeviceAccount(emp, snapOutlets)) {
+            if (
+              !seenSnapStaff.has(empId) &&
+              !isOutletDeviceAccount(emp, snapOutlets) &&
+              !isOwnerAccount(emp)
+            ) {
               seenSnapStaff.add(empId);
               snapStaff.push({
                 id: empId,
@@ -320,6 +329,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
           if (snapStaff.length > 0 && staffList.length === 0) {
             setStaffList(snapStaff);
           }
+          hasLoadedDataRef.current = true;
           setHasLoadedInitialData(true);
           setLoading(false);
         }
@@ -436,12 +446,17 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       for (const dOut of directOutletsRows) addOutletIfValid(dOut);
       for (const so of (snapshot?.outlets || []) as any[]) addOutletIfValid(so);
 
-      // Deduplicate staff list by user_id || id, filtering out device accounts
+      // Deduplicate staff list by user_id || id, filtering out device accounts and OWNER accounts
       const uniqueStaff: StaffItem[] = [];
       const seenStaff = new Set<string>();
       for (const s of staffData) {
         const key = s.user_id || s.id;
-        if (key && !seenStaff.has(key) && !isOutletDeviceAccount(s, uniqueOutlets)) {
+        if (
+          key &&
+          !seenStaff.has(key) &&
+          !isOutletDeviceAccount(s, uniqueOutlets) &&
+          !isOwnerAccount(s)
+        ) {
           seenStaff.add(key);
           uniqueStaff.push(s);
         }
@@ -456,7 +471,11 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
             emp.user_id ||
             emp.id ||
             `emp-${out.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-          if (!seenStaff.has(empId) && !isOutletDeviceAccount(emp, uniqueOutlets)) {
+          if (
+            !seenStaff.has(empId) &&
+            !isOutletDeviceAccount(emp, uniqueOutlets) &&
+            !isOwnerAccount(emp)
+          ) {
             seenStaff.add(empId);
             uniqueStaff.push({
               id: empId,
@@ -477,17 +496,22 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
         }
       }
 
-      // Merge direct Supabase staff_profiles fallback into profilesData
+      // Merge direct Supabase staff_profiles fallback into profilesData (excluding OWNER & device accounts)
       const combinedProfilesMap = new Map<string, StaffProfile>();
       for (const p of profilesData) {
         const k = p?.user_id || p?.id;
-        if (k && !isOutletDeviceAccount(p, uniqueOutlets)) {
+        if (k && !isOutletDeviceAccount(p, uniqueOutlets) && !isOwnerAccount(p)) {
           combinedProfilesMap.set(k, p);
         }
       }
       for (const dp of directStaffProfilesRows) {
         const k = dp?.user_id || dp?.id;
-        if (k && !combinedProfilesMap.has(k) && !isOutletDeviceAccount(dp, uniqueOutlets)) {
+        if (
+          k &&
+          !combinedProfilesMap.has(k) &&
+          !isOutletDeviceAccount(dp, uniqueOutlets) &&
+          !isOwnerAccount(dp)
+        ) {
           const matchOut = uniqueOutlets.find((o) => o.id === dp.outlet_id) || uniqueOutlets[0];
           combinedProfilesMap.set(k, {
             id: dp.id || `prof-${k}`,
@@ -513,11 +537,13 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
         }
       }
 
-      const existingProfiles = Array.from(combinedProfilesMap.values());
+      const existingProfiles = Array.from(combinedProfilesMap.values()).filter(
+        (p) => !isOwnerAccount(p),
+      );
       // Also ensure any employee present in HR profiles is included in uniqueStaff
       for (const ep of existingProfiles) {
         const epKey = ep.user_id || ep.id;
-        if (epKey && !seenStaff.has(epKey)) {
+        if (epKey && !seenStaff.has(epKey) && !isOwnerAccount(ep)) {
           seenStaff.add(epKey);
           uniqueStaff.push({
             id: epKey,
@@ -573,6 +599,9 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       setStaffList(uniqueStaff);
       setOutlets(uniqueOutlets);
       setHrProfiles(fullProfiles);
+      if (uniqueStaff.length > 0 || uniqueOutlets.length > 0) {
+        hasLoadedDataRef.current = true;
+      }
       setHasLoadedInitialData(true);
       setLoading(false);
 
@@ -606,7 +635,14 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
 
       setAttendances(attData);
       setShifts(shiftData);
-      setPayrolls(prData.filter((pr: StaffPayroll) => !isOutletDeviceAccount(pr, uniqueOutlets)));
+      setPayrolls(
+        prData.filter(
+          (pr: StaffPayroll) =>
+            !isOutletDeviceAccount(pr, uniqueOutlets) &&
+            !isOwnerAccount(pr) &&
+            String(pr.staff_name || "").trim().toLowerCase() !== "iky",
+        ),
+      );
       if (perms) setSystemManagerPerms(perms);
 
       try {
@@ -642,9 +678,9 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
     }, 5500);
 
     loadData().then(() => {
-      // Follow-up check if initial mount ran before auth session / active businessId finished hydrating
+      // Follow-up check only if initial mount ran before auth session / active businessId finished hydrating
       retryTimer = setTimeout(() => {
-        if (staffList.length === 0 && outlets.length === 0) {
+        if (!hasLoadedDataRef.current) {
           loadData();
         }
       }, 650);
@@ -1839,7 +1875,6 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
                 <option value="cashier">Kasir POS</option>
                 <option value="manager">Store Manager</option>
                 <option value="admin">Administrator</option>
-                <option value="owner">Owner HQ</option>
               </select>
 
               <Button

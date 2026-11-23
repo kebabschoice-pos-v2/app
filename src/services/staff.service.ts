@@ -57,6 +57,15 @@ export function isOutletDeviceAccount(item: any, outlets?: any[]): boolean {
   return false;
 }
 
+export function isOwnerAccount(item: any): boolean {
+  if (!item) return false;
+  const role = String(item.role || "").toLowerCase().trim();
+  if (role === "owner") return true;
+  const jobTitle = String(item.job_title || "").toLowerCase().trim();
+  if (jobTitle === "owner" || jobTitle === "owner hq" || jobTitle.includes("pemilik")) return true;
+  return false;
+}
+
 async function getAuthHeader(): Promise<HeadersInit> {
   const { data: sessionData } = await supabase.auth.getSession();
   const token = sessionData.session?.access_token;
@@ -127,8 +136,16 @@ async function queryStaffListDirect(): Promise<StaffItem[]> {
 
   const uniqueMembers: typeof members = [];
   const seenUsers = new Set<string>();
+  const ownerUserIds = new Set<string>();
+  if (Array.isArray(ownedBusinesses) && ownedBusinesses.length > 0) {
+    ownerUserIds.add(callerId);
+  }
   for (const m of members) {
-    if (!seenUsers.has(m.user_id)) {
+    if (String(m.role || "").toLowerCase() === "owner") {
+      ownerUserIds.add(m.user_id);
+      continue;
+    }
+    if (!seenUsers.has(m.user_id) && !ownerUserIds.has(m.user_id)) {
       seenUsers.add(m.user_id);
       uniqueMembers.push(m);
     }
@@ -230,7 +247,9 @@ async function queryStaffListDirect(): Promise<StaffItem[]> {
   });
 
   const merged = await mergeBranchEmployees(staffList);
-  const cleanStaff = merged.filter((s) => !isOutletDeviceAccount(s, outletList));
+  const cleanStaff = merged.filter(
+    (s) => !isOutletDeviceAccount(s, outletList) && !isOwnerAccount(s) && !ownerUserIds.has(s.user_id),
+  );
   console.log("STAFF QUERY RESULT:", cleanStaff);
   return cleanStaff;
 }
@@ -238,24 +257,34 @@ async function queryStaffListDirect(): Promise<StaffItem[]> {
 export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<StaffItem[]> {
   const mergedMap = new Map<string, StaffItem>();
   for (const s of existingStaff) {
-    if (!isOutletDeviceAccount(s)) {
+    if (!isOutletDeviceAccount(s) && !isOwnerAccount(s)) {
       mergedMap.set(s.user_id || s.id, s);
     }
   }
 
   // 1. Fetch outlets scoped strictly to the user's business(es) to inspect settings.outlet_staff_roster
+  const ownerUserIds = new Set<string>();
   try {
     let userBizIds: string[] = [];
     try {
       const authUser = await resolveAuthenticatedUser();
       if (authUser) {
         const [{ data: owned }, { data: members }] = await Promise.all([
-          supabase.from("businesses").select("id").eq("owner_id", authUser.id),
-          supabase.from("business_members").select("business_id").eq("user_id", authUser.id),
+          supabase.from("businesses").select("id, owner_id").eq("owner_id", authUser.id),
+          supabase.from("business_members").select("business_id, user_id, role").eq("user_id", authUser.id),
         ]);
         const s = new Set<string>();
-        for (const b of owned || []) if (b?.id) s.add(b.id);
-        for (const m of members || []) if (m?.business_id) s.add(m.business_id);
+        for (const b of owned || []) {
+          if (b?.id) s.add(b.id);
+          if ((b as any)?.owner_id) ownerUserIds.add((b as any).owner_id);
+        }
+        if ((owned || []).length > 0) ownerUserIds.add(authUser.id);
+        for (const m of members || []) {
+          if (m?.business_id) s.add(m.business_id);
+          if (String((m as any)?.role || "").toLowerCase() === "owner") {
+            ownerUserIds.add(authUser.id);
+          }
+        }
         userBizIds = Array.from(s);
       }
     } catch {}
@@ -284,7 +313,13 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
             emp.user_id ||
             emp.id ||
             `emp-${out.id}-${(emp.name || emp.full_name || "").toLowerCase().replace(/[^a-z0-9]/g, "_")}`;
-          if (empId && !mergedMap.has(empId) && !isOutletDeviceAccount(emp, outlets)) {
+          if (
+            empId &&
+            !mergedMap.has(empId) &&
+            !isOutletDeviceAccount(emp, outlets) &&
+            !isOwnerAccount(emp) &&
+            !ownerUserIds.has(empId)
+          ) {
             mergedMap.set(empId, {
               id: empId,
               user_id: empId,
@@ -314,7 +349,13 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
     const spRows: any[] = Array.isArray(spList) ? spList : [];
     for (const sp of spRows) {
       const spId = sp.user_id || sp.id;
-      if (spId && !mergedMap.has(spId) && !isOutletDeviceAccount(sp)) {
+      if (
+        spId &&
+        !mergedMap.has(spId) &&
+        !isOutletDeviceAccount(sp) &&
+        !isOwnerAccount(sp) &&
+        !ownerUserIds.has(spId)
+      ) {
         mergedMap.set(spId, {
           id: spId,
           user_id: spId,
@@ -343,7 +384,7 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
       if (raw) {
         const localEmps: Record<string, any> = JSON.parse(raw);
         for (const [empId, emp] of Object.entries(localEmps)) {
-          if (!mergedMap.has(empId)) {
+          if (!mergedMap.has(empId) && !isOwnerAccount(emp) && !ownerUserIds.has(empId)) {
             mergedMap.set(empId, {
               id: empId,
               user_id: empId,
@@ -366,7 +407,9 @@ export async function mergeBranchEmployees(existingStaff: StaffItem[]): Promise<
     }
   }
 
-  return Array.from(mergedMap.values());
+  return Array.from(mergedMap.values()).filter(
+    (s) => !isOwnerAccount(s) && !ownerUserIds.has(s.user_id),
+  );
 }
 
 export async function getStaffList(): Promise<StaffItem[]> {
@@ -383,22 +426,24 @@ export async function getStaffList(): Promise<StaffItem[]> {
     if (res.ok) {
       const data = await res.json();
       const list = Array.isArray(data) ? data : data.staff || [];
-      const staffItems: StaffItem[] = list.map((item: any) => ({
-        id: item.id || item.user_id,
-        user_id: item.user_id,
-        name: item.name || "Staff",
-        email: item.email || "",
-        avatar_url: item.avatar_url || null,
-        role: item.role,
-        outlet: item.outlet || item.outlet_name || "Semua Cabang (HQ)",
-        outlet_name: item.outlet_name || item.outlet || "Semua Cabang (HQ)",
-        outlet_id: item.outlet_id || null,
-        outlet_code: item.outlet_code || "",
-        created_at: item.created_at || new Date().toISOString(),
-        status: item.status || "active",
-      }));
+      const staffItems: StaffItem[] = list
+        .filter((item: any) => !isOwnerAccount(item))
+        .map((item: any) => ({
+          id: item.id || item.user_id,
+          user_id: item.user_id,
+          name: item.name || "Staff",
+          email: item.email || "",
+          avatar_url: item.avatar_url || null,
+          role: item.role,
+          outlet: item.outlet || item.outlet_name || "Semua Cabang (HQ)",
+          outlet_name: item.outlet_name || item.outlet || "Semua Cabang (HQ)",
+          outlet_id: item.outlet_id || null,
+          outlet_code: item.outlet_code || "",
+          created_at: item.created_at || new Date().toISOString(),
+          status: item.status || "active",
+        }));
       const merged = await mergeBranchEmployees(staffItems);
-      return merged.filter((s) => !isOutletDeviceAccount(s));
+      return merged.filter((s) => !isOutletDeviceAccount(s) && !isOwnerAccount(s));
     }
 
     console.warn(

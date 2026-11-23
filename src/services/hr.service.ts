@@ -1,6 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
-import { getStaffList, type StaffItem, isOutletDeviceAccount } from "./staff.service";
+import { getStaffList, type StaffItem, isOutletDeviceAccount, isOwnerAccount } from "./staff.service";
 import { getOutletList, resolveCurrentBusinessIds, type OutletItem } from "./outlet.service";
 
 export interface StaffProfile {
@@ -308,8 +308,16 @@ export async function getHRStaffProfiles(businessId?: string): Promise<StaffProf
       if (!candidate) return;
       const key = candidate.user_id || candidate.id;
       const cleanName = String(candidate.name || "").trim();
-      if (!key || !cleanName || isOutletDeviceAccount(candidate, outlets)) return;
+      if (
+        !key ||
+        !cleanName ||
+        isOutletDeviceAccount(candidate, outlets) ||
+        isOwnerAccount(candidate)
+      ) {
+        return;
+      }
       const nameKey = cleanName.toLowerCase();
+      if (nameKey === "iky" && String(candidate.role || "").toLowerCase() === "owner") return;
       if (unifiedStaffMap.has(key) || seenNames.has(nameKey)) return;
       unifiedStaffMap.set(key, candidate);
       seenNames.add(nameKey);
@@ -384,50 +392,54 @@ export async function getHRStaffProfiles(businessId?: string): Promise<StaffProf
       });
     }
 
-    const humanStaffList = Array.from(unifiedStaffMap.values());
+    const humanStaffList = Array.from(unifiedStaffMap.values()).filter(
+      (staff) => !isOwnerAccount(staff) && !isOwnerAccount(profileMap.get(staff.user_id)),
+    );
 
-    return humanStaffList.map((staff) => {
-      const db = profileMap.get(staff.user_id) || {};
-      const local = localSaved[staff.user_id] || {};
+    return humanStaffList
+      .map((staff) => {
+        const db = profileMap.get(staff.user_id) || {};
+        const local = localSaved[staff.user_id] || {};
 
-      const baseSalary = Number(db.base_salary ?? local.base_salary ?? 2000000);
-      const dailyAllowance = Number(db.daily_allowance ?? local.daily_allowance ?? 25000);
-      const lateDeduction = Number(db.late_deduction ?? local.late_deduction ?? 20000);
-      const absenceDeduction = Number(db.absence_deduction ?? local.absence_deduction ?? 80000);
+        const baseSalary = Number(db.base_salary ?? local.base_salary ?? 2000000);
+        const dailyAllowance = Number(db.daily_allowance ?? local.daily_allowance ?? 25000);
+        const lateDeduction = Number(db.late_deduction ?? local.late_deduction ?? 20000);
+        const absenceDeduction = Number(db.absence_deduction ?? local.absence_deduction ?? 80000);
 
-      const jobTitle =
-        db.job_title ||
-        local.job_title ||
-        (staff.role === "manager"
-          ? "Store Manager"
-          : staff.role === "cashier"
-            ? "Kasir POS"
-            : "Staff Operasional");
+        const jobTitle =
+          db.job_title ||
+          local.job_title ||
+          (staff.role === "manager"
+            ? "Store Manager"
+            : staff.role === "cashier"
+              ? "Kasir POS"
+              : "Staff Operasional");
 
-      return {
-        id: db.id || `hr-prof-${staff.user_id}`,
-        user_id: staff.user_id,
-        business_id: db.business_id || resolvedBid || undefined,
-        outlet_id: staff.outlet_id || db.outlet_id || null,
-        outlet_name:
-          (staff.outlet_id ? outletMap.get(staff.outlet_id) : null) ||
-          staff.outlet_name ||
-          "Semua Cabang (HQ)",
-        full_name: db.full_name || staff.name,
-        phone: db.phone || local.phone || "081234567890",
-        address: db.address || local.address || "Jl. Kebon Jeruk No. 12, Jakarta",
-        avatar_url: db.avatar_url || local.avatar_url || staff.avatar_url || null,
-        job_title: jobTitle,
-        role: staff.role,
-        gender: db.gender || local.gender || staff.gender || "male",
-        employment_status: db.employment_status || local.employment_status || "Tetap",
-        join_date: db.join_date || local.join_date || "2026-01-01",
-        base_salary: baseSalary,
-        daily_allowance: dailyAllowance,
-        late_deduction: lateDeduction,
-        absence_deduction: absenceDeduction,
-      };
-    });
+        return {
+          id: db.id || `hr-prof-${staff.user_id}`,
+          user_id: staff.user_id,
+          business_id: db.business_id || resolvedBid || undefined,
+          outlet_id: staff.outlet_id || db.outlet_id || null,
+          outlet_name:
+            (staff.outlet_id ? outletMap.get(staff.outlet_id) : null) ||
+            staff.outlet_name ||
+            "Semua Cabang (HQ)",
+          full_name: db.full_name || staff.name,
+          phone: db.phone || local.phone || "081234567890",
+          address: db.address || local.address || "Jl. Kebon Jeruk No. 12, Jakarta",
+          avatar_url: db.avatar_url || local.avatar_url || staff.avatar_url || null,
+          job_title: jobTitle,
+          role: staff.role,
+          gender: db.gender || local.gender || staff.gender || "male",
+          employment_status: db.employment_status || local.employment_status || "Tetap",
+          join_date: db.join_date || local.join_date || "2026-01-01",
+          base_salary: baseSalary,
+          daily_allowance: dailyAllowance,
+          late_deduction: lateDeduction,
+          absence_deduction: absenceDeduction,
+        };
+      })
+      .filter((p) => !isOwnerAccount(p));
   } catch (err) {
     console.error("[getHRStaffProfiles] Error:", err);
     return [];
@@ -1854,19 +1866,59 @@ export async function getRosterSchedule(
   const storeKey = `${outletId || "all"}_${year}_${month}`;
   const allKey = `all_${year}_${month}`;
 
+  // Helper to check if a schedule contains an owner name (e.g. "iky") not in operational branch staff
+  const scheduleContainsOwner = (
+    sched: MonthlyRosterSchedule | null | undefined,
+    validOperationalNames: string[],
+  ): boolean => {
+    if (!sched || !Array.isArray(sched.weeks)) return false;
+    const validSet = new Set(validOperationalNames.map((n) => n.trim().toLowerCase()));
+    for (const w of sched.weeks) {
+      for (const r of w.rows || []) {
+        for (const cell of Object.values(r.days || {})) {
+          const nm = String(cell?.staffName || "").trim().toLowerCase();
+          if (!nm || nm === "-" || nm === "staff") continue;
+          if (nm === "iky" || nm === "owner" || nm.includes("owner hq")) {
+            if (!validSet.has(nm)) return true;
+          }
+        }
+      }
+    }
+    return false;
+  };
+
+  let extractedRosterNames: string[] =
+    Array.isArray(defaultStaffNames) && defaultStaffNames.length > 0
+      ? defaultStaffNames.filter((n) => n && n.trim().toLowerCase() !== "iky")
+      : [];
+
   // 1. Try reading from Supabase first for multi-device sync
   try {
-    let targetOutletQuery = supabase.from("outlets").select("id, settings");
+    let targetOutletQuery = supabase.from("outlets").select("id, name, settings");
     if (outletId && outletId !== "all") {
       targetOutletQuery = targetOutletQuery.eq("id", outletId);
     }
     const { data: outletsData } = await targetOutletQuery;
+    if (extractedRosterNames.length === 0 && Array.isArray(outletsData)) {
+      for (const outRow of outletsData) {
+        const s = (outRow.settings as any) || {};
+        if (s.archived === true || s.deleted_at) continue;
+        const rosterArr: any[] = Array.isArray(s.outlet_staff_roster) ? s.outlet_staff_roster : [];
+        for (const emp of rosterArr) {
+          if (isOwnerAccount(emp) || isOutletDeviceAccount(emp)) continue;
+          const nm = String(emp.name || emp.full_name || "").trim();
+          if (nm && nm.toLowerCase() !== "iky" && !extractedRosterNames.includes(nm)) {
+            extractedRosterNames.push(nm);
+          }
+        }
+      }
+    }
     for (const outRow of outletsData || []) {
       const rosterSchedules = (outRow.settings as any)?.roster_schedules;
       if (rosterSchedules) {
         const cloudSchedule =
           rosterSchedules[storeKey] || (outletId !== "all" ? rosterSchedules[allKey] : null);
-        if (cloudSchedule) {
+        if (cloudSchedule && !scheduleContainsOwner(cloudSchedule, extractedRosterNames)) {
           if (typeof window !== "undefined") {
             try {
               const allSchedules = JSON.parse(
@@ -1884,30 +1936,35 @@ export async function getRosterSchedule(
     console.warn("[getRosterSchedule] Supabase read error:", sbReadErr);
   }
 
-  // 2. Fallback to localStorage
+  // 2. Fallback to localStorage (only if it does not contain owner "iky")
   if (typeof window !== "undefined") {
     try {
       const allSchedules = JSON.parse(
         localStorage.getItem(LOCAL_STORAGE_ROSTER_SCHEDULES_KEY) || "{}",
       );
-      if (allSchedules[storeKey]) {
-        return allSchedules[storeKey];
-      }
-      if (outletId !== "all" && allSchedules[allKey]) {
-        return allSchedules[allKey];
+      const localSched =
+        allSchedules[storeKey] || (outletId !== "all" ? allSchedules[allKey] : null);
+      if (localSched && !scheduleContainsOwner(localSched, extractedRosterNames)) {
+        return localSched;
       }
     } catch {
       // ignore
     }
   }
 
-  // 3. Resolve real staff names from database
-  let staffNames = defaultStaffNames;
+  // 3. Resolve real operational (non-owner) staff names from database
+  let staffNames =
+    extractedRosterNames.length > 0 ? extractedRosterNames : defaultStaffNames;
   if (!staffNames || staffNames.length === 0) {
     try {
       const rawStaff = await getStaffList();
       const activeStaff = rawStaff.filter(
-        (s) => s.status !== "inactive" && s.name && s.name.trim().length > 0,
+        (s) =>
+          s.status !== "inactive" &&
+          !isOwnerAccount(s) &&
+          s.name &&
+          s.name.trim().length > 0 &&
+          s.name.trim().toLowerCase() !== "iky",
       );
       if (outletId && outletId !== "all") {
         const branchStaff = activeStaff.filter((s) => s.outlet_id === outletId);
@@ -1927,7 +1984,9 @@ export async function getRosterSchedule(
 
   if (!staffNames || staffNames.length === 0) {
     try {
-      const profiles = await getHRStaffProfiles();
+      const profiles = (await getHRStaffProfiles()).filter(
+        (p) => !isOwnerAccount(p) && p.full_name.trim().toLowerCase() !== "iky",
+      );
       const filtered =
         outletId && outletId !== "all"
           ? profiles.filter((p) => p.outlet_id === outletId)
@@ -2027,6 +2086,18 @@ export async function getTodayOutletRoster(
         for (const row of week.rows) {
           const cell = row.days[dateStr];
           if (!cell || !cell.staffName) continue;
+
+          const cellNameClean = String(cell.staffName || "").trim();
+          const cellNameLower = cellNameClean.toLowerCase();
+          if (
+            !cellNameClean ||
+            cellNameClean === "-" ||
+            cellNameLower === "iky" ||
+            cellNameLower === "owner" ||
+            cellNameLower.includes("owner hq")
+          ) {
+            continue;
+          }
 
           if (
             cell.shiftType === "off" ||

@@ -106,8 +106,19 @@ export function AuthExperience({ loginType }: Props) {
           >
             <ArrowLeft className="h-4 w-4" /> Kembali
           </Button>
-          <h1 className="text-2xl font-bold">{loginType === "pos" ? "Masuk POS" : "Masuk HQ"}</h1>
-          <p className="text-sm text-muted-foreground">Login sesuai tipe akses.</p>
+          <div className="flex items-center gap-3.5">
+            <img
+              src="/logo-brand.png?v=2"
+              alt="Kebab's Choice"
+              className="h-14 w-14 shrink-0 rounded-2xl object-contain border border-border/60 bg-white p-1 shadow-xs"
+            />
+            <div>
+              <h1 className="text-2xl font-bold">
+                {loginType === "pos" ? "Masuk POS" : "Masuk HQ"}
+              </h1>
+              <p className="text-sm text-muted-foreground">Login sesuai tipe akses.</p>
+            </div>
+          </div>
         </div>
         <div className="space-y-2">
           <Label>Email</Label>

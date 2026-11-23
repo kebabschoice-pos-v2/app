@@ -1276,7 +1276,8 @@ async function loadSnapshot(userId: string, profile: UserProfile): Promise<Snaps
     (outletsResult.data || [])
       .map((o: any) => (o?.settings as any)?.receipt_settings?.logo_url)
       .find((url: any) => typeof url === "string" && url.trim().length > 0) || null;
-  const resolvedBusinessLogo = (business as any).logo || receiptLogoFallback || null;
+  const resolvedBusinessLogo =
+    (business as any).logo || receiptLogoFallback || "/logo-brand.png?v=2";
   const resolvedBusinessName = business.name || "";
   const resolvedBusinessCity = business.city || "";
 
@@ -1468,20 +1469,12 @@ function Header({
             </Button>
           )}
 
-          <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl bg-primary text-primary-foreground shadow-brand">
-            {snapshot.logo ? (
-              <img
-                src={snapshot.logo}
-                alt={snapshot.businessName || "Logo Bisnis"}
-                className="size-full object-cover"
-              />
-            ) : snapshot.businessName ? (
-              <span className="text-lg font-black">
-                {snapshot.businessName.charAt(0).toUpperCase()}
-              </span>
-            ) : (
-              <Store className="size-5" />
-            )}
+          <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-white shadow-xs">
+            <img
+              src={snapshot.logo || "/logo-brand.png?v=2"}
+              alt={snapshot.businessName || "Logo Bisnis"}
+              className="size-full object-contain"
+            />
           </div>
           <div className="min-w-0">
             {snapshot.businessName ? (

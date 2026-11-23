@@ -6,6 +6,11 @@ export function LandingPage() {
     <div className="min-h-screen flex items-center justify-center p-6">
       <div className="w-full max-w-md space-y-4 rounded-xl border bg-background p-6 shadow-sm">
         <div className="space-y-2 text-center">
+          <img
+            src="/logo-brand.png?v=2"
+            alt="Kebab's Choice"
+            className="mx-auto h-16 w-16 rounded-2xl object-contain border border-border/60 bg-white p-1.5 shadow-xs mb-1"
+          />
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary/10 text-primary text-xs font-bold mb-1">
             <Shield className="size-3.5" />
             <span>Sistem POS & HQ Internal Bisnis</span>

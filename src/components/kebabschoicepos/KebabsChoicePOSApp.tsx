@@ -233,7 +233,15 @@ import { AttendancePage } from "@/components/kebabschoicepos/AttendancePage";
 import { MoneyAllocationPage } from "@/pages/money/MoneyAllocationPage";
 import { ThemeModal } from "@/components/theme/ThemeModal";
 import { GlobalSearchModal } from "@/components/search/GlobalSearchModal";
-import { applyTheme, getStoredTheme } from "@/lib/theme";
+import {
+  applyTheme,
+  applyUiScale,
+  getStoredTheme,
+  getStoredUiScale,
+  saveUiScale,
+  UI_SCALE_OPTIONS,
+  type UiScale,
+} from "@/lib/theme";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -2043,7 +2051,7 @@ function Sidebar({
           active === "pos"
             ? "min-[680px]:top-0 min-[680px]:h-[100dvh]"
             : "top-14 h-[calc(100vh-3.5rem)]",
-          isCollapsed && active !== "pos"
+          isCollapsed
             ? "w-0 px-0 py-0 border-r-0 opacity-0 overflow-hidden pointer-events-none min-[680px]:w-0"
             : "w-16 sm:w-20 px-2 py-3 opacity-100",
         )}
@@ -3964,11 +3972,15 @@ function PosPage({
   profile,
   onRefresh,
   activeCashierName,
+  isSidebarCollapsed,
+  onToggleSidebar,
 }: {
   snapshot: Snapshot;
   profile?: UserProfile;
   onRefresh: () => Promise<void>;
   activeCashierName?: string;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebar?: () => void;
 }) {
   const { t } = useTranslation();
   const navigate = useNavigate();
@@ -4197,6 +4209,36 @@ function PosPage({
     openCashDrawerOnCash: true,
   });
   const [showPrinterMenu, setShowPrinterMenu] = useState(false);
+  const [showScaleMenu, setShowScaleMenu] = useState(false);
+  const [uiScale, setUiScale] = useState<UiScale>(() => getStoredUiScale());
+
+  useEffect(() => {
+    const syncScale = (e: Event) => {
+      const detail = (e as CustomEvent<UiScale>).detail;
+      setUiScale(detail || getStoredUiScale());
+    };
+    window.addEventListener("ui-scale-changed", syncScale);
+    return () => window.removeEventListener("ui-scale-changed", syncScale);
+  }, []);
+
+  const handleSelectPosUiScale = (scale: UiScale) => {
+    setUiScale(scale);
+    saveUiScale(scale);
+    setShowScaleMenu(false);
+    toast.success(`Skala layar diubah ke ${scale}%`);
+  };
+
+  const handleStepPosUiScale = (dir: -1 | 1) => {
+    const order: UiScale[] = ["80", "85", "90", "100"];
+    const idx = Math.max(0, order.indexOf(uiScale));
+    const nextIdx = Math.min(order.length - 1, Math.max(0, idx + dir));
+    const next = order[nextIdx];
+    if (next && next !== uiScale) {
+      setUiScale(next);
+      saveUiScale(next);
+      toast.success(`Skala layar: ${next}%`);
+    }
+  };
 
   useEffect(() => {
     const unsub = subscribePrinterStatus((info) => setPrinterInfo(info));
@@ -6618,8 +6660,30 @@ function PosPage({
     <div className="flex flex-col min-[680px]:flex-row min-[680px]:h-full min-[680px]:overflow-hidden gap-2">
       {/* TENGAH: 1 TOOLBAR TUNGGAL TIPIS + KATEGORI + KATALOG MENU FLEKSIBEL (PADAT / NORMAL / LIST) */}
       <section className="flex-1 min-w-0 w-full flex flex-col min-[680px]:h-full min-[680px]:overflow-hidden gap-1.5">
-        {/* 1 Baris Toolbar Tunggal Tipis (h-11 px-2.5 flex items-center gap-2): Status Online/Cabang/Shift + Cari Menu + Ukuran Tampilan + Printer */}
+        {/* 1 Baris Toolbar Tunggal Tipis (h-11 px-2.5 flex items-center gap-2): Toggle Sidebar + Status Online/Cabang/Shift + Cari Menu + Ukuran Tampilan + Skala UI + Printer */}
         <div className="shrink-0 h-11 px-2.5 flex items-center gap-2 rounded-xl border border-border/60 bg-card shadow-xs">
+          {/* Tombol Buka/Tutup Sidebar (Icon Rail) Konsisten di /pos */}
+          {onToggleSidebar && (
+            <button
+              type="button"
+              onClick={onToggleSidebar}
+              title={isSidebarCollapsed ? "Buka Sidebar Navigasi" : "Tutup Sidebar Navigasi"}
+              aria-label={isSidebarCollapsed ? "Buka Sidebar" : "Tutup Sidebar"}
+              className={cn(
+                "hidden min-[680px]:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer",
+                isSidebarCollapsed
+                  ? "border-primary/50 bg-primary/10 text-primary shadow-xs"
+                  : "border-border bg-background hover:bg-secondary text-foreground/80",
+              )}
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen className="size-4" />
+              ) : (
+                <PanelLeftClose className="size-4" />
+              )}
+            </button>
+          )}
+
           {/* Badge Status Online Ringkas */}
           {isPosBrowserOnline ? (
             <span
@@ -6740,11 +6804,86 @@ function PosPage({
             })}
           </div>
 
+          {/* Kontrol Cepat Skala Tampilan Global (80% / 85% / 90% / 100% + A-/A+) */}
+          <div className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                setShowScaleMenu(!showScaleMenu);
+                setShowPrinterMenu(false);
+              }}
+              className="flex h-8 items-center gap-1 px-2 rounded-lg text-xs font-bold border border-border bg-background hover:bg-secondary transition-colors cursor-pointer"
+              title="Ukuran Skala Tampilan Layar (80% - 100%)"
+              aria-label="Ukuran Skala Tampilan"
+            >
+              <span className="text-[11px] font-black tracking-tight">Aa</span>
+              <span className="text-[11px] font-bold text-primary">{uiScale}%</span>
+            </button>
+
+            {showScaleMenu && (
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-border bg-popover p-2.5 shadow-float z-50 animate-in fade-in zoom-in-95 space-y-2">
+                <div className="flex items-center justify-between pb-1.5 border-b border-border/60 text-xs font-bold">
+                  <span>Ukuran Layar</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleStepPosUiScale(-1)}
+                      disabled={uiScale === "80"}
+                      className="h-6 px-1.5 rounded border border-border bg-secondary/70 hover:bg-secondary text-[11px] font-black disabled:opacity-40 cursor-pointer"
+                      title="Perkecil tampilan (A-)"
+                    >
+                      A-
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleStepPosUiScale(1)}
+                      disabled={uiScale === "100"}
+                      className="h-6 px-1.5 rounded border border-border bg-secondary/70 hover:bg-secondary text-[11px] font-black disabled:opacity-40 cursor-pointer"
+                      title="Perbesar tampilan (A+)"
+                    >
+                      A+
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowScaleMenu(false)}
+                      className="ml-1 text-muted-foreground hover:text-foreground text-xs font-bold cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-4 gap-1">
+                  {UI_SCALE_OPTIONS.map((opt) => {
+                    const active = uiScale === opt.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => handleSelectPosUiScale(opt.value)}
+                        className={cn(
+                          "flex flex-col items-center justify-center rounded-lg border py-1.5 px-1 text-[11px] font-bold transition-all cursor-pointer",
+                          active
+                            ? "border-primary bg-primary text-primary-foreground shadow-xs"
+                            : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
+                        )}
+                      >
+                        <span>{opt.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Tombol Printer Ringkas (h-8 text-xs) */}
           <div className="relative shrink-0">
             <button
               type="button"
-              onClick={() => setShowPrinterMenu(!showPrinterMenu)}
+              onClick={() => {
+                setShowPrinterMenu(!showPrinterMenu);
+                setShowScaleMenu(false);
+              }}
               className="flex h-8 items-center gap-1 px-2 rounded-lg text-xs font-bold border border-border bg-background hover:bg-secondary transition-colors cursor-pointer"
               title="Status Printer & Laci Kas"
             >
@@ -7945,368 +8084,355 @@ function PosPage({
           </div>
         </div>
       )}
-      {/* PRODUCT CUSTOMIZATION MODAL (STANDAR F&B POS) */}
+      {/* PRODUCT CUSTOMIZATION MODAL KOMPAK 1-LAYAR (TABLET-FIRST) */}
       {customizingProduct &&
         typeof document !== "undefined" &&
         createPortal(
-          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-4 animate-in fade-in">
-            <div className="relative z-[9999] flex max-h-[92vh] w-full max-w-xl flex-col rounded-[2rem] border border-border bg-white dark:bg-slate-900 opacity-100 shadow-2xl overflow-hidden">
-              {/* Modal Header */}
-              <div className="flex items-center justify-between border-b border-border p-5 bg-muted">
-              <div className="flex items-center gap-3">
-                <div className="relative size-12 overflow-hidden rounded-xl bg-primary/10 flex items-center justify-center text-primary font-black shrink-0">
-                  {customizingProduct.image_url ? (
-                    <img
-                      src={customizingProduct.image_url}
-                      alt={customizingProduct.name}
-                      style={{
-                        transform: `translate(${(customizingProduct.image_position_x ?? customizingProduct.image_crop_position?.x ?? 50) - 50}%, ${(customizingProduct.image_position_y ?? customizingProduct.image_crop_position?.y ?? 50) - 50}%) scale(${customizingProduct.image_zoom || customizingProduct.zoom || 1}) rotate(${customizingProduct.image_rotation || customizingProduct.rotation || 0}deg)`,
-                        transformOrigin: "center center",
-                      }}
-                      className="h-full w-full object-contain pointer-events-none"
-                    />
-                  ) : (
-                    <UtensilsCrossed className="size-6" />
-                  )}
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-bold text-primary">
-                      {customizingProduct.category}
-                    </span>
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-2.5 sm:p-4 animate-in fade-in">
+            <div className="relative z-[9999] flex max-h-[94dvh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 opacity-100 shadow-2xl overflow-hidden">
+              {/* Modal Header Kompak (h-11, thumbnail w-9 h-9, judul text-sm font-bold + harga dasar inline) */}
+              <div className="flex h-11 shrink-0 items-center justify-between gap-2.5 border-b border-border bg-muted/50 px-3.5">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="relative w-9 h-9 overflow-hidden rounded-lg bg-primary/10 flex items-center justify-center text-primary font-black shrink-0 border border-border/50">
+                    {customizingProduct.image_url ? (
+                      <img
+                        src={customizingProduct.image_url}
+                        alt={customizingProduct.name}
+                        style={{
+                          transform: `translate(${(customizingProduct.image_position_x ?? customizingProduct.image_crop_position?.x ?? 50) - 50}%, ${(customizingProduct.image_position_y ?? customizingProduct.image_crop_position?.y ?? 50) - 50}%) scale(${customizingProduct.image_zoom || customizingProduct.zoom || 1}) rotate(${customizingProduct.image_rotation || customizingProduct.rotation || 0}deg)`,
+                          transformOrigin: "center center",
+                        }}
+                        className="h-full w-full object-cover pointer-events-none"
+                      />
+                    ) : (
+                      <UtensilsCrossed className="size-4" />
+                    )}
+                  </div>
+                  <div className="flex items-baseline gap-2 min-w-0 flex-1">
+                    <h3 className="text-sm font-bold text-foreground truncate">
+                      {customizingProduct.name}
+                    </h3>
                     {customizingProduct.promo_price &&
                     customizingProduct.promo_price < customizingProduct.price ? (
-                      <div className="flex items-baseline gap-1 text-xs font-bold">
-                        <span className="text-rose-600 dark:text-rose-400">
-                          Promo: {formatRupiah(customizingProduct.promo_price)}
-                        </span>
-                        <span className="text-muted-foreground line-through text-[10px]">
-                          {formatRupiah(customizingProduct.price)}
-                        </span>
-                      </div>
+                      <span className="text-xs font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap shrink-0">
+                        {formatRupiah(customizingProduct.promo_price)}
+                      </span>
                     ) : (
-                      <span className="text-xs font-bold text-muted-foreground">
-                        Harga Dasar: {formatRupiah(customizingProduct.price)}
+                      <span className="text-xs font-bold text-primary whitespace-nowrap shrink-0">
+                        {formatRupiah(customizingProduct.price)}
                       </span>
                     )}
                   </div>
-                  <h3 className="text-lg font-black">{customizingProduct.name}</h3>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setCustomizingProduct(null)}
+                  aria-label="Tutup modal varian"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setCustomizingProduct(null)}
-                className="rounded-full bg-secondary p-2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-4" />
-              </button>
-            </div>
 
-            {/* Modal Scrollable Body */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-6">
-              {/* 1. DYNAMIC VARIANT GROUPS */}
-              {customizingProduct.variant_groups && customizingProduct.variant_groups.length > 0 ? (
-                <div className="space-y-4">
-                  {customizingProduct.variant_groups.map((group, gIdx) => {
-                    const gKey = group.id || group.name || `group-${gIdx}`;
-                    const currentSelections = selectedGroupOptions[gKey] || [];
-                    const isSingle = group.selection_type === "single";
-                    const isGroupRequired = isVariantGroupRequired(customizingProduct, group);
+              {/* Modal Body Kompak (p-3.5, tanpa kotak besar berlapis, semua grup muat 1 layar) */}
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-2.5">
+                {customizingProduct.variant_groups &&
+                customizingProduct.variant_groups.length > 0 ? (
+                  <div className="space-y-2.5">
+                    {customizingProduct.variant_groups.map((group, gIdx) => {
+                      const gKey = group.id || group.name || `group-${gIdx}`;
+                      const currentSelections = selectedGroupOptions[gKey] || [];
+                      const isSingle = group.selection_type === "single";
+                      const isGroupRequired = isVariantGroupRequired(customizingProduct, group);
 
-                    return (
-                      <div
-                        key={gKey}
-                        className="space-y-2.5 rounded-2xl border border-border/70 bg-secondary/30 p-3.5"
-                      >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <span className="flex size-6 items-center justify-center rounded-lg bg-primary/10 text-xs font-black text-primary">
-                              {gIdx + 1}
-                            </span>
-                            <span className="text-xs font-black text-foreground">{group.name}</span>
-                            {isGroupRequired ? (
-                              <span className="rounded-full bg-muted border border-border px-2 py-0.5 text-[9px] font-bold text-foreground/75">
-                                Pilihan wajib dipilih
+                      return (
+                        <div
+                          key={gKey}
+                          className="space-y-1.5 pt-2 border-t border-border/50 first:pt-0 first:border-t-0"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-1.5 min-w-0">
+                              <span className="text-xs font-black text-foreground">
+                                {gIdx + 1}. {group.name}
                               </span>
-                            ) : (
-                              <span className="rounded-full bg-muted border border-border/40 px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
-                                Opsional
+                              {isGroupRequired ? (
+                                <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary whitespace-nowrap">
+                                  Pilihan wajib dipilih
+                                </span>
+                              ) : (
+                                <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                                  Opsional
+                                </span>
+                              )}
+                            </div>
+                            <span className="sr-only">
+                              Cara Pilih: {isSingle ? "Pilih satu" : "Bisa pilih lebih dari satu"}
+                            </span>
+                            {!isSingle && (
+                              <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
+                                Bisa pilih &gt;1
                               </span>
                             )}
                           </div>
-                          <span className="text-[10px] font-semibold text-muted-foreground">
-                            Cara Pilih: {isSingle ? "Pilih satu" : "Bisa pilih lebih dari satu"}
-                          </span>
-                        </div>
 
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                          {group.options.map((opt, oIdx) => {
-                            const optPrice =
-                              Number(opt.additional_price ?? opt.price_adjustment) || 0;
-                            const isSelected = isSingle
-                              ? currentSelections[0]?.name === opt.name
-                              : currentSelections.some((s) => s.name === opt.name);
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {group.options.map((opt, oIdx) => {
+                              const optPrice =
+                                Number(opt.additional_price ?? opt.price_adjustment) || 0;
+                              const isSelected = isSingle
+                                ? currentSelections[0]?.name === opt.name
+                                : currentSelections.some((s) => s.name === opt.name);
 
-                            return (
-                              <button
-                                key={opt.id || `${gKey}-${oIdx}`}
-                                type="button"
-                                onClick={() => {
-                                  if (isSingle) {
-                                    setSelectedGroupOptions((prev) => {
-                                      const current = prev[gKey] || [];
-                                      const alreadySelected = current[0]?.name === opt.name;
-                                      if (alreadySelected && !isGroupRequired) {
-                                        return { ...prev, [gKey]: [] };
-                                      }
-                                      return { ...prev, [gKey]: [opt] };
-                                    });
-                                  } else {
-                                    setSelectedGroupOptions((prev) => {
-                                      const current = prev[gKey] || [];
-                                      const exists = current.some((s) => s.name === opt.name);
-                                      return {
-                                        ...prev,
-                                        [gKey]: exists
-                                          ? current.filter((s) => s.name !== opt.name)
-                                          : [...current, opt],
-                                      };
-                                    });
-                                  }
-                                }}
-                                className={cn(
-                                  "flex items-center justify-between rounded-xl border p-2.5 text-left transition-all",
-                                  isSelected
-                                    ? "border-primary bg-primary/10 shadow-xs ring-1 ring-primary text-primary font-bold"
-                                    : "border-border bg-card hover:bg-secondary/60 text-foreground",
-                                )}
-                              >
-                                <div className="min-w-0 flex-1 pr-1.5">
-                                  <p className="text-xs font-bold truncate leading-tight">
-                                    {opt.name}
-                                  </p>
-                                  <p className="text-[10px] opacity-80 mt-0.5 font-medium">
-                                    {optPrice > 0 ? `+${formatRupiah(optPrice)}` : "+Rp 0"}
-                                  </p>
-                                </div>
-                                <div
+                              return (
+                                <button
+                                  key={opt.id || `${gKey}-${oIdx}`}
+                                  type="button"
+                                  onClick={() => {
+                                    if (isSingle) {
+                                      setSelectedGroupOptions((prev) => {
+                                        const current = prev[gKey] || [];
+                                        const alreadySelected = current[0]?.name === opt.name;
+                                        if (alreadySelected && !isGroupRequired) {
+                                          return { ...prev, [gKey]: [] };
+                                        }
+                                        return { ...prev, [gKey]: [opt] };
+                                      });
+                                    } else {
+                                      setSelectedGroupOptions((prev) => {
+                                        const current = prev[gKey] || [];
+                                        const exists = current.some((s) => s.name === opt.name);
+                                        return {
+                                          ...prev,
+                                          [gKey]: exists
+                                            ? current.filter((s) => s.name !== opt.name)
+                                            : [...current, opt],
+                                        };
+                                      });
+                                    }
+                                  }}
                                   className={cn(
-                                    "flex size-4.5 shrink-0 items-center justify-center border transition-colors",
-                                    isSingle ? "rounded-full" : "rounded-md",
+                                    "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center transition-all cursor-pointer min-h-[34px]",
                                     isSelected
-                                      ? "border-primary bg-primary text-primary-foreground"
-                                      : "border-muted-foreground/40 bg-background",
+                                      ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
+                                      : "border-border bg-secondary/40 hover:bg-secondary text-foreground font-semibold",
                                   )}
                                 >
-                                  {isSelected &&
-                                    (isSingle ? (
-                                      <span className="size-1.5 rounded-full bg-white" />
-                                    ) : (
-                                      <Check className="size-3 stroke-[3]" />
-                                    ))}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                /* Legacy fallback for items without variant_groups */
-                <>
-                  {customizingProduct.variants && customizingProduct.variants.length > 0 && (
-                    <div className="space-y-2.5">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-xs font-bold text-primary">
-                          <SlidersHorizontal className="size-4" />
-                          <span>1. Pilihan Ukuran / Varian</span>
-                        </div>
-                        <span className="text-[10px] text-muted-foreground">Wajib pilih 1</span>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {customizingProduct.variants.map((variant) => {
-                          const isSelected = selectedVariant?.name === variant.name;
-                          return (
-                            <button
-                              key={variant.name}
-                              type="button"
-                              onClick={() => setSelectedVariant(variant)}
-                              className={cn(
-                                "flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition-all",
-                                isSelected
-                                  ? "border-primary bg-primary/10 shadow-sm ring-1 ring-primary text-primary"
-                                  : "border-border bg-background hover:bg-secondary/50 text-foreground",
-                              )}
-                            >
-                              <span className="text-xs font-black">{variant.name}</span>
-                              <span className="text-[10px] font-semibold opacity-80 mt-0.5">
-                                {variant.price_adjustment > 0
-                                  ? `+${formatRupiah(variant.price_adjustment)}`
-                                  : "+Rp 0"}
-                              </span>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {(() => {
-                    const levelMods = (customizingProduct.modifiers || []).filter(
-                      (m) =>
-                        m.category === "level" ||
-                        (!m.category && m.name.toLowerCase().includes("pedas")),
-                    );
-                    if (levelMods.length === 0) return null;
-
-                    return (
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-1.5 text-xs font-bold text-foreground/75">
-                            <Flame className="size-4" />
-                            <span>2. Level Pedas</span>
+                                  <span className="truncate max-w-full leading-tight">
+                                    {opt.name}
+                                  </span>
+                                  {optPrice > 0 && (
+                                    <span
+                                      className={cn(
+                                        "text-[10px] font-bold leading-tight mt-0.5 whitespace-nowrap",
+                                        isSelected ? "text-primary-foreground/90" : "text-primary",
+                                      )}
+                                    >
+                                      +{formatRupiah(optPrice)}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
                           </div>
-                          <span className="text-[10px] text-muted-foreground">Pilih 1 level</span>
                         </div>
-                        <div className="grid grid-cols-3 gap-2">
-                          {levelMods.map((mod) => {
-                            const isSelected = selectedLevel?.name === mod.name;
-                            return (
-                              <button
-                                key={mod.name}
-                                type="button"
-                                onClick={() => setSelectedLevel(mod)}
-                                className={cn(
-                                  "flex flex-col items-center justify-center rounded-2xl border p-3 text-center transition-all",
-                                  isSelected
-                                    ? "border-border bg-muted shadow-sm ring-1 ring-primary text-foreground/75 font-black"
-                                    : "border-border bg-background hover:bg-secondary/50 text-foreground",
-                                )}
-                              >
-                                <span className="text-xs">{mod.name}</span>
-                                <span className="text-[10px] font-medium opacity-80 mt-0.5">
-                                  {mod.price_adjustment > 0
-                                    ? `+${formatRupiah(mod.price_adjustment)}`
-                                    : "+Rp 0"}
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {(() => {
-                    const prepMods = (customizingProduct.modifiers || []).filter(
-                      (m) =>
-                        m.category === "prep" ||
-                        (!m.category && !m.name.toLowerCase().includes("pedas")),
-                    );
-                    if (prepMods.length === 0) return null;
-
-                    return (
-                      <div className="space-y-2.5">
+                      );
+                    })}
+                  </div>
+                ) : (
+                  /* Legacy fallback for items without variant_groups */
+                  <div className="space-y-2.5">
+                    {customizingProduct.variants && customizingProduct.variants.length > 0 && (
+                      <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
-                          <label className="text-xs font-bold text-muted-foreground">
-                            Instruksi Dapur (Bisa pilih lebih dari satu)
-                          </label>
+                          <span className="text-xs font-black text-foreground">
+                            1. Pilihan Ukuran / Varian
+                          </span>
+                          <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                            Wajib
+                          </span>
                         </div>
-                        <div className="flex flex-wrap gap-2">
-                          {prepMods.map((mod) => {
-                            const isSelected = selectedPreps.includes(mod.name);
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {customizingProduct.variants.map((variant) => {
+                            const isSelected = selectedVariant?.name === variant.name;
                             return (
                               <button
-                                key={mod.name}
+                                key={variant.name}
                                 type="button"
-                                onClick={() => {
-                                  setSelectedPreps((prev) =>
-                                    isSelected
-                                      ? prev.filter((p) => p !== mod.name)
-                                      : [...prev, mod.name],
-                                  );
-                                }}
+                                onClick={() => setSelectedVariant(variant)}
                                 className={cn(
-                                  "rounded-xl border px-3 py-1.5 text-xs font-semibold transition-all",
+                                  "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center transition-all cursor-pointer min-h-[34px]",
                                   isSelected
-                                    ? "border-primary bg-primary text-primary-foreground shadow-sm"
-                                    : "border-border bg-background hover:bg-secondary/50 text-foreground",
+                                    ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
+                                    : "border-border bg-secondary/40 hover:bg-secondary text-foreground font-semibold",
                                 )}
                               >
-                                {isSelected && <Check className="inline-block size-3 mr-1" />}
-                                {mod.name}
+                                <span className="truncate max-w-full leading-tight">
+                                  {variant.name}
+                                </span>
+                                {variant.price_adjustment > 0 && (
+                                  <span
+                                    className={cn(
+                                      "text-[10px] font-bold leading-tight mt-0.5 whitespace-nowrap",
+                                      isSelected ? "text-primary-foreground/90" : "text-primary",
+                                    )}
+                                  >
+                                    +{formatRupiah(variant.price_adjustment)}
+                                  </span>
+                                )}
                               </button>
                             );
                           })}
                         </div>
                       </div>
-                    );
-                  })()}
-                </>
-              )}
+                    )}
 
-              {/* ORDER NOTES (Free Text) */}
-              <div className="space-y-2">
-                <label className="text-xs font-bold text-muted-foreground">
-                  Catatan Pesanan Khusus
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="cth: Saus dipisah, sambal jangan terlalu berminyak, dsb."
-                  value={orderNotes}
-                  onChange={(e) => setOrderNotes(e.target.value)}
-                  className="w-full rounded-2xl border border-input bg-background p-3 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring resize-none"
-                />
+                    {(() => {
+                      const levelMods = (customizingProduct.modifiers || []).filter(
+                        (m) =>
+                          m.category === "level" ||
+                          (!m.category && m.name.toLowerCase().includes("pedas")),
+                      );
+                      if (levelMods.length === 0) return null;
+
+                      return (
+                        <div className="space-y-1.5 pt-2 border-t border-border/50">
+                          <span className="text-xs font-black text-foreground block">
+                            2. Tingkat Pedas
+                          </span>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {levelMods.map((mod) => {
+                              const isSelected = selectedLevel?.name === mod.name;
+                              return (
+                                <button
+                                  key={mod.name}
+                                  type="button"
+                                  onClick={() => setSelectedLevel(mod)}
+                                  className={cn(
+                                    "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center transition-all cursor-pointer min-h-[34px]",
+                                    isSelected
+                                      ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
+                                      : "border-border bg-secondary/40 hover:bg-secondary text-foreground font-semibold",
+                                  )}
+                                >
+                                  <span className="truncate max-w-full leading-tight">
+                                    {mod.name}
+                                  </span>
+                                  {mod.price_adjustment > 0 && (
+                                    <span
+                                      className={cn(
+                                        "text-[10px] font-bold leading-tight mt-0.5 whitespace-nowrap",
+                                        isSelected ? "text-primary-foreground/90" : "text-primary",
+                                      )}
+                                    >
+                                      +{formatRupiah(mod.price_adjustment)}
+                                    </span>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {(() => {
+                      const prepMods = (customizingProduct.modifiers || []).filter(
+                        (m) =>
+                          m.category === "prep" ||
+                          (!m.category && !m.name.toLowerCase().includes("pedas")),
+                      );
+                      if (prepMods.length === 0) return null;
+
+                      return (
+                        <div className="space-y-1.5 pt-2 border-t border-border/50">
+                          <span className="text-xs font-black text-foreground block">
+                            Instruksi Dapur
+                          </span>
+                          <div className="grid grid-cols-3 gap-1.5">
+                            {prepMods.map((mod) => {
+                              const isSelected = selectedPreps.includes(mod.name);
+                              return (
+                                <button
+                                  key={mod.name}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedPreps((prev) =>
+                                      isSelected
+                                        ? prev.filter((p) => p !== mod.name)
+                                        : [...prev, mod.name],
+                                    );
+                                  }}
+                                  className={cn(
+                                    "py-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer truncate",
+                                    isSelected
+                                      ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
+                                      : "border-border bg-secondary/40 hover:bg-secondary text-foreground",
+                                  )}
+                                >
+                                  {mod.name}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                {/* Catatan Pesanan Ringkas 1 Baris */}
+                <div className="pt-2 border-t border-border/50">
+                  <input
+                    type="text"
+                    placeholder="Catatan pesanan khusus (opsional, cth: saus dipisah)..."
+                    aria-label="Catatan Pesanan Khusus"
+                    value={orderNotes}
+                    onChange={(e) => setOrderNotes(e.target.value)}
+                    className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                  />
+                </div>
               </div>
-            </div>
 
-            {/* Modal Sticky Footer */}
-            <div className="border-t border-border p-4 bg-muted/20 flex flex-col sm:flex-row items-center justify-between gap-4">
-              {/* Quantity Stepper */}
-              <div className="flex items-center gap-3">
-                <span className="text-xs font-bold text-muted-foreground">Kuantitas:</span>
-                <div className="flex items-center gap-1.5 rounded-2xl border border-border bg-background p-1">
+              {/* Modal Sticky Footer Ringkas 1 Baris: Stepper Kuantitas + Tambah ke Keranjang */}
+              <div className="shrink-0 border-t border-border px-3.5 py-2.5 bg-muted/20 flex items-center justify-between gap-2.5">
+                <div className="flex items-center gap-1 rounded-xl border border-border bg-background p-0.5 shrink-0">
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-8 w-8 rounded-xl"
+                    className="h-8 w-8 rounded-lg"
                     disabled={customizeQuantity <= 1}
                     onClick={() => setCustomizeQuantity((q) => Math.max(1, q - 1))}
                   >
                     <Minus className="size-3.5" />
                   </Button>
-                  <span className="w-8 text-center text-sm font-black">{customizeQuantity}</span>
+                  <span className="w-7 text-center text-xs font-black">{customizeQuantity}</span>
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-8 w-8 rounded-xl"
+                    className="h-8 w-8 rounded-lg"
                     onClick={() => setCustomizeQuantity((q) => q + 1)}
                   >
                     <Plus className="size-3.5" />
                   </Button>
                 </div>
-              </div>
 
-              {/* Confirm Button with Dynamic Real-Time Price */}
-              <Button
-                type="button"
-                variant="hero"
-                className="w-full sm:w-auto h-12 px-6 rounded-2xl font-bold shadow-brand gap-2"
-                onClick={handleConfirmAddToCart}
-              >
-                <span>Tambah ke Keranjang</span>
-                <span>•</span>
-                <span>{formatRupiah(calculatedItemTotal)}</span>
-              </Button>
+                <Button
+                  type="button"
+                  variant="hero"
+                  className="flex-1 h-10 px-4 rounded-xl text-xs sm:text-sm font-bold shadow-brand gap-1.5 whitespace-nowrap"
+                  onClick={handleConfirmAddToCart}
+                >
+                  <span>Tambah ke Keranjang</span>
+                  <span>•</span>
+                  <span>{formatRupiah(calculatedItemTotal)}</span>
+                </Button>
+              </div>
             </div>
-          </div>
-        </div>,
-        document.body,
-      )}
+          </div>,
+          document.body,
+        )}
 
       {/* DYNAMIC QRIS REALTIME PAYMENT MODAL (TAHAP 4) */}
       {isQrisModalOpen && qrisModalData && (
@@ -11269,11 +11395,22 @@ function ProfilePage({
   snapshot: Snapshot;
   onRefresh?: () => Promise<void>;
 }) {
+  const [uiScale, setUiScale] = useState<UiScale>(() => getStoredUiScale());
+
+  useEffect(() => {
+    const syncScale = (e: Event) => {
+      const detail = (e as CustomEvent<UiScale>).detail;
+      setUiScale(detail || getStoredUiScale());
+    };
+    window.addEventListener("ui-scale-changed", syncScale);
+    return () => window.removeEventListener("ui-scale-changed", syncScale);
+  }, []);
+
   return (
     <div className="space-y-6 w-full max-w-none">
       <PageTitle
         title="Profil Akun"
-        subtitle="Kelola informasi akun pengguna dan identitas bisnis."
+        subtitle="Kelola informasi akun pengguna, skala layar, dan identitas bisnis."
       />
       <section className="rounded-2xl border bg-card p-6 shadow-soft">
         <h2 className="text-xl font-black">Profil Pengguna</h2>
@@ -11287,6 +11424,62 @@ function ProfilePage({
             <p className="text-xs font-semibold uppercase tracking-wider text-primary">
               Role Aktif: {snapshot.role || "Owner"}
             </p>
+          </div>
+        </div>
+
+        {/* Ukuran Tampilan Layar Global (80% / 85% / 90% / 100%) */}
+        <div className="mt-6 border-t border-border pt-5">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <p className="text-sm font-black text-foreground">
+                Ukuran Tampilan Layar (80% – 100%)
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Default otomatis 85% pada layar tablet (680px–1180px) dan 100% di desktop besar.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-xl text-xs font-bold gap-1.5"
+              onClick={() => window.dispatchEvent(new CustomEvent("open-theme-modal"))}
+            >
+              <Palette className="size-3.5" />
+              <span>Kustomisasi Tema</span>
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-w-xl">
+            {UI_SCALE_OPTIONS.map((opt) => {
+              const active = uiScale === opt.value;
+              return (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => {
+                    setUiScale(opt.value);
+                    saveUiScale(opt.value);
+                    toast.success(`Ukuran tampilan diubah ke ${opt.label}`);
+                  }}
+                  className={cn(
+                    "flex flex-col items-center justify-center gap-0.5 rounded-xl border py-2.5 px-3 text-xs font-bold transition-all cursor-pointer",
+                    active
+                      ? "border-primary bg-primary text-primary-foreground shadow-brand ring-1 ring-primary"
+                      : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
+                  )}
+                >
+                  <span className="text-sm font-black">{opt.label}</span>
+                  <span
+                    className={cn(
+                      "text-xs font-medium",
+                      active ? "text-primary-foreground/85" : "text-muted-foreground",
+                    )}
+                  >
+                    {opt.desc}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -11974,6 +12167,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   useEffect(() => {
     const t = getStoredTheme();
     applyTheme(t.appearance, t.color);
+    applyUiScale();
   }, []);
 
   async function refresh() {
@@ -12320,6 +12514,8 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
           profile={profile}
           onRefresh={refresh}
           activeCashierName={activeCashierName}
+          isSidebarCollapsed={isSidebarCollapsed}
+          onToggleSidebar={handleToggleSidebar}
         />
       );
     }

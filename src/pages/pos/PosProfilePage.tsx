@@ -10,6 +10,8 @@ import {
   Mail,
   Smartphone,
   Lock,
+  Monitor,
+  Palette,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +20,12 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
+import {
+  UiScale,
+  UI_SCALE_OPTIONS,
+  getStoredUiScale,
+  saveUiScale,
+} from "@/lib/theme";
 
 interface LoginRecord {
   id: string;
@@ -62,6 +70,16 @@ export function PosProfilePage() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [uiScale, setUiScale] = useState<UiScale>(() => getStoredUiScale());
+
+  useEffect(() => {
+    const syncScale = (e: Event) => {
+      const detail = (e as CustomEvent<UiScale>).detail;
+      setUiScale(detail || getStoredUiScale());
+    };
+    window.addEventListener("ui-scale-changed", syncScale);
+    return () => window.removeEventListener("ui-scale-changed", syncScale);
+  }, []);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
@@ -187,8 +205,68 @@ export function PosProfilePage() {
           </div>
         </div>
 
-        {/* Right Column: Change Password & Login Activity */}
+        {/* Right Column: Display Scale, Change Password & Login Activity */}
         <div className="space-y-6 lg:col-span-2">
+          {/* UI Scale & Theme Card */}
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-card space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="size-10 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
+                  <Monitor className="size-5" />
+                </div>
+                <div>
+                  <h3 className="font-black text-base text-foreground">
+                    Ukuran Tampilan Layar (Tablet & Desktop)
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    Sesuaikan skala antarmuka seluruh halaman POS secara proporsional (default tablet: 85%).
+                  </p>
+                </div>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-xl text-xs font-bold gap-1.5"
+                onClick={() => window.dispatchEvent(new CustomEvent("open-theme-modal"))}
+              >
+                <Palette className="size-3.5" />
+                <span>Tema & Warna</span>
+              </Button>
+            </div>
+
+            <div className="grid grid-cols-4 gap-2.5">
+              {UI_SCALE_OPTIONS.map((opt) => {
+                const active = uiScale === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => {
+                      setUiScale(opt.value);
+                      saveUiScale(opt.value);
+                      toast.success(`Ukuran tampilan diubah ke ${opt.label}`);
+                    }}
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-2xl border py-3 px-2 text-xs font-bold transition-all cursor-pointer ${
+                      active
+                        ? "border-primary bg-primary text-primary-foreground shadow-brand ring-1 ring-primary"
+                        : "border-border bg-secondary/50 text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <span className="text-sm font-black">{opt.label}</span>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        active ? "text-primary-foreground/85" : "text-muted-foreground"
+                      }`}
+                    >
+                      {opt.desc}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
           {/* Change Password Card */}
           <div className="rounded-3xl border border-border bg-card p-6 shadow-card space-y-5">
             <div className="flex items-center gap-3">

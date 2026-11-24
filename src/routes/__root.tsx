@@ -15,6 +15,7 @@ import { I18nextProvider } from "react-i18next";
 import i18n from "@/i18n/config";
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
+import { applyUiScale, hasExplicitUiScale } from "@/lib/theme";
 
 function NotFoundComponent() {
   return (
@@ -143,6 +144,11 @@ function RootShell({ children }: { children: ReactNode }) {
     <html lang="id" dir="ltr" suppressHydrationWarning>
       <head>
         <HeadContent />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var s=localStorage.getItem("kebabschoicepos_ui_scale");var m={"80":"12.8px","85":"13.6px","90":"14.4px","100":"16px"};var k=(s&&m[s])?s:(window.innerWidth>=680&&window.innerWidth<=1180?"85":"100");document.documentElement.style.fontSize=m[k];document.documentElement.dataset.uiScale=k;}catch(e){}})();`,
+          }}
+        />
       </head>
       <body suppressHydrationWarning>
         {children}
@@ -155,6 +161,17 @@ function RootShell({ children }: { children: ReactNode }) {
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const router = useRouter();
+
+  useEffect(() => {
+    applyUiScale();
+    const handleResize = () => {
+      if (!hasExplicitUiScale()) {
+        applyUiScale();
+      }
+    };
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     const { data } = supabase.auth.onAuthStateChange((event) => {

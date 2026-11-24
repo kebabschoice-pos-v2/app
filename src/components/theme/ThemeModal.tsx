@@ -1,12 +1,16 @@
 import { useState, useEffect } from "react";
-import { Sun, Moon, Laptop, Palette, Check, X } from "lucide-react";
+import { Sun, Moon, Laptop, Palette, Check, X, Monitor } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   ThemeAppearance,
   ThemeColor,
+  UiScale,
+  UI_SCALE_OPTIONS,
   THEME_COLOR_CONFIG,
   getStoredTheme,
+  getStoredUiScale,
   saveTheme,
+  saveUiScale,
 } from "@/lib/theme";
 import { toast } from "sonner";
 
@@ -18,14 +22,25 @@ interface ThemeModalProps {
 export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
   const [appearance, setAppearance] = useState<ThemeAppearance>("light");
   const [color, setColor] = useState<ThemeColor>("green");
+  const [uiScale, setUiScale] = useState<UiScale>("100");
 
   useEffect(() => {
     if (isOpen) {
       const stored = getStoredTheme();
       setAppearance(stored.appearance);
       setColor(stored.color);
+      setUiScale(getStoredUiScale());
     }
   }, [isOpen]);
+
+  useEffect(() => {
+    const syncScale = (e: Event) => {
+      const detail = (e as CustomEvent<UiScale>).detail;
+      setUiScale(detail || getStoredUiScale());
+    };
+    window.addEventListener("ui-scale-changed", syncScale);
+    return () => window.removeEventListener("ui-scale-changed", syncScale);
+  }, []);
 
   if (!isOpen) return null;
 
@@ -41,6 +56,12 @@ export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
     setColor(col);
     saveTheme(appearance, col);
     toast.success(`Warna tema diubah ke ${THEME_COLOR_CONFIG[col].label}`);
+  };
+
+  const handleSelectScale = (scale: UiScale) => {
+    setUiScale(scale);
+    saveUiScale(scale);
+    toast.success(`Ukuran tampilan diubah ke ${scale}%`);
   };
 
   return (
@@ -90,6 +111,45 @@ export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
                   >
                     <Icon className="size-5" />
                     <span>{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* UI Scale Switcher (80% / 85% / 90% / 100%) */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Monitor className="size-3.5" />
+                <span>Ukuran Tampilan (UI Scale)</span>
+              </label>
+              <span className="text-[11px] font-semibold text-muted-foreground">
+                Default Tablet: 85%
+              </span>
+            </div>
+            <div className="grid grid-cols-4 gap-2">
+              {UI_SCALE_OPTIONS.map((opt) => {
+                const isSelected = uiScale === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => handleSelectScale(opt.value)}
+                    className={`flex flex-col items-center justify-center gap-0.5 rounded-xl border py-2.5 px-2 text-xs font-bold transition-all cursor-pointer ${
+                      isSelected
+                        ? "border-primary bg-primary text-primary-foreground shadow-brand ring-1 ring-primary"
+                        : "border-border bg-secondary/50 text-foreground hover:bg-secondary"
+                    }`}
+                  >
+                    <span className="text-sm font-black">{opt.label}</span>
+                    <span
+                      className={`text-[11px] font-medium ${
+                        isSelected ? "text-primary-foreground/85" : "text-muted-foreground"
+                      }`}
+                    >
+                      {opt.desc}
+                    </span>
                   </button>
                 );
               })}

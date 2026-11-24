@@ -20,11 +20,11 @@ export const THEME_COLOR_CONFIG: Record<
     shadow: "0 16px 45px -18px oklch(0.6 0.2 245 / 72%)",
   },
   green: {
-    label: "Green (Emerald)",
-    primary: "oklch(0.62 0.19 148)",
-    hex: "#10b981",
-    ring: "oklch(0.62 0.19 148)",
-    shadow: "0 16px 45px -18px oklch(0.62 0.19 148 / 72%)",
+    label: "Green (Kebab's Choice)",
+    primary: "oklch(0.58 0.175 148)",
+    hex: "#16a34a",
+    ring: "oklch(0.58 0.175 148)",
+    shadow: "0 16px 45px -18px oklch(0.58 0.175 148 / 72%)",
   },
   purple: {
     label: "Purple (Royal)",
@@ -40,10 +40,10 @@ const STORAGE_COLOR_KEY = "kebabschoicepos_theme_color";
 
 export function getStoredTheme(): { appearance: ThemeAppearance; color: ThemeColor } {
   if (typeof window === "undefined") {
-    return { appearance: "system", color: "orange" };
+    return { appearance: "system", color: "green" };
   }
   const appearance = (localStorage.getItem(STORAGE_APPEARANCE_KEY) as ThemeAppearance) || "light";
-  const color = (localStorage.getItem(STORAGE_COLOR_KEY) as ThemeColor) || "orange";
+  const color = (localStorage.getItem(STORAGE_COLOR_KEY) as ThemeColor) || "green";
   return { appearance, color };
 }
 
@@ -69,7 +69,7 @@ export function applyTheme(appearance: ThemeAppearance, color: ThemeColor) {
   }
 
   // 2. Custom Color
-  const colorConfig = THEME_COLOR_CONFIG[color] || THEME_COLOR_CONFIG.orange;
+  const colorConfig = THEME_COLOR_CONFIG[color] || THEME_COLOR_CONFIG.green;
   root.style.setProperty("--primary", colorConfig.primary);
   root.style.setProperty("--ring", colorConfig.ring);
   root.style.setProperty("--sidebar-primary", colorConfig.primary);

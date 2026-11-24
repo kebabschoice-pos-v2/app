@@ -1439,8 +1439,8 @@ function Header({
     >
       <div
         className={cn(
-          "flex items-center justify-between gap-3 px-4 lg:px-8 transition-all duration-300",
-          isTabletFocusMode ? "min-h-14" : "min-h-20",
+          "flex items-center justify-between gap-2.5 px-3 min-[680px]:px-4 lg:px-8 transition-all duration-300",
+          isPosPage || isTabletFocusMode ? "min-h-14" : "min-h-20",
         )}
       >
         <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
@@ -1450,7 +1450,8 @@ function Header({
               variant="outline"
               size="icon"
               className={cn(
-                "size-10 shrink-0 rounded-2xl border-border bg-card/80 hover:bg-secondary text-xs font-bold transition-all shadow-xs cursor-pointer",
+                "size-9 sm:size-10 shrink-0 rounded-2xl border-border bg-card/80 hover:bg-secondary text-xs font-bold transition-all shadow-xs cursor-pointer",
+                isPosPage && "hidden min-[680px]:inline-flex",
                 isSidebarCollapsed && "border-primary/50 text-primary bg-primary/10 shadow-sm",
               )}
               onClick={onToggleSidebar}
@@ -1469,7 +1470,7 @@ function Header({
             </Button>
           )}
 
-          <div className="flex size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-white shadow-xs">
+          <div className="flex size-10 sm:size-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-white shadow-xs">
             <img
               src={snapshot.logo || "/logo-brand.png?v=2"}
               alt={snapshot.businessName || "Logo Bisnis"}
@@ -1479,10 +1480,10 @@ function Header({
           <div className="min-w-0">
             {snapshot.businessName ? (
               <>
-                <p className="truncate text-base font-black tracking-normal">
+                <p className="truncate text-sm sm:text-base font-black tracking-normal">
                   {snapshot.businessName}
                 </p>
-                <p className="truncate text-sm text-muted-foreground">
+                <p className="truncate text-xs text-muted-foreground">
                   {snapshot.city ? `${snapshot.city} · ${snapshot.role}` : snapshot.role}
                 </p>
               </>
@@ -1494,35 +1495,39 @@ function Header({
             )}
           </div>
         </div>
-        <div className="hidden min-w-0 flex-1 items-center justify-center px-8 md:flex">
-          <button
-            type="button"
-            onClick={onOpenSearchModal}
-            className="flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-border bg-card/70 px-4 py-2 shadow-soft hover:bg-secondary/70 transition-all cursor-pointer text-left group"
-          >
-            <div className="flex items-center gap-2.5 min-w-0 truncate">
-              <Search className="size-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
-              <span className="truncate text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-                {t("common.search", "Cari transaksi, menu, pelanggan, atau outlet...")}
-              </span>
-            </div>
-            <kbd className="hidden sm:inline-flex items-center rounded-lg border border-border bg-secondary/80 px-2 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">
-              Ctrl K
-            </kbd>
-          </button>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-2.5">
-          {/* Quick Search on Mobile */}
-          <Button
-            variant="outline"
-            size="icon"
-            className="rounded-2xl border-border bg-card/70 hover:bg-secondary text-xs font-bold transition-all shadow-xs md:hidden"
-            onClick={onOpenSearchModal}
-            title="Cari"
-            aria-label="Cari"
-          >
-            <Search className="size-3.5 text-primary" />
-          </Button>
+        {!isPosPage && (
+          <div className="hidden min-w-0 flex-1 items-center justify-center px-8 md:flex">
+            <button
+              type="button"
+              onClick={onOpenSearchModal}
+              className="flex w-full max-w-md items-center justify-between gap-3 rounded-2xl border border-border bg-card/70 px-4 py-2 shadow-soft hover:bg-secondary/70 transition-all cursor-pointer text-left group"
+            >
+              <div className="flex items-center gap-2.5 min-w-0 truncate">
+                <Search className="size-4 text-muted-foreground group-hover:text-primary transition-colors shrink-0" />
+                <span className="truncate text-sm text-muted-foreground group-hover:text-foreground transition-colors">
+                  {t("common.search", "Cari transaksi, menu, pelanggan, atau outlet...")}
+                </span>
+              </div>
+              <kbd className="hidden sm:inline-flex items-center rounded-lg border border-border bg-secondary/80 px-2 py-0.5 font-mono text-[10px] font-bold text-muted-foreground">
+                Ctrl K
+              </kbd>
+            </button>
+          </div>
+        )}
+        <div className="flex items-center gap-1.5 sm:gap-2.5">
+          {/* Quick Search on Mobile (HQ only) */}
+          {!isPosPage && (
+            <Button
+              variant="outline"
+              size="icon"
+              className="rounded-2xl border-border bg-card/70 hover:bg-secondary text-xs font-bold transition-all shadow-xs md:hidden"
+              onClick={onOpenSearchModal}
+              title="Cari"
+              aria-label="Cari"
+            >
+              <Search className="size-3.5 text-primary" />
+            </Button>
+          )}
 
           {/* Mode Switcher: POS vs HQ */}
           {isOwner && isPosPage && (
@@ -2030,14 +2035,21 @@ function Sidebar({
       <aside
         aria-label="Navigasi Kasir POS 1-Klik"
         className={cn(
-          "sticky top-20 hidden h-[calc(100vh-5rem)] shrink-0 border-r border-border bg-card/90 backdrop-blur-xl transition-all duration-300 ease-in-out lg:flex flex-col items-center justify-between overflow-y-auto no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
+          "sticky top-14 hidden h-[calc(100vh-3.5rem)] shrink-0 border-r border-border bg-card/90 backdrop-blur-xl transition-all duration-300 ease-in-out min-[680px]:flex flex-col items-center justify-between overflow-y-auto no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
           isCollapsed
-            ? "w-0 px-0 py-0 border-r-0 opacity-0 overflow-hidden pointer-events-none lg:w-0"
-            : "w-20 px-2 py-3 opacity-100",
+            ? "w-0 px-0 py-0 border-r-0 opacity-0 overflow-hidden pointer-events-none min-[680px]:w-0"
+            : "w-16 sm:w-20 px-2 py-3 opacity-100",
         )}
       >
-        {/* Top 1-Click Primary POS Rail */}
+        {/* Top 1-Click Primary POS Rail with Brand Logo */}
         <nav className="flex w-full flex-col items-center gap-1.5">
+          <div className="mb-1 flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-white p-1 shadow-xs">
+            <img
+              src={snapshot?.logo || "/logo-brand.png?v=2"}
+              alt="Kebab's Choice"
+              className="size-full object-contain"
+            />
+          </div>
           {posRailItems.map((item) => {
             const IconComp = item.icon;
             return (
@@ -2046,7 +2058,7 @@ function Sidebar({
                 to={item.to}
                 title={item.title}
                 className={cn(
-                  "relative flex w-full min-h-[56px] flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-bold transition-all active:scale-95",
+                  "relative flex w-full min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[11px] font-bold transition-all active:scale-95",
                   item.isActive
                     ? "bg-primary text-primary-foreground shadow-brand font-black"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -2069,12 +2081,12 @@ function Sidebar({
         </nav>
 
         {/* Bottom Utility Stack: Profil + Owner-only 1-Click HQ */}
-        <div className="flex w-full flex-col items-center gap-1.5 border-t border-border/60 pt-2.5">
+        <div className="flex w-full flex-col items-center gap-1.5 border-t border-border/60 pt-2">
           <Link
             to="/pos/profile"
             title="Profil Kasir & Pengaturan Akun"
             className={cn(
-              "flex w-full min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl px-1 py-2 text-[11px] font-bold transition-all active:scale-95",
+              "flex w-full min-h-[48px] flex-col items-center justify-center gap-1 rounded-2xl px-1 py-1.5 text-[11px] font-bold transition-all active:scale-95",
               active === "pos-profile"
                 ? "bg-primary text-primary-foreground shadow-brand font-black"
                 : "text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -2088,7 +2100,7 @@ function Sidebar({
             <Link
               to="/dashboard"
               title="Kembali ke Dashboard HQ (1-Klik)"
-              className="flex w-full min-h-[52px] flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-muted px-1 py-2 text-[11px] font-bold text-foreground hover:bg-secondary transition-all active:scale-95"
+              className="flex w-full min-h-[48px] flex-col items-center justify-center gap-1 rounded-2xl border border-border bg-muted px-1 py-1.5 text-[11px] font-bold text-foreground hover:bg-secondary transition-all active:scale-95"
             >
               <Building2 className="size-5 shrink-0" />
               <span className="leading-none">HQ</span>
@@ -2493,7 +2505,12 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
       ];
 
   return (
-    <nav className="fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-[1.75rem] border border-border bg-card/90 p-2 shadow-float backdrop-blur-2xl lg:hidden">
+    <nav
+      className={cn(
+        "fixed inset-x-3 bottom-3 z-40 grid grid-cols-5 rounded-[1.75rem] border border-border bg-card/90 p-2 shadow-float backdrop-blur-2xl",
+        isPosMode ? "min-[680px]:hidden" : "lg:hidden",
+      )}
+    >
       {items.map((item) => {
         const Icon = item.icon;
         const selected =
@@ -4448,11 +4465,13 @@ function PosPage({
   const [orderNotes, setOrderNotes] = useState("");
   const [customizeQuantity, setCustomizeQuantity] = useState(1);
 
-  // Order Type, Channels, and Queue Antrean State
-  const [orderType, setOrderType] = useState<PosOrderType>("dine_in");
+  // Order Type, Channels, and Queue Antrean State (Default: Take Away)
+  const [orderType, setOrderType] = useState<PosOrderType>("take_away");
   const [tableNumber, setTableNumber] = useState<string>("");
   const [customerQueueName, setCustomerQueueName] = useState<string>("");
   const [ojolOrderCode, setOjolOrderCode] = useState<string>("");
+  const [isMobileCartDrawerOpen, setIsMobileCartDrawerOpen] = useState(false);
+  const [memberSearchQuery, setMemberSearchQuery] = useState("");
 
   // Antrean Tersimpan (Hold Orders) State — persisted globally in localStorage, filtered strictly per branch
   const [allHeldOrders, setAllHeldOrders] = useState<HeldOrder[]>(() => {
@@ -4504,7 +4523,9 @@ function PosPage({
     }
     setCart([]);
     setIsPaymentModalOpen(false);
+    setIsMobileCartDrawerOpen(false);
     setActiveCartPopover(null);
+    setOrderType("take_away");
     setCustomerQueueName("");
     setOjolOrderCode("");
     setTableNumber("");
@@ -5527,11 +5548,14 @@ function PosPage({
 
     setCart([]);
     setIsPaymentModalOpen(false);
+    setIsMobileCartDrawerOpen(false);
     setActiveCartPopover(null);
+    setOrderType("take_away");
     setCustomerQueueName("");
     setOjolOrderCode("");
     setTableNumber("");
     setSelectedCustomerId("");
+    setMemberSearchQuery("");
     setNewCustomerName("");
     setNewCustomerPhone("");
     setCustomerMode("public");
@@ -6456,11 +6480,14 @@ function PosPage({
 
     setCart([]);
     setIsPaymentModalOpen(false);
+    setIsMobileCartDrawerOpen(false);
     setActiveCartPopover(null);
+    setOrderType("take_away");
     setCustomerQueueName("");
     setOjolOrderCode("");
     setTableNumber("");
     setSelectedCustomerId("");
+    setMemberSearchQuery("");
     setNewCustomerName("");
     setNewCustomerPhone("");
     setCustomerMode("public");
@@ -6522,7 +6549,7 @@ function PosPage({
       activeClass: "bg-primary hover:bg-primary/90 text-primary-foreground border-primary",
     },
   };
-  const activeChannelMeta = channelMetaMap[orderType] || channelMetaMap.dine_in;
+  const activeChannelMeta = channelMetaMap[orderType] || channelMetaMap.take_away;
   const activeCustomerLabel =
     customerMode === "member" && selectedCustomerId
       ? snapshot.customers.find((c) => c.id === selectedCustomerId)?.name || "Member"
@@ -6536,12 +6563,36 @@ function PosPage({
   const isPosBrowserOnline =
     browserOnline && (typeof window === "undefined" || window.navigator.onLine !== false);
 
+  const filteredMemberCustomers = useMemo(() => {
+    const q = memberSearchQuery.trim().toLowerCase();
+    if (!q) return snapshot.customers || [];
+    return (snapshot.customers || []).filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        String(c.phone || "").toLowerCase().includes(q),
+    );
+  }, [snapshot.customers, memberSearchQuery]);
+
   return (
-    <div className="grid min-h-[calc(100vh-8rem)] gap-4 xl:grid-cols-[1fr_24.5rem]">
-      {/* KIRI: BAR ATAS TERPADU + KATEGORI + KATALOG MENU GAYA TOMORO */}
-      <section className="space-y-3.5 min-w-0">
-        {/* 1 Bar Atas Terpadu & Hemat Tinggi: Online + Shift + Cabang + Cari Menu + Printer */}
+    <div className="flex flex-col min-[680px]:flex-row items-start gap-3 min-h-[calc(100vh-5rem)]">
+      {/* TENGAH: BAR ATAS TERPADU + KATEGORI + KATALOG MENU KOMPAK */}
+      <section className="flex-1 min-w-0 w-full space-y-2.5">
+        {/* 1 Bar Atas Terpadu & Hemat Tinggi: Cabang + Online + Shift + Cari Menu + Printer */}
         <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-border/60 bg-card px-3 py-2 shadow-sm">
+          {/* Cabang Aktif */}
+          <span
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/70 text-xs font-semibold text-foreground whitespace-nowrap shrink-0"
+            title={!isOwner ? "Cabang Aktif: Terkunci" : undefined}
+          >
+            <Store className="size-3.5 text-foreground/70 shrink-0" />
+            <span>
+              {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
+                activeOutlets[0]?.name ||
+                "Cabang"}
+              {!isOwner && <span className="sr-only">Cabang Aktif: Terkunci</span>}
+            </span>
+          </span>
+
           {/* Status Online + Indikator Antrean Sinkronisasi */}
           {isPosBrowserOnline ? (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/10 text-xs font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap shrink-0">
@@ -6581,22 +6632,8 @@ function PosPage({
             </span>
           </span>
 
-          {/* Cabang Aktif */}
-          <span
-            className="hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-secondary/70 text-xs font-semibold text-foreground whitespace-nowrap shrink-0"
-            title={!isOwner ? "Cabang Aktif: Terkunci" : undefined}
-          >
-            <Store className="size-3.5 text-foreground/70 shrink-0" />
-            <span>
-              {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
-                activeOutlets[0]?.name ||
-                "Cabang"}
-              {!isOwner && <span className="sr-only">Cabang Aktif: Terkunci</span>}
-            </span>
-          </span>
-
           {/* Kotak Pencarian Menu Terintegrasi */}
-          <div className="relative flex-1 min-w-[180px]" title="Cari Menu / Barcode Scanner">
+          <div className="relative flex-1 min-w-[150px]" title="Cari Menu / Barcode Scanner">
             <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <input
               type="text"
@@ -6700,40 +6737,38 @@ function PosPage({
           </div>
         </div>
 
-        {/* Category Filter Pills (TOMORO Touch Tabs) */}
-        {productCategories.length > 1 && (
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar [&::-webkit-scrollbar]:hidden">
+        {/* Category Filter Pills Horizontal (Pil Aktif Hijau Brand) */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 no-scrollbar [&::-webkit-scrollbar]:hidden">
+          <button
+            type="button"
+            onClick={() => setSelectedCategory("all")}
+            className={cn(
+              "h-8 px-3.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border",
+              selectedCategory === "all"
+                ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
+            )}
+          >
+            Semua ({displayedProducts.length})
+          </button>
+          {productCategories.map((cat) => (
             <button
+              key={cat}
               type="button"
-              onClick={() => setSelectedCategory("all")}
+              onClick={() => setSelectedCategory(cat)}
               className={cn(
-                "h-9 px-3.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border",
-                selectedCategory === "all"
+                "h-8 px-3.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border",
+                selectedCategory === cat
                   ? "bg-primary text-primary-foreground border-primary shadow-xs"
                   : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
               )}
             >
-              Semua ({displayedProducts.length})
+              {cat}
             </button>
-            {productCategories.map((cat) => (
-              <button
-                key={cat}
-                type="button"
-                onClick={() => setSelectedCategory(cat)}
-                className={cn(
-                  "h-9 px-3.5 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border",
-                  selectedCategory === cat
-                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                    : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
-                )}
-              >
-                {cat}
-              </button>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
 
-        {/* Katalog Menu Gaya TOMORO (Latar Abu-abu Sangat Lembut, Kartu Putih Bersih) */}
+        {/* Katalog Menu Kompak & Proporsional (Grid 2/3/4 Kolom, Gambar h-24 sm:h-28, Latar Fallback Netral) */}
         <div className="rounded-[1.75rem] border border-border/60 bg-muted/30 p-3.5 sm:p-4">
           {filteredProducts.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border bg-card/80 p-10 text-center">
@@ -6764,7 +6799,7 @@ function PosPage({
               )}
             </div>
           ) : (
-            <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5">
               {filteredProducts.map((product, index) => {
                 const hasVariantsOrMods =
                   (product.variant_groups && product.variant_groups.length > 0) ||
@@ -6779,57 +6814,69 @@ function PosPage({
                     transition={{ delay: Math.min(index * 0.02, 0.16) }}
                     onClick={() => handleFastAddToCart(product)}
                     className={cn(
-                      "group relative cursor-pointer rounded-2xl border bg-card p-3 shadow-xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between",
+                      "group relative cursor-pointer rounded-2xl border bg-card p-2.5 shadow-xs hover:shadow-md transition-all overflow-hidden flex flex-col justify-between",
                       qtyInCart > 0
                         ? "border-primary/60 ring-1 ring-primary/25"
                         : "border-border/80 hover:border-primary/40",
                     )}
                   >
-                    {/* Badge Jumlah Item di Keranjang (Pojok Kanan Atas ala TOMORO) */}
+                    {/* Badge Jumlah Item di Keranjang (Pojok Kanan Atas) */}
                     {qtyInCart > 0 && (
                       <span
                         aria-label={`${qtyInCart} di keranjang`}
-                        className="absolute top-2.5 right-2.5 z-20 flex size-7 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-black shadow-md ring-2 ring-card animate-in zoom-in-75 duration-150"
+                        className="absolute top-2 right-2 z-20 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-black shadow-md ring-2 ring-card animate-in zoom-in-75 duration-150"
                       >
                         {qtyInCart}
                       </span>
                     )}
 
-                    {/* Media / Thumbnail Produk */}
-                    <div className="relative mb-3 flex aspect-[4/3] items-end overflow-hidden rounded-xl bg-primary/90 p-3 text-primary-foreground">
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          style={{
-                            transform: `translate(${(product.image_position_x ?? product.image_crop_position?.x ?? 50) - 50}%, ${(product.image_position_y ?? product.image_crop_position?.y ?? 50) - 50}%) scale(${product.image_zoom || product.zoom || 1}) rotate(${product.image_rotation || product.rotation || 0}deg)`,
-                            transformOrigin: "center center",
-                          }}
-                          className="absolute inset-0 h-full w-full object-contain pointer-events-none transition-transform group-hover:scale-105"
-                        />
-                      ) : null}
-                      {product.promo_price && product.promo_price < product.price && (
-                        <div className="absolute top-2 left-2 z-10">
-                          <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-md">
-                            PROMO
-                          </span>
-                        </div>
-                      )}
-                      <div className="relative z-10 rounded-xl bg-black/60 px-2.5 py-1.5 backdrop-blur-md max-w-full">
-                        <p className="text-[11px] font-semibold opacity-90 text-white/85 truncate">
+                    <div>
+                      {/* Media / Thumbnail Produk Kompak (h-24 sm:h-28, Latar Netral Lembut bg-muted) */}
+                      <div className="relative mb-2 flex h-24 sm:h-28 w-full items-center justify-center overflow-hidden rounded-xl bg-muted border border-border/50">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            style={{
+                              transform: `translate(${(product.image_position_x ?? product.image_crop_position?.x ?? 50) - 50}%, ${(product.image_position_y ?? product.image_crop_position?.y ?? 50) - 50}%) scale(${product.image_zoom || product.zoom || 1}) rotate(${product.image_rotation || product.rotation || 0}deg)`,
+                              transformOrigin: "center center",
+                            }}
+                            className="h-24 sm:h-28 w-full object-cover pointer-events-none transition-transform group-hover:scale-105"
+                          />
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-1 text-muted-foreground/70">
+                            <img
+                              src="/logo-brand.png?v=2"
+                              alt={product.name}
+                              className="h-10 w-10 object-contain opacity-80"
+                            />
+                          </div>
+                        )}
+                        {product.promo_price && product.promo_price < product.price && (
+                          <div className="absolute top-1.5 left-1.5 z-10">
+                            <span className="rounded-full bg-rose-600 px-2 py-0.5 text-[10px] font-black uppercase tracking-wider text-white shadow-md">
+                              PROMO
+                            </span>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Nama & Kategori Produk Rapi */}
+                      <div className="mb-2 min-w-0">
+                        <p className="text-[11px] font-semibold text-muted-foreground truncate">
                           {product.category}
                         </p>
-                        <p className="text-sm sm:text-base font-black tracking-normal leading-tight text-white">
+                        <p className="text-xs sm:text-sm font-black tracking-normal leading-snug text-foreground line-clamp-2">
                           {product.name}
                         </p>
                       </div>
                     </div>
 
                     {/* Footer Kartu Produk 2 Baris Bersih (Harga + Stok di Baris 1, Varian + Tombol + Ramah Jari di Baris 2) */}
-                    <div className="space-y-2.5">
+                    <div className="space-y-2">
                       {/* Baris 1: Harga penuh tanpa truncate + Badge Stok */}
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex flex-wrap items-baseline gap-1.5">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <div className="flex flex-wrap items-baseline gap-1">
                           {product.promo_price && product.promo_price < product.price ? (
                             <>
                               <p className="text-base font-black text-rose-600 dark:text-rose-400 whitespace-nowrap">
@@ -6845,7 +6892,7 @@ function PosPage({
                             </p>
                           )}
                         </div>
-                        <span className="inline-flex items-center rounded-full bg-secondary px-2 py-0.5 text-xs font-semibold text-muted-foreground whitespace-nowrap shrink-0">
+                        <span className="inline-flex items-center rounded-full bg-secondary px-1.5 py-0.5 text-[11px] font-semibold text-muted-foreground whitespace-nowrap shrink-0">
                           Stok {product.stock}
                         </span>
                       </div>
@@ -6896,7 +6943,7 @@ function PosPage({
                     </div>
 
                     {product.ai_badge && (
-                      <p className="mt-2.5 rounded-full bg-muted px-3 py-1 text-xs font-bold text-foreground/75">
+                      <p className="mt-2 rounded-full bg-muted px-2.5 py-0.5 text-[11px] font-bold text-foreground/75 truncate">
                         AI: {product.ai_badge}
                       </p>
                     )}
@@ -6908,10 +6955,36 @@ function PosPage({
         </div>
       </section>
 
-      {/* KANAN: SMART CART LEGA (HEADER 1 BARIS PILL + RUANG ITEM LUAS + TOMBOL LANJUT BAYAR) */}
-      <aside className="sticky top-24 flex max-h-[calc(100vh-7rem)] flex-col rounded-[1.75rem] border border-border bg-card p-4 shadow-float overflow-hidden min-w-0">
+      {/* STICKY FLOATING BAR KHUSUS LAYAR HP PORTRAIT (< 680px) — SELALU TAMPIL DI ATAS BOTTOM NAV */}
+      <div className="fixed inset-x-3 bottom-[4.75rem] z-40 flex min-[680px]:hidden">
+        <button
+          type="button"
+          onClick={() => setIsMobileCartDrawerOpen(true)}
+          className="flex w-full items-center justify-between gap-2 rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-float ring-1 ring-primary-foreground/20 active:scale-[0.99] cursor-pointer"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <ShoppingCart className="size-4 shrink-0" />
+            <span className="text-xs font-black truncate">
+              Keranjang ({totalCartItemCount} item) • {formatRupiah(total)}
+            </span>
+          </div>
+          <span className="inline-flex items-center gap-1 text-xs font-black whitespace-nowrap shrink-0">
+            <span>Bayar ➔</span>
+          </span>
+        </button>
+      </div>
+
+      {/* KANAN: SMART CART & PEMBAYARAN SELALU TERLIHAT (>= 680px) + DRAWER PENUH DI HP (< 680px) */}
+      <aside
+        className={cn(
+          "w-[270px] md:w-[300px] lg:w-[350px] shrink-0 h-full flex flex-col rounded-[1.5rem] border border-border bg-card p-3.5 shadow-float overflow-hidden min-w-0",
+          isMobileCartDrawerOpen
+            ? "fixed inset-0 z-50 flex w-full h-full rounded-none p-4 min-[680px]:static min-[680px]:z-auto min-[680px]:w-[270px] md:w-[300px] lg:w-[350px] min-[680px]:h-[calc(100vh-4.75rem)] min-[680px]:sticky min-[680px]:top-16 min-[680px]:rounded-[1.5rem] min-[680px]:p-3.5"
+            : "hidden min-[680px]:flex min-[680px]:sticky min-[680px]:top-16 min-[680px]:h-[calc(100vh-4.75rem)]",
+        )}
+      >
         {/* Header Keranjang Ringkas */}
-        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-border/60">
+        <div className="flex items-center justify-between gap-2 pb-2 border-b border-border/60">
           <div className="flex items-center gap-2 min-w-0">
             <h2 className="text-base font-black tracking-tight text-foreground">
               {t("cart.title", "Smart Cart")}
@@ -6952,178 +7025,246 @@ function PosPage({
                 <Trash2 className="size-3.5" />
               </Button>
             )}
+            <Button
+              type="button"
+              variant="outline"
+              size="icon-sm"
+              onClick={() => setIsMobileCartDrawerOpen(false)}
+              title="Tutup Drawer Keranjang"
+              aria-label="Tutup Drawer Keranjang"
+              className="size-8 rounded-xl min-[680px]:hidden"
+            >
+              <X className="size-4" />
+            </Button>
           </div>
         </div>
 
-        {/* Channel Pesanan (Langsung Tampil Terbuka) + Pelanggan & Antrean + Diskon */}
-        <div className="py-2.5 border-b border-border/60 space-y-2.5">
-          {/* 1. Pilihan Channel Pesanan — Langsung Tampil Terbuka (Tanpa Toggle Tersembunyi) */}
-          <div className="grid grid-cols-3 gap-1.5 py-0.5">
-            {(
-              [
-                { id: "dine_in", label: "Dine In" },
-                { id: "take_away", label: "Take Away" },
-                { id: "delivery", label: "Delivery" },
-                {
-                  id: "gofood",
-                  label: "GoFood",
-                  activeClass:
-                    "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600",
-                },
-                {
-                  id: "grabfood",
-                  label: "GrabFood",
-                  activeClass: "bg-green-600 hover:bg-green-700 text-white border-green-600",
-                },
-                {
-                  id: "shopeefood",
-                  label: "ShopeeFood",
-                  activeClass:
-                    "bg-primary hover:bg-primary/90 text-primary-foreground border-primary",
-                },
-              ] as Array<{ id: PosOrderType; label: string; activeClass?: string }>
-            ).map((tItem) => (
-              <button
-                key={tItem.id}
-                type="button"
-                onClick={() => {
-                  setOrderType(tItem.id);
-                  if (["gofood", "grabfood", "shopeefood"].includes(tItem.id)) {
-                    if (paymentMethod === "cash") setPaymentMethod("ewallet");
-                  }
-                }}
-                className={cn(
-                  "h-8 min-w-0 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1.5",
-                  orderType === tItem.id
-                    ? tItem.activeClass ||
-                      "bg-primary text-primary-foreground border-primary shadow-xs"
-                    : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
-                )}
-              >
-                {tItem.label}
-              </button>
-            ))}
+        {/* HEADER SMART CART: TAB Umum (DEFAULT) | Member */}
+        <div className="py-2.5 border-b border-border/60 space-y-2">
+          {/* 2 Tombol Tab Pelanggan: Umum (Default) | Member */}
+          <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-muted/60 p-1">
+            <button
+              type="button"
+              onClick={() => {
+                setCustomerMode("public");
+                setSelectedCustomerId("");
+              }}
+              className={cn(
+                "h-8 rounded-lg text-xs font-black transition-all cursor-pointer",
+                customerMode !== "member"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Umum
+            </button>
+            <button
+              type="button"
+              onClick={() => setCustomerMode("member")}
+              className={cn(
+                "h-8 rounded-lg text-xs font-black transition-all cursor-pointer",
+                customerMode === "member"
+                  ? "bg-primary text-primary-foreground shadow-xs"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Member
+            </button>
           </div>
 
-          {/* Input Kondisional: Kode Ojol atau No. Meja */}
-          {["gofood", "grabfood", "shopeefood"].includes(orderType) && (
-            <div className="flex items-center gap-2 rounded-xl border border-primary/30 bg-primary/5 px-2.5 py-1.5">
-              <span className="text-xs font-black uppercase text-primary shrink-0">
-                Kode Ojol:
-              </span>
-              <input
-                type="text"
-                placeholder={
-                  orderType === "gofood"
-                    ? "Cth: GF-412"
-                    : orderType === "grabfood"
-                      ? "Cth: GR-882"
-                      : "Cth: SF-109"
-                }
-                value={ojolOrderCode}
-                onChange={(e) => setOjolOrderCode(e.target.value)}
-                className="flex-1 h-7 rounded-lg bg-transparent px-1 text-xs font-black uppercase focus:outline-none placeholder:normal-case placeholder:font-normal"
-              />
-            </div>
-          )}
-
-          {orderType === "dine_in" && (
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-muted-foreground shrink-0">
-                No. Meja:
-              </span>
-              <input
-                type="text"
-                placeholder="Cth: 04 (Opsional)"
-                value={tableNumber}
-                onChange={(e) => setTableNumber(e.target.value)}
-                className="h-8 flex-1 rounded-xl border border-border bg-background px-2.5 text-xs font-bold focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
-          )}
-
-          {/* 2. Bagian Pelanggan Sederhana: Pilih Member Terdaftar + Nama Antrean/Pelanggan + No. Telepon (Opsional) + Diskon */}
-          <div className="space-y-1.5">
-            <div className="flex items-center gap-1.5">
-              <div className="relative flex-1 min-w-0">
-                <select
-                  aria-label="Pilih Member Terdaftar"
-                  value={selectedCustomerId}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setSelectedCustomerId(nextId);
-                    if (nextId) {
-                      setCustomerMode("member");
-                      const found = snapshot.customers.find((c) => c.id === nextId);
-                      if (found) {
-                        if (!customerQueueName.trim()) setCustomerQueueName(found.name);
-                        setNewCustomerPhone(found.phone || "");
-                      }
-                    } else {
-                      setCustomerMode("public");
-                    }
-                  }}
-                  className="w-full h-8 rounded-xl border border-border bg-secondary/70 px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
-                >
-                  <option value="">Pilih Member Terdaftar (Opsional)</option>
-                  {snapshot.customers.map((c) => {
-                    const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
-                    return (
-                      <option key={c.id} value={c.id}>
-                        {c.name} ({pts} Poin · {c.visits}x)
-                      </option>
-                    );
-                  })}
-                </select>
+          {customerMode !== "member" ? (
+            /* ISI TAB UMUM (DEFAULT) */
+            <div className="space-y-2">
+              {/* Baris 1 — 3 Tombol Tipe Pesanan Aktif (Take Away Default, Dine In, Delivery) */}
+              <div className="grid grid-cols-3 gap-1.5 py-0.5">
+                {(
+                  [
+                    { id: "take_away", label: "Take Away" },
+                    { id: "dine_in", label: "Dine In" },
+                    { id: "delivery", label: "Delivery" },
+                  ] as Array<{ id: PosOrderType; label: string }>
+                ).map((tItem) => (
+                  <button
+                    key={tItem.id}
+                    type="button"
+                    onClick={() => setOrderType(tItem.id)}
+                    className={cn(
+                      "h-8 min-w-0 rounded-xl text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1.5",
+                      orderType === tItem.id
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                    )}
+                  >
+                    {tItem.label}
+                  </button>
+                ))}
               </div>
 
-              {/* Pill Diskon */}
-              <button
-                type="button"
-                onClick={() =>
-                  setActiveCartPopover((prev) => (prev === "discount" ? null : "discount"))
-                }
-                className={cn(
-                  "inline-flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
-                  activeCartPopover === "discount"
-                    ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                    : discountAmount > 0
-                      ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
-                      : "bg-secondary/80 text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
-                )}
-              >
-                <Percent className="size-3 shrink-0" />
-                <span>
-                  {discountAmount > 0
-                    ? discountType === "percent"
-                      ? `-${discountValue}%`
-                      : `-${formatRupiah(discountAmount)}`
-                    : "Diskon"}
-                </span>
-              </button>
-            </div>
+              {/* Baris 2 — 3 Tombol Ojol TETAP TAMPIL TAPI NONAKTIF (Abu-abu Tua / Redup) */}
+              <div className="grid grid-cols-3 gap-1.5">
+                {(
+                  [
+                    { id: "gofood", label: "GoFood" },
+                    { id: "grabfood", label: "GrabFood" },
+                    { id: "shopeefood", label: "ShopeeFood" },
+                  ] as Array<{ id: PosOrderType; label: string }>
+                ).map((ojol) => (
+                  <button
+                    key={ojol.id}
+                    type="button"
+                    disabled
+                    title={`${ojol.label} segera hadir`}
+                    className="h-8 min-w-0 rounded-xl text-xs font-bold border flex items-center justify-center text-center truncate px-1.5 bg-slate-200 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed opacity-75"
+                  >
+                    {ojol.label}
+                  </button>
+                ))}
+              </div>
 
-            {/* Input Nama Antrean / Pelanggan + No. Telepon / WhatsApp (Opsional) Langsung di Bawahnya */}
-            <div className="grid grid-cols-1 gap-1.5">
-              <input
-                type="text"
-                aria-label="Nama Antrean / Pelanggan"
-                title="Nama Antrean / Pelanggan (Otomatis Daftar Member Cepat CRM)"
-                placeholder="Nama Antrean / Pelanggan"
-                value={customerQueueName}
-                onChange={(e) => setCustomerQueueName(e.target.value)}
-                className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <input
-                type="tel"
-                aria-label="No. Telepon / WhatsApp (Opsional)"
-                placeholder="No. Telepon / WA (Opsional)"
-                value={newCustomerPhone}
-                onChange={(e) => setNewCustomerPhone(e.target.value)}
-                className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+              {/* Baris 3 — Pelanggan (Tanpa No. Meja): Nama Pelanggan / Antrean + Diskon + No. Telepon / WA */}
+              <div className="space-y-1.5">
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    aria-label="Nama Pelanggan / Antrean"
+                    title="Nama Pelanggan / Antrean (Otomatis Daftar Member Cepat CRM)"
+                    placeholder="Nama Pelanggan / Antrean"
+                    value={customerQueueName}
+                    onChange={(e) => setCustomerQueueName(e.target.value)}
+                    className="flex-1 min-w-0 h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  {/* Pill Diskon */}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setActiveCartPopover((prev) => (prev === "discount" ? null : "discount"))
+                    }
+                    className={cn(
+                      "inline-flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+                      activeCartPopover === "discount"
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : discountAmount > 0
+                          ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                          : "bg-secondary/80 text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
+                    )}
+                  >
+                    <Percent className="size-3 shrink-0" />
+                    <span>
+                      {discountAmount > 0
+                        ? discountType === "percent"
+                          ? `-${discountValue}%`
+                          : `-${formatRupiah(discountAmount)}`
+                        : "Diskon"}
+                    </span>
+                  </button>
+                </div>
+                <input
+                  type="tel"
+                  aria-label="No. Telepon / WA (Opsional)"
+                  placeholder="No. Telepon / WA (Opsional)"
+                  value={newCustomerPhone}
+                  onChange={(e) => setNewCustomerPhone(e.target.value)}
+                  className="w-full h-8 rounded-xl border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
             </div>
-          </div>
+          ) : (
+            /* ISI TAB MEMBER (Kotak Pencarian & Daftar Member Terdaftar) */
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-1.5">
+                <div className="relative flex-1 min-w-0">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                  <input
+                    type="text"
+                    value={memberSearchQuery}
+                    onChange={(e) => setMemberSearchQuery(e.target.value)}
+                    placeholder="Cari nama atau no. HP member..."
+                    aria-label="Cari Member Terdaftar"
+                    className="w-full h-8 rounded-xl border border-border bg-background pl-8 pr-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setActiveCartPopover((prev) => (prev === "discount" ? null : "discount"))
+                  }
+                  className={cn(
+                    "inline-flex h-8 items-center gap-1 rounded-xl border px-2.5 text-xs font-bold transition-all cursor-pointer whitespace-nowrap shrink-0",
+                    activeCartPopover === "discount"
+                      ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                      : discountAmount > 0
+                        ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30"
+                        : "bg-secondary/80 text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
+                  )}
+                >
+                  <Percent className="size-3 shrink-0" />
+                  <span>
+                    {discountAmount > 0
+                      ? discountType === "percent"
+                        ? `-${discountValue}%`
+                        : `-${formatRupiah(discountAmount)}`
+                      : "Diskon"}
+                  </span>
+                </button>
+              </div>
+
+              <select
+                aria-label="Pilih Member Terdaftar"
+                value={selectedCustomerId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setSelectedCustomerId(nextId);
+                  if (nextId) {
+                    const found = snapshot.customers.find((c) => c.id === nextId);
+                    if (found) {
+                      setCustomerQueueName(found.name);
+                      setNewCustomerPhone(found.phone || "");
+                    }
+                  }
+                }}
+                className="w-full h-8 rounded-xl border border-border bg-secondary/70 px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
+              >
+                <option value="">
+                  Pilih Member Terdaftar ({filteredMemberCustomers.length})
+                </option>
+                {filteredMemberCustomers.map((c) => {
+                  const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
+                  return (
+                    <option key={c.id} value={c.id}>
+                      {c.name} ({pts} Poin · {c.visits}x)
+                    </option>
+                  );
+                })}
+              </select>
+
+              {selectedCustomerId && (
+                <div className="flex items-center justify-between gap-2 rounded-xl border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs">
+                  <div className="min-w-0">
+                    <p className="font-black text-primary truncate">
+                      {snapshot.customers.find((c) => c.id === selectedCustomerId)?.name ||
+                        "Member Aktif"}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      Tipe: {activeChannelMeta.label}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCustomerId("");
+                      setCustomerQueueName("");
+                      setNewCustomerPhone("");
+                    }}
+                    aria-label="Lepas member"
+                    title="Lepas pilihan member"
+                    className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-background/80 text-muted-foreground hover:text-destructive cursor-pointer"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Drawer Diskon (muncul saat pill Diskon diklik) */}
           {activeCartPopover === "discount" && (
@@ -12319,10 +12460,10 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
         />
         <section
           className={cn(
-            "min-w-0 flex-1 w-full min-h-[calc(100vh-5rem)] bg-muted/30 pb-28 lg:pb-6 transition-all duration-300",
+            "min-w-0 flex-1 w-full min-h-[calc(100vh-5rem)] bg-muted/30 transition-all duration-300",
             page === "pos"
-              ? "px-3 py-4 lg:px-5 lg:py-4"
-              : "px-4 py-6 lg:px-8 lg:pb-8",
+              ? "px-2.5 py-2.5 pb-36 min-[680px]:px-3.5 min-[680px]:py-3 min-[680px]:pb-4"
+              : "px-4 py-6 pb-28 lg:px-8 lg:pb-8",
             isSidebarCollapsed && page !== "pos" && "lg:px-6",
           )}
         >

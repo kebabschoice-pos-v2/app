@@ -17,7 +17,7 @@ interface ThemeModalProps {
 
 export function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
   const [appearance, setAppearance] = useState<ThemeAppearance>("light");
-  const [color, setColor] = useState<ThemeColor>("orange");
+  const [color, setColor] = useState<ThemeColor>("green");
 
   useEffect(() => {
     if (isOpen) {

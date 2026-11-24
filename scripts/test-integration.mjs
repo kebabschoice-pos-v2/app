@@ -3226,22 +3226,22 @@ test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, 
     "POS status bar must strictly display green CSS-dot Online (or Online (X antrean)) whenever window.navigator.onLine !== false",
   );
 
-  // 1B. POS product card overflow-hidden + 2-row clean touch-first footer with Varian & + buttons
+  // 1B. POS product card overflow-hidden + 3-mode tap-to-add catalog (Padat / Normal / List) without bulky + Tambah button
   assert.ok(
-    posAppCode.includes("flex-1 min-h-[40px] rounded-xl") &&
-      posAppCode.includes("min-h-[40px] w-10 p-0 rounded-xl") &&
+    posAppCode.includes("kebabschoicepos_view_mode") &&
+      posAppCode.includes("grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2") &&
       posAppCode.includes("overflow-hidden"),
-    "POS product cards must clip overflow and size Varian & + buttons cleanly for touch",
+    "POS product cards must clip overflow and support 3-mode tap-to-add catalog (Padat / Normal / List)",
   );
 
-  // 1C. Smart Cart 3-column channel grid, formatted anti-leading-zero discount, clear Pay CTA, no MEMBER / PELANGGAN CRM header
+  // 1C. Smart Cart 3-column channel grid, formatted anti-leading-zero discount, pinned Bayar CTA, no MEMBER / PELANGGAN CRM header
   assert.ok(
-    posAppCode.includes("grid grid-cols-3 gap-1.5 py-0.5") &&
+    posAppCode.includes("grid grid-cols-3 gap-1") &&
       posAppCode.includes("sanitizeQuantityInput") &&
       posAppCode.includes("formatRupiahInput(discountValue)") &&
-      posAppCode.includes("Lanjut Bayar • {formatRupiah(total)}") &&
+      posAppCode.includes("Bayar • {formatRupiah(total)}") &&
       !posAppCode.includes("MEMBER / PELANGGAN CRM"),
-    "Smart Cart must use grid-cols-3 for 6 channels, apply formatRupiahInput/sanitizeQuantityInput on discount, show Lanjut Bayar CTA, and omit long MEMBER / PELANGGAN CRM sub-header",
+    "Smart Cart must use grid-cols-3 for 6 channels, apply formatRupiahInput/sanitizeQuantityInput on discount, show pinned Bayar CTA, and omit long MEMBER / PELANGGAN CRM sub-header",
   );
 
   // 2. Dashboard & MoneyAllocation 5 KPI card typography + compact w-8 h-8 icons + Total Saldo BOM nowrap pill
@@ -3339,13 +3339,13 @@ test("Enforces responsive 1/2/3/5 KPI grids without truncation, >=12px fonts in 
     "Dashboard & MoneyAllocation must use responsive 1/2/3/5 KPI grids without title/nominal truncation and zero 9px/10px micro-fonts",
   );
 
-  // 2. POS product card 2-row footer (no price truncate) & reactive online guard
+  // 2. POS product card untruncated price + 3-mode view switcher & reactive online guard
   assert.ok(
-    posAppCode.includes("Footer Kartu Produk 2 Baris Bersih") &&
-      posAppCode.includes("text-base font-black text-primary whitespace-nowrap") &&
-      posAppCode.includes("flex-1 min-h-[40px] rounded-xl px-3 text-xs") &&
+    posAppCode.includes("Ukuran Tampilan Menu") &&
+      posAppCode.includes("whitespace-nowrap") &&
+      posAppCode.includes('hasVariantsOrMods ? handleOpenCustomize(product) : handleFastAddToCart(product)') &&
       posAppCode.includes("const [browserOnline, setBrowserOnline]"),
-    "POS product cards must use 2-row footer with untruncated bold price + stock badge and Varian (flex-1) + + (shrink-0), plus reactive online badge guard",
+    "POS product cards must render untruncated price, 1-tap add/customize across Padat/Normal/List modes, plus reactive online badge guard",
   );
 
   // 3. Sticky right AKSI column & compact padding across Inventory + all wide HQ tables
@@ -3432,24 +3432,24 @@ test("Enforces slim w-20 POS 1-click icon rail, unified top bar with search & gr
 
   // 3. TOMORO product catalog surface + circular cart quantity badge + min-h-[40px] touch buttons
   assert.ok(
-    posAppCode.includes("bg-muted/30 p-3.5 sm:p-4") &&
+    posAppCode.includes("bg-muted/30 p-2.5") &&
       posAppCode.includes("const qtyInCart = cartQtyByProductId[product.id] || 0") &&
       posAppCode.includes("min-h-[40px]") &&
       posAppCode.includes("rounded-full bg-primary text-primary-foreground text-xs font-black"),
     "POS catalog must use soft gray canvas, circular brand-accent cart quantity badge on cards, and min-h-[40px] touch buttons",
   );
 
-  // 4. Spacious Smart Cart 1-line pill controls + Lanjut Bayar CTA + Dedicated Payment Modal with Touch Numpad (1-9, 000, 0, ⌫)
+  // 4. Compact 3-zone Smart Cart + pinned Bayar CTA + Dedicated Payment Modal with Touch Numpad (1-9, 000, 0, ⌫)
   assert.ok(
     posAppCode.includes("activeCartPopover") &&
       posAppCode.includes("Tertahan ({heldOrders.length})") &&
       posAppCode.includes("min-h-[48px]") &&
-      posAppCode.includes("Lanjut Bayar • {formatRupiah(total)}") &&
+      posAppCode.includes("Bayar • {formatRupiah(total)}") &&
       posAppCode.includes("isPaymentModalOpen && cart.length > 0") &&
       posAppCode.includes('aria-label="Numpad Tunai Kasir"') &&
       posAppCode.includes('["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "backspace"]') &&
       posAppCode.includes("Selesaikan &amp; Cetak Struk"),
-    "POS cart must provide compact 1-line pills, Lanjut Bayar button, and a dedicated Payment Modal with touch numpad and Selesaikan & Cetak Struk CTA",
+    "POS cart must provide compact 3-zone controls, pinned Bayar button, and a dedicated Payment Modal with touch numpad and Selesaikan & Cetak Struk CTA",
   );
 });
 

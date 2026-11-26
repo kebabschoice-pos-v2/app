@@ -572,7 +572,7 @@ export function UnifiedProfileTabs({
                     variant="outline"
                     disabled={soundMode === "off"}
                     onClick={() => testPosSound(soundMode)}
-                    className="h-7 rounded-lg text-xs font-bold gap-1"
+                    className="h-7 rounded-lg text-xs font-bold gap-1 active:scale-95 transition-transform duration-100"
                   >
                     <Volume2 className="size-3.5" />
                     Tes Suara

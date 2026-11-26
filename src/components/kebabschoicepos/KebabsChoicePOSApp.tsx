@@ -4553,6 +4553,7 @@ function PosPage({
 
   // Touch Numpad handler for Focus Payment Modal
   const handleNumpadPress = (key: string) => {
+    playPosSound("tap");
     const currentDigits = cashTenderedInput.replace(/\D/g, "");
     let nextDigits = currentDigits;
     if (key === "backspace") {
@@ -4929,7 +4930,6 @@ function PosPage({
       Boolean(product.modifiers && product.modifiers.length > 0);
 
     if (hasAnyVariantsOrMods) {
-      playPosSound("tap");
       handleOpenCustomize(product);
       return;
     }
@@ -5143,6 +5143,7 @@ function PosPage({
       notes: orderNotes.trim() || undefined,
     };
 
+    playPosSound("tap");
     setCart((current) => [...current, newItem]);
     setCustomizingProduct(null);
     toast.success(`${customizingProduct.name} ditambahkan ke keranjang`, {
@@ -6990,7 +6991,7 @@ function PosPage({
             <div
               className={cn(
                 posViewMode === "compact" &&
-                  "grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2",
+                  "grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5",
                 posViewMode === "normal" &&
                   "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5",
                 posViewMode === "list" && "grid grid-cols-1 sm:grid-cols-2 gap-2",
@@ -7218,33 +7219,40 @@ function PosPage({
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
-            {heldOrders.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setHeldOrdersModalOpen(true)}
-                className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[11px] font-bold text-foreground hover:bg-secondary cursor-pointer whitespace-nowrap"
-                title="Lihat pesanan tertahan (Hold)"
-              >
-                <Clock className="size-3 shrink-0" />
-                <span>Tertahan ({heldOrders.length})</span>
-              </button>
-            )}
-            {cart.length > 0 && (
-              <button
-                type="button"
-                onClick={() => {
-                  if (confirm("Kosongkan semua item di keranjang?")) {
-                    setCart([]);
-                    setDiscountValue(0);
-                  }
-                }}
-                title="Kosongkan keranjang"
-                aria-label="Kosongkan keranjang"
-                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer"
-              >
-                <Trash2 className="size-3.5" />
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                playPosSound("option");
+                setHeldOrdersModalOpen(true);
+              }}
+              className={cn(
+                "inline-flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] font-bold cursor-pointer whitespace-nowrap active:scale-95 transition-transform duration-100",
+                heldOrders.length > 0
+                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/15"
+                  : "border-border bg-muted text-muted-foreground hover:text-foreground hover:bg-secondary",
+              )}
+              title="Lihat pesanan tertahan (Hold)"
+            >
+              <Clock className="size-3 shrink-0" />
+              <span>Tertahan ({heldOrders.length})</span>
+            </button>
+            <button
+              type="button"
+              disabled={cart.length === 0}
+              onClick={() => {
+                if (cart.length === 0) return;
+                if (confirm("Kosongkan semua item di keranjang?")) {
+                  playPosSound("option");
+                  setCart([]);
+                  setDiscountValue(0);
+                }
+              }}
+              title="Kosongkan keranjang"
+              aria-label="Kosongkan keranjang"
+              className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive disabled:opacity-40 disabled:pointer-events-none cursor-pointer active:scale-95 transition-transform duration-100"
+            >
+              <Trash2 className="size-3.5" />
+            </button>
             <button
               type="button"
               onClick={() => setIsMobileCartDrawerOpen(false)}
@@ -7472,7 +7480,7 @@ function PosPage({
               variant="outline"
               disabled={cart.length === 0}
               onClick={handleHoldOrder}
-              className="h-10 px-2.5 rounded-lg flex items-center justify-center gap-1 border-dashed border-border bg-muted text-foreground/80 hover:bg-secondary shrink-0 font-bold text-xs cursor-pointer active:scale-95 transition-transform duration-100"
+              className="h-10 px-2.5 rounded-md flex items-center justify-center gap-1 border-dashed border-border bg-muted text-foreground/80 hover:bg-secondary shrink-0 font-bold text-xs cursor-pointer active:scale-95 transition-transform duration-100"
               title="Simpan sementara antrean pesanan ini (Hold)"
             >
               <Clock className="size-3.5 shrink-0" />
@@ -7504,7 +7512,7 @@ function PosPage({
                 setActiveCartPopover(null);
                 setIsCustomerStepModalOpen(true);
               }}
-              className="h-10 flex-1 rounded-lg text-xs sm:text-sm shadow-brand font-bold whitespace-nowrap gap-1 active:scale-95 transition-transform duration-100"
+              className="h-10 flex-1 rounded-md text-xs sm:text-sm shadow-brand font-bold whitespace-nowrap gap-1 active:scale-95 transition-transform duration-100"
             >
               <span>Bayar • {formatRupiah(total)}</span>
               <ChevronRight className="size-4 shrink-0" />
@@ -7552,7 +7560,7 @@ function PosPage({
                     setSelectedCustomerId("");
                   }}
                   className={cn(
-                    "h-9 rounded-lg text-xs font-black transition-all cursor-pointer active:scale-95",
+                    "h-9 rounded-lg text-xs font-black cursor-pointer active:scale-95 transition-transform duration-100",
                     customerMode !== "member"
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "text-muted-foreground hover:text-foreground",
@@ -7567,7 +7575,7 @@ function PosPage({
                     setCustomerMode("member");
                   }}
                   className={cn(
-                    "h-9 rounded-lg text-xs font-black transition-all cursor-pointer active:scale-95",
+                    "h-9 rounded-lg text-xs font-black cursor-pointer active:scale-95 transition-transform duration-100",
                     customerMode === "member"
                       ? "bg-primary text-primary-foreground shadow-xs"
                       : "text-muted-foreground hover:text-foreground",
@@ -7577,92 +7585,9 @@ function PosPage({
                 </button>
               </div>
 
-              {/* Tipe Pesanan: Take Away (default hijau), Dine In, Delivery + GoFood/GrabFood/ShopeeFood (disabled abu tua) */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground block">
-                  Tipe Pesanan
-                </label>
-                <div className="grid grid-cols-3 gap-1">
-                  {(
-                    [
-                      { id: "take_away", label: "Take Away" },
-                      { id: "dine_in", label: "Dine In" },
-                      { id: "delivery", label: "Delivery" },
-                    ] as Array<{ id: PosOrderType; label: string }>
-                  ).map((tItem) => (
-                    <button
-                      key={tItem.id}
-                      type="button"
-                      onClick={() => {
-                        playPosSound("option");
-                        setOrderType(tItem.id);
-                      }}
-                      className={cn(
-                        "h-9 min-w-0 rounded-lg text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-2 active:scale-95",
-                        orderType === tItem.id
-                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                          : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
-                      )}
-                    >
-                      {tItem.label}
-                    </button>
-                  ))}
-                </div>
-
-                <div className="grid grid-cols-3 gap-1">
-                  {(
-                    [
-                      { id: "gofood", label: "GoFood" },
-                      { id: "grabfood", label: "GrabFood" },
-                      { id: "shopeefood", label: "ShopeeFood" },
-                    ] as Array<{ id: PosOrderType; label: string }>
-                  ).map((ojol) => (
-                    <button
-                      key={ojol.id}
-                      type="button"
-                      disabled
-                      title={`${ojol.label} segera hadir`}
-                      className="h-8 min-w-0 rounded-lg text-[11px] font-bold border flex items-center justify-center text-center truncate px-1.5 bg-slate-200 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed opacity-75"
-                    >
-                      {ojol.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Input Pelanggan sesuai Tab Umum vs Member */}
-              {customerMode !== "member" ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div>
-                    <label className="text-xs font-bold text-foreground block mb-1">
-                      Nama Pelanggan / Antrean
-                    </label>
-                    <input
-                      type="text"
-                      aria-label="Nama Pelanggan / Antrean"
-                      title="Nama Pelanggan / Antrean (Otomatis Daftar Member Cepat CRM)"
-                      placeholder="Contoh: Budi / Antrean 12"
-                      value={customerQueueName}
-                      onChange={(e) => setCustomerQueueName(e.target.value)}
-                      className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-foreground block mb-1">
-                      No. WA (Opsional)
-                    </label>
-                    <input
-                      type="tel"
-                      aria-label="No. Telepon / WA (Opsional)"
-                      placeholder="0812xxxx (Kirim Struk WA)"
-                      value={newCustomerPhone}
-                      onChange={(e) => setNewCustomerPhone(e.target.value)}
-                      className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div className="space-y-2">
+              {/* Cari & Pilih Member (tampil saat tab Member aktif) */}
+              {customerMode === "member" && (
+                <div className="space-y-2 rounded-xl border border-border/80 bg-muted/25 p-2.5">
                   <div className="relative">
                     <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
                     <input
@@ -7679,6 +7604,7 @@ function PosPage({
                     aria-label="Pilih Member Terdaftar"
                     value={selectedCustomerId}
                     onChange={(e) => {
+                      playPosSound("option");
                       const nextId = e.target.value;
                       setSelectedCustomerId(nextId);
                       if (nextId) {
@@ -7689,7 +7615,7 @@ function PosPage({
                         }
                       }
                     }}
-                    className="w-full h-9 rounded-lg border border-border bg-secondary/70 px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
+                    className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
                   >
                     <option value="">
                       Pilih Member Terdaftar ({filteredMemberCustomers.length})
@@ -7713,6 +7639,7 @@ function PosPage({
                       <button
                         type="button"
                         onClick={() => {
+                          playPosSound("option");
                           setSelectedCustomerId("");
                           setCustomerQueueName("");
                           setNewCustomerPhone("");
@@ -7726,6 +7653,92 @@ function PosPage({
                   )}
                 </div>
               )}
+
+              {/* Tipe Pesanan: Take Away (default hijau), Dine In, Delivery + GoFood/GrabFood/ShopeeFood (disabled abu-abu tua) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground block">
+                  Tipe Pesanan
+                </label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: "take_away", label: "Take Away" },
+                      { id: "dine_in", label: "Dine In" },
+                      { id: "delivery", label: "Delivery" },
+                    ] as Array<{ id: PosOrderType; label: string }>
+                  ).map((tItem) => (
+                    <button
+                      key={tItem.id}
+                      type="button"
+                      onClick={() => {
+                        playPosSound("option");
+                        setOrderType(tItem.id);
+                      }}
+                      className={cn(
+                        "h-9 min-w-0 rounded-lg text-xs font-bold border flex items-center justify-center cursor-pointer text-center truncate px-2 active:scale-95 transition-transform duration-100",
+                        orderType === tItem.id
+                          ? tItem.id === "take_away"
+                            ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
+                            : "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                      )}
+                    >
+                      {tItem.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: "gofood", label: "GoFood" },
+                      { id: "grabfood", label: "GrabFood" },
+                      { id: "shopeefood", label: "ShopeeFood" },
+                    ] as Array<{ id: PosOrderType; label: string }>
+                  ).map((ojol) => (
+                    <button
+                      key={ojol.id}
+                      type="button"
+                      disabled
+                      title={`${ojol.label} segera hadir`}
+                      className="h-8 min-w-0 rounded-lg text-[11px] font-bold border flex items-center justify-center text-center truncate px-1.5 bg-slate-700 text-slate-300 border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 cursor-not-allowed opacity-85"
+                    >
+                      {ojol.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Nama Pelanggan / Antrean + No. WA (Opsional) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-foreground block mb-1">
+                    Nama Pelanggan / Antrean
+                  </label>
+                  <input
+                    type="text"
+                    aria-label="Nama Pelanggan / Antrean"
+                    title="Nama Pelanggan / Antrean (Otomatis Daftar Member Cepat CRM)"
+                    placeholder="Contoh: Budi / Antrean 12"
+                    value={customerQueueName}
+                    onChange={(e) => setCustomerQueueName(e.target.value)}
+                    className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-foreground block mb-1">
+                    No. WA (Opsional)
+                  </label>
+                  <input
+                    type="tel"
+                    aria-label="No. WA (Opsional)"
+                    placeholder="0812xxxx (Kirim Struk WA)"
+                    value={newCustomerPhone}
+                    onChange={(e) => setNewCustomerPhone(e.target.value)}
+                    className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+              </div>
 
               {/* Tombol Utama Lanjut ke Pembayaran */}
               <div className="pt-1 border-t border-border/60">
@@ -7920,9 +7933,9 @@ function PosPage({
       {/* ======================================================================== */}
       {/* LANGKAH 3 — MODAL METODE PEMBAYARAN + NUMPAD SENTUH BESAR                */}
       {/* ======================================================================== */}
-      {isPaymentModalOpen && cart.length > 0 && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative flex max-h-[94vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 shadow-float overflow-hidden">
+      {isPaymentModalOpen && cart.length > 0 && typeof document !== "undefined" && createPortal(
+        <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
+          <div className="relative z-[9999] flex max-h-[94dvh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
             {/* Header Modal Pembayaran */}
             <div className="flex items-center justify-between border-b border-border px-5 py-3.5 bg-muted/25">
               <div>
@@ -8016,10 +8029,13 @@ function PosPage({
                         type="button"
                         variant={paymentMethod === key ? "default" : "outline"}
                         className={cn(
-                          "min-h-[48px] rounded-2xl font-bold text-xs sm:text-sm gap-1.5",
+                          "min-h-[48px] rounded-2xl font-bold text-xs sm:text-sm gap-1.5 active:scale-95 transition-transform duration-100",
                           paymentMethod === key && "shadow-brand",
                         )}
-                        onClick={() => setPaymentMethod(key as "cash" | "qris" | "ewallet" | "card")}
+                        onClick={() => {
+                          playPosSound("option");
+                          setPaymentMethod(key as "cash" | "qris" | "ewallet" | "card");
+                        }}
                       >
                         <Icon className="size-4 shrink-0" />
                         <span>{String(label)}</span>
@@ -8081,8 +8097,9 @@ function PosPage({
                         type="button"
                         size="sm"
                         variant={cashTendered === btn.val ? "default" : "outline"}
-                        className="min-h-[40px] rounded-xl text-xs font-bold px-1.5"
+                        className="min-h-[40px] rounded-xl text-xs font-bold px-1.5 active:scale-95 transition-transform duration-100"
                         onClick={() => {
+                          playPosSound("option");
                           setCashTendered(btn.val);
                           setCashTenderedInput(formatRupiahInput(btn.val));
                         }}
@@ -8105,14 +8122,15 @@ function PosPage({
                         type="button"
                         size="sm"
                         variant="outline"
-                        className="min-h-[38px] min-w-[38px] rounded-xl text-xs font-bold px-1 bg-background hover:bg-primary/10 border-primary/20"
-                        onClick={() =>
+                        className="min-h-[38px] min-w-[38px] rounded-xl text-xs font-bold px-1 bg-background hover:bg-primary/10 border-primary/20 active:scale-95 transition-transform duration-100"
+                        onClick={() => {
+                          playPosSound("option");
                           setCashTendered((prev) => {
                             const nextVal = Math.max(total, (prev || total) + inc.add);
                             setCashTenderedInput(formatRupiahInput(nextVal));
                             return nextVal;
-                          })
-                        }
+                          });
+                        }}
                       >
                         {inc.label}
                       </Button>
@@ -8271,6 +8289,7 @@ function PosPage({
                 }
                 onClick={async () => {
                   if (isSubmittingCheckout) return;
+                  playPosSound("pay");
                   setIsSubmittingCheckout(true);
                   try {
                     await checkout();
@@ -8278,7 +8297,7 @@ function PosPage({
                     setIsSubmittingCheckout(false);
                   }
                 }}
-                className="min-h-[52px] w-full rounded-2xl text-base font-black shadow-brand gap-2"
+                className="min-h-[52px] w-full rounded-2xl text-base font-black shadow-brand gap-2 active:scale-95 transition-transform duration-100"
               >
                 {isSubmittingCheckout ? (
                   <>
@@ -8299,7 +8318,8 @@ function PosPage({
               </Button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
       {/* PRODUCT CUSTOMIZATION MODAL KOMPAK 1-LAYAR (TABLET-FIRST) */}
       {customizingProduct &&
@@ -8352,10 +8372,10 @@ function PosPage({
               </div>
 
               {/* Modal Body Kompak (p-3.5, tanpa kotak besar berlapis, semua grup muat 1 layar) */}
-              <div className="flex-1 overflow-y-auto p-3.5 space-y-2.5">
+              <div className="flex-1 overflow-y-auto p-3.5 space-y-2">
                 {customizingProduct.variant_groups &&
                 customizingProduct.variant_groups.length > 0 ? (
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                     {customizingProduct.variant_groups.map((group, gIdx) => {
                       const gKey = group.id || group.name || `group-${gIdx}`;
                       const currentSelections = selectedGroupOptions[gKey] || [];
@@ -8382,9 +8402,6 @@ function PosPage({
                                 </span>
                               )}
                             </div>
-                            <span className="sr-only">
-                              Cara Pilih: {isSingle ? "Pilih satu" : "Bisa pilih lebih dari satu"}
-                            </span>
                             {!isSingle && (
                               <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap">
                                 Bisa pilih &gt;1
@@ -8405,6 +8422,7 @@ function PosPage({
                                   key={opt.id || `${gKey}-${oIdx}`}
                                   type="button"
                                   onClick={() => {
+                                    playPosSound("option");
                                     if (isSingle) {
                                       setSelectedGroupOptions((prev) => {
                                         const current = prev[gKey] || [];
@@ -8428,7 +8446,7 @@ function PosPage({
                                     }
                                   }}
                                   className={cn(
-                                    "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center transition-all cursor-pointer min-h-[34px]",
+                                    "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center cursor-pointer min-h-[34px] active:scale-95 transition-transform duration-100",
                                     isSelected
                                       ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
                                       : "border-border bg-secondary/40 hover:bg-secondary text-foreground font-semibold",
@@ -8457,7 +8475,7 @@ function PosPage({
                   </div>
                 ) : (
                   /* Legacy fallback for items without variant_groups */
-                  <div className="space-y-2.5">
+                  <div className="space-y-2">
                     {customizingProduct.variants && customizingProduct.variants.length > 0 && (
                       <div className="space-y-1.5">
                         <div className="flex items-center justify-between">
@@ -8475,9 +8493,12 @@ function PosPage({
                               <button
                                 key={variant.name}
                                 type="button"
-                                onClick={() => setSelectedVariant(variant)}
+                                onClick={() => {
+                                  playPosSound("option");
+                                  setSelectedVariant(variant);
+                                }}
                                 className={cn(
-                                  "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center transition-all cursor-pointer min-h-[34px]",
+                                  "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center cursor-pointer min-h-[34px] active:scale-95 transition-transform duration-100",
                                   isSelected
                                     ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
                                     : "border-border bg-secondary/40 hover:bg-secondary text-foreground font-semibold",
@@ -8523,9 +8544,12 @@ function PosPage({
                                 <button
                                   key={mod.name}
                                   type="button"
-                                  onClick={() => setSelectedLevel(mod)}
+                                  onClick={() => {
+                                    playPosSound("option");
+                                    setSelectedLevel(mod);
+                                  }}
                                   className={cn(
-                                    "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center transition-all cursor-pointer min-h-[34px]",
+                                    "flex flex-col items-center justify-center py-1.5 px-2.5 text-xs rounded-lg border text-center cursor-pointer min-h-[34px] active:scale-95 transition-transform duration-100",
                                     isSelected
                                       ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
                                       : "border-border bg-secondary/40 hover:bg-secondary text-foreground font-semibold",
@@ -8573,6 +8597,7 @@ function PosPage({
                                   key={mod.name}
                                   type="button"
                                   onClick={() => {
+                                    playPosSound("option");
                                     setSelectedPreps((prev) =>
                                       isSelected
                                         ? prev.filter((p) => p !== mod.name)
@@ -8580,7 +8605,7 @@ function PosPage({
                                     );
                                   }}
                                   className={cn(
-                                    "py-1.5 px-2.5 rounded-lg border text-xs font-semibold transition-all cursor-pointer truncate",
+                                    "py-1.5 px-2.5 rounded-lg border text-xs font-semibold cursor-pointer truncate active:scale-95 transition-transform duration-100",
                                     isSelected
                                       ? "border-primary bg-primary text-primary-foreground font-bold shadow-xs"
                                       : "border-border bg-secondary/40 hover:bg-secondary text-foreground",
@@ -8617,9 +8642,12 @@ function PosPage({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-8 w-8 rounded-lg"
+                    className="h-8 w-8 rounded-lg active:scale-95 transition-transform duration-100"
                     disabled={customizeQuantity <= 1}
-                    onClick={() => setCustomizeQuantity((q) => Math.max(1, q - 1))}
+                    onClick={() => {
+                      playPosSound("option");
+                      setCustomizeQuantity((q) => Math.max(1, q - 1));
+                    }}
                   >
                     <Minus className="size-3.5" />
                   </Button>
@@ -8628,8 +8656,11 @@ function PosPage({
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    className="h-8 w-8 rounded-lg"
-                    onClick={() => setCustomizeQuantity((q) => q + 1)}
+                    className="h-8 w-8 rounded-lg active:scale-95 transition-transform duration-100"
+                    onClick={() => {
+                      playPosSound("option");
+                      setCustomizeQuantity((q) => q + 1);
+                    }}
                   >
                     <Plus className="size-3.5" />
                   </Button>
@@ -8638,7 +8669,7 @@ function PosPage({
                 <Button
                   type="button"
                   variant="hero"
-                  className="flex-1 h-10 px-4 rounded-xl text-xs sm:text-sm font-bold shadow-brand gap-1.5 whitespace-nowrap"
+                  className="flex-1 h-10 px-4 rounded-xl text-xs sm:text-sm font-bold shadow-brand gap-1.5 whitespace-nowrap active:scale-95 transition-transform duration-100"
                   onClick={handleConfirmAddToCart}
                 >
                   <span>Tambah ke Keranjang</span>

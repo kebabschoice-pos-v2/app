@@ -1099,10 +1099,8 @@ test("Uses restaurant operational terms: 'Pilih satu', 'Bisa pilih lebih dari sa
   assert.ok(menuMgmt.includes("Bisa pilih lebih dari satu"), "MenuManagement must include 'Bisa pilih lebih dari satu'");
   assert.ok(menuMgmt.includes("Pilihan wajib dipilih"), "MenuManagement must label required toggle as 'Pilihan wajib dipilih'");
 
-  // Verification in KebabsChoicePOSApp
-  assert.ok(posApp.includes("Cara Pilih:"), "KebabsChoicePOSApp must include 'Cara Pilih:'");
-  assert.ok(posApp.includes("Pilih satu"), "KebabsChoicePOSApp must include 'Pilih satu'");
-  assert.ok(posApp.includes("Bisa pilih lebih dari satu"), "KebabsChoicePOSApp must include 'Bisa pilih lebih dari satu'");
+  // Verification in KebabsChoicePOSApp (compact 1-screen POS Variant Modal omits 'Cara Pilih: Pilih satu' clutter)
+  assert.ok(!posApp.includes("Cara Pilih:"), "KebabsChoicePOSApp compact Variant Modal must omit 'Cara Pilih:' label");
   assert.ok(posApp.includes("Pilihan wajib dipilih"), "KebabsChoicePOSApp must badge required groups as 'Pilihan wajib dipilih'");
 });
 
@@ -3226,12 +3224,12 @@ test("Enforces POS Online+queue badge, overflow-safe cards, 3-col channel grid, 
     "POS status bar must strictly display green CSS-dot Online (or Online (X antrean)) whenever window.navigator.onLine !== false",
   );
 
-  // 1B. POS product card overflow-hidden + 3-mode tap-to-add catalog (Padat / Normal / List) without bulky + Tambah button
+  // 1B. POS product card overflow-hidden + 3-mode tap-to-add catalog (Kotak Padat / Normal / List) without bulky + Tambah button
   assert.ok(
     posAppCode.includes("kebabschoicepos_view_mode") &&
-      posAppCode.includes("grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2") &&
+      posAppCode.includes("grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5") &&
       posAppCode.includes("overflow-hidden"),
-    "POS product cards must clip overflow and support 3-mode tap-to-add catalog (Padat / Normal / List)",
+    "POS product cards must clip overflow and support 3-mode tap-to-add catalog with grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5 in compact mode",
   );
 
   // 1C. Smart Cart 3-column channel grid, formatted anti-leading-zero discount, pinned Bayar CTA, no MEMBER / PELANGGAN CRM header
@@ -3841,6 +3839,130 @@ test("Enforces mandatory open shift before checkout, offline BOM/product/shift s
         'relative z-[9999] w-full max-w-md rounded-[2rem] border border-border bg-white dark:bg-slate-900',
       ),
     "Numpad backspace must render <Delete className='w-5 h-5' />, Smart Cart & quick cash buttons must use min-h-[38px] min-w-[38px], and Void/Refund modal must render via createPortal with solid z-[9999] panel",
+  );
+});
+
+// --- TEST 115: Bagian 2/3 — Compact Square Menu Cards, 3-Step Checkout Flow, 1-Screen Variant Modal & Web Audio POS Sound ---
+console.log("\n▶ 115. BAGIAN 2/3: COMPACT SQUARE MENU CARDS, 3-STEP CHECKOUT FLOW, 1-SCREEN VARIANT MODAL & WEB AUDIO SOUND");
+test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), clean Step-1 Smart Cart + Step-2 Customer Portal Modal + Step-3 Payment Modal, 1-screen Variant Modal without 'Cara Pilih: Pilih satu' or '+Rp 0', and offline Web Audio API sound effects", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const posSoundCode = read("src/lib/pos-sound.ts");
+  const profileTabsCode = read("src/components/kebabschoicepos/UnifiedProfileTabs.tsx");
+
+  // 1. Compact Square Menu Cards (/pos) in default Kotak Padat mode
+  assert.ok(
+    posAppCode.includes("grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5") &&
+      posAppCode.includes("rounded-lg border bg-card p-2.5") &&
+      posAppCode.includes("rounded-md bg-muted border border-border/50 mb-2") &&
+      posAppCode.includes("active:scale-95 transition-transform duration-100"),
+    "Default Kotak Padat catalog must use grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2.5, rounded-lg card with uniform p-2.5, rounded-md image, and active:scale-95 tactile transition",
+  );
+
+  // 2. Step 1 — Smart Cart <aside> strictly contains ONLY items, summary & Tahan/Bayar (zero customer/channel clutter)
+  const smartCartStart = posAppCode.indexOf("LANGKAH 1 — SMART CART KANAN BERSIH");
+  const smartCartEnd = posAppCode.indexOf("LANGKAH 2 — POPUP DATA PESANAN & PELANGGAN");
+  assert.ok(smartCartStart > 0 && smartCartEnd > smartCartStart, "Smart Cart Step 1 section must exist");
+  const smartCartAside = posAppCode.slice(smartCartStart, smartCartEnd);
+
+  assert.ok(
+    smartCartAside.includes('t("cart.title", "Smart Cart")') &&
+      smartCartAside.includes("Tertahan ({heldOrders.length})") &&
+      smartCartAside.includes('aria-label="Kosongkan keranjang"') &&
+      smartCartAside.includes('t("cart.subtotal", "Subtotal")') &&
+      smartCartAside.includes("PB1 ${taxSettings.taxRate}%") &&
+      smartCartAside.includes('t("cart.total_bill", "Total")') &&
+      smartCartAside.includes("<span>Tahan</span>") &&
+      smartCartAside.includes("Bayar • {formatRupiah(total)}"),
+    "Smart Cart Step 1 must include Smart Cart header, Tertahan, Hapus, Subtotal, Diskon, PB1, Total, Tahan, and Bayar CTA",
+  );
+  for (const forbiddenInCart of [
+    "Take Away",
+    "Dine In",
+    "Delivery",
+    "GoFood",
+    "GrabFood",
+    "ShopeeFood",
+    "Nama Pelanggan / Antrean",
+    "No. WA (Opsional)",
+    "Pilih Member Terdaftar",
+  ]) {
+    assert.ok(
+      !smartCartAside.includes(forbiddenInCart),
+      `Smart Cart Step 1 <aside> must NOT contain '${forbiddenInCart}'`,
+    );
+  }
+
+  // 3. Step 2 — Customer & Order Type Popup via createPortal(..., document.body) with solid white card after shift check
+  const step2End = posAppCode.indexOf("MODAL INPUT CEPAT ORDER WHATSAPP");
+  const step2Modal = posAppCode.slice(smartCartEnd, step2End);
+  assert.ok(
+    smartCartAside.includes('if (activeShift?.status !== "open")') &&
+      smartCartAside.includes("setIsCustomerStepModalOpen(true)") &&
+      step2Modal.includes("isCustomerStepModalOpen") &&
+      step2Modal.includes("createPortal(") &&
+      step2Modal.includes("bg-white dark:bg-slate-900") &&
+      step2Modal.includes("document.body") &&
+      step2Modal.includes("Umum") &&
+      step2Modal.includes("Member") &&
+      step2Modal.includes('{ id: "take_away", label: "Take Away" }') &&
+      step2Modal.includes('{ id: "dine_in", label: "Dine In" }') &&
+      step2Modal.includes('{ id: "delivery", label: "Delivery" }') &&
+      step2Modal.includes('{ id: "gofood", label: "GoFood" }') &&
+      step2Modal.includes('{ id: "grabfood", label: "GrabFood" }') &&
+      step2Modal.includes('{ id: "shopeefood", label: "ShopeeFood" }') &&
+      step2Modal.includes("disabled") &&
+      step2Modal.includes("Nama Pelanggan / Antrean") &&
+      step2Modal.includes("No. WA (Opsional)") &&
+      step2Modal.includes("Lanjut ke Pembayaran • {formatRupiah(total)}") &&
+      step2Modal.includes("setIsPaymentModalOpen(true)"),
+    "Step 2 Customer & Order Type popup must render via createPortal(..., document.body) with solid card, Umum|Member tabs, Take Away default green + disabled Ojol, customer inputs, and Lanjut ke Pembayaran CTA",
+  );
+
+  // 4. Step 3 — Payment Method Popup (Tunai / QRIS / EDC)
+  const step3Start = posAppCode.indexOf("LANGKAH 3 — MODAL METODE PEMBAYARAN");
+  const variantStart = posAppCode.indexOf("PRODUCT CUSTOMIZATION MODAL KOMPAK 1-LAYAR");
+  const step3Modal = posAppCode.slice(step3Start, variantStart);
+  assert.ok(
+    step3Modal.includes("isPaymentModalOpen && cart.length > 0") &&
+      step3Modal.includes("createPortal(") &&
+      step3Modal.includes('["cash", "Tunai"') &&
+      step3Modal.includes('["qris", "QRIS"') &&
+      step3Modal.includes('["card", "EDC"') &&
+      step3Modal.includes("Selesaikan &amp; Cetak Struk"),
+    "Step 3 Payment Modal must support Tunai, QRIS, and EDC via createPortal and proceed to checkout & receipt",
+  );
+
+  // 5. Compact 1-Screen Variant Modal (p-3.5, no 'Cara Pilih:', hides +Rp 0, py-1.5 px-2.5 text-xs rounded-lg grid-cols-3 gap-1.5)
+  const qrisStart = posAppCode.indexOf("DYNAMIC QRIS REALTIME PAYMENT MODAL");
+  const variantModal = posAppCode.slice(variantStart, qrisStart);
+  assert.ok(
+    variantModal.includes("p-3.5") &&
+      !variantModal.includes("Cara Pilih:") &&
+      variantModal.includes("optPrice > 0") &&
+      variantModal.includes("grid grid-cols-3 gap-1.5") &&
+      variantModal.includes("py-1.5 px-2.5 text-xs rounded-lg") &&
+      variantModal.includes('playPosSound("option")') &&
+      variantModal.includes("active:scale-95 transition-transform duration-100"),
+    "Variant Modal must use p-3.5, omit 'Cara Pilih:', hide +Rp 0 via optPrice > 0, render py-1.5 px-2.5 text-xs rounded-lg in grid-cols-3 gap-1.5, and play sound with active:scale-95",
+  );
+
+  // 6. Offline Web Audio API Sound Effects (src/lib/pos-sound.ts & /profile)
+  assert.ok(
+    posSoundCode.includes("AudioContext") &&
+      posSoundCode.includes("createOscillator") &&
+      posSoundCode.includes("createGain") &&
+      !posSoundCode.includes(".mp3") &&
+      !posSoundCode.includes(".wav") &&
+      posSoundCode.includes('{ value: "off", label: "Mati"') &&
+      posSoundCode.includes('{ value: "beep", label: "Beep Klasik"') &&
+      posSoundCode.includes('{ value: "pop", label: "Pop Lembut"') &&
+      posSoundCode.includes('{ value: "chime", label: "Chime"') &&
+      posSoundCode.includes('return "beep";') &&
+      profileTabsCode.includes("POS_SOUND_OPTIONS") &&
+      profileTabsCode.includes("Tes Suara") &&
+      profileTabsCode.includes("testPosSound"),
+    "pos-sound.ts must synthesize sounds offline via Web Audio API with Mati, Beep Klasik (default), Pop Lembut, Chime, and Tes Suara in /profile",
   );
 });
 

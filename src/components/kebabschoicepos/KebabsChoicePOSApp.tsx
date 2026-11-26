@@ -2128,12 +2128,9 @@ function Sidebar({
                 navigator.maxTouchPoints > 0 ||
                 !!window.matchMedia?.("(pointer: coarse)")?.matches;
               if (isTouchOrMobile) {
-                // Intent filter WhatsApp butuh host "send"; skema polos diabaikan Android.
-                // iOS: whatsapp://send. Android: Intent URI tanpa package agar
-                // WhatsApp maupun WhatsApp Business yang terpasang bisa menangani.
-                window.location.href = /iPhone|iPad/i.test(navigator.userAgent)
-                  ? "whatsapp://send"
-                  : "intent://send#Intent;scheme=whatsapp;end";
+                // Pola sama dengan "Kirim Struk WA" (openWhatsAppReceipt): wa.me
+                // terbukti langsung membuka aplikasi WhatsApp asli di tablet.
+                window.open("https://wa.me/?text=%20", "_blank", "noopener,noreferrer");
               } else {
                 window.open("https://web.whatsapp.com/", "_blank", "noopener,noreferrer");
               }

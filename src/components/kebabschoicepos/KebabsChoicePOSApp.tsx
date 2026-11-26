@@ -249,6 +249,7 @@ import {
 } from "@/lib/theme";
 import { playPosSound } from "@/lib/pos-sound";
 import { openWhatsAppReceipt } from "@/lib/whatsapp-receipt";
+import { isCapacitorAndroid, openWhatsAppHomeNative } from "@/lib/native-whatsapp";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -2121,6 +2122,18 @@ function Sidebar({
             aria-label="Buka WhatsApp"
             onClick={() => {
               playPosSound("tap");
+              // Di dalam .apk (Capacitor Android): plugin native WhatsAppLauncher
+              // langsung membuka HALAMAN UTAMA daftar chat WhatsApp (1 tap).
+              if ((window as any).Capacitor?.isNativePlatform?.() && isCapacitorAndroid()) {
+                void openWhatsAppHomeNative().then((res) => {
+                  if (!res.opened) {
+                    toast.error(
+                      t("rail.whatsapp_not_installed", "WhatsApp belum terpasang di perangkat ini"),
+                    );
+                  }
+                });
+                return;
+              }
               // Chrome tablet Android sering memakai UA desktop (X11; Linux x86_64),
               // jadi deteksi juga lewat layar sentuh / pointer coarse.
               const isTouchOrMobile =
@@ -2130,7 +2143,7 @@ function Sidebar({
               if (isTouchOrMobile) {
                 // Pola sama dengan "Kirim Struk WA" (openWhatsAppReceipt): wa.me
                 // terbukti langsung membuka aplikasi WhatsApp asli di tablet.
-                window.open("https://wa.me/?text=%20", "_blank", "noopener,noreferrer");
+                window.open("https://wa.me/?text=Halo%20kak", "_blank", "noopener,noreferrer");
               } else {
                 window.open("https://web.whatsapp.com/", "_blank", "noopener,noreferrer");
               }

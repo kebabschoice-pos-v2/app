@@ -153,5 +153,10 @@ export function openWhatsAppReceipt(
 ): void {
   if (typeof window === "undefined") return;
   const url = buildWhatsAppReceiptUrl(payload, explicitPhone);
+  const cap = (window as unknown as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+  if (cap?.isNativePlatform?.()) {
+    window.location.href = url;
+    return;
+  }
   window.open(url, "_blank", "noopener,noreferrer");
 }

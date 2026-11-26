@@ -3,6 +3,7 @@ import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getStaffList, type StaffItem, isOutletDeviceAccount, isOwnerAccount } from "./staff.service";
 import { getOutletList, resolveCurrentBusinessIds, type OutletItem } from "./outlet.service";
 import {
+  clearCachedFaceDescriptor,
   getCachedFaceDescriptor,
   isValidFaceDescriptor,
   saveCachedFaceDescriptor,
@@ -495,6 +496,8 @@ export async function updateHRStaffProfile(
           data.full_name || local[userId]?.full_name || "",
           data.face_descriptor,
         );
+      } else if (data.face_descriptor === null) {
+        clearCachedFaceDescriptor(userId, data.full_name || local[userId]?.full_name || "");
       }
     }
 
@@ -520,6 +523,10 @@ export async function updateHRStaffProfile(
         ...(data.absence_deduction !== undefined ? { absence_deduction: Number(data.absence_deduction) } : {}),
         updated_at: nowIso,
       };
+      const dbPayloadWithFace =
+        data.face_descriptor !== undefined
+          ? { ...dbPayload, face_descriptor: data.face_descriptor }
+          : dbPayload;
 
       const { data: existingProf, error: findErr } = await supabase
         .from("staff_profiles" as any)
@@ -529,20 +536,34 @@ export async function updateHRStaffProfile(
         .maybeSingle();
 
       if (!findErr && (existingProf as any)?.id) {
-        const { error: updErr } = await supabase
+        let { error: updErr } = await supabase
           .from("staff_profiles" as any)
-          .update(dbPayload)
+          .update(dbPayloadWithFace)
           .eq("id", (existingProf as any).id)
           .eq("business_id", businessId);
+        if (updErr && data.face_descriptor !== undefined) {
+          const retryUpd = await supabase
+            .from("staff_profiles" as any)
+            .update(dbPayload)
+            .eq("id", (existingProf as any).id)
+            .eq("business_id", businessId);
+          updErr = retryUpd.error;
+        }
         if (updErr) {
           console.error("[updateHRStaffProfile] staff_profiles update error:", updErr.message);
         } else {
           persistedToSupabase = true;
         }
       } else {
-        const { error: insErr } = await supabase
+        let { error: insErr } = await supabase
           .from("staff_profiles" as any)
-          .insert({ ...dbPayload, created_at: nowIso });
+          .insert({ ...dbPayloadWithFace, created_at: nowIso });
+        if (insErr && data.face_descriptor !== undefined) {
+          const retryIns = await supabase
+            .from("staff_profiles" as any)
+            .insert({ ...dbPayload, created_at: nowIso });
+          insErr = retryIns.error;
+        }
         if (insErr) {
           console.error("[updateHRStaffProfile] staff_profiles insert error:", insErr.message);
         } else {
@@ -559,6 +580,7 @@ export async function updateHRStaffProfile(
         .eq("business_id", businessId);
 
       if (!outletsErr && allOutlets && Array.isArray(allOutlets)) {
+        const targetNameLower = String(data.full_name || "").trim().toLowerCase();
         for (const out of allOutlets) {
           const s =
             out.settings && typeof out.settings === "object" && !Array.isArray(out.settings)
@@ -566,7 +588,12 @@ export async function updateHRStaffProfile(
               : {};
           let shouldUpdate = false;
           const updatedRoster = Array.isArray(s.outlet_staff_roster) ? [...s.outlet_staff_roster] : [];
-          const idx = updatedRoster.findIndex((e: any) => (e.id || e.user_id) === userId);
+          const idx = updatedRoster.findIndex(
+            (e: any) =>
+              (e.id || e.user_id) === userId ||
+              (targetNameLower &&
+                String(e.name || e.full_name || "").trim().toLowerCase() === targetNameLower),
+          );
           if (idx >= 0) {
             updatedRoster[idx] = {
               ...updatedRoster[idx],

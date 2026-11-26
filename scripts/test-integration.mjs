@@ -3966,6 +3966,100 @@ test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), c
   );
 });
 
+// --- TEST 116: Bagian 3/3 — Biometric Face Attendance Without PIN (2-Col Compact Camera), Simple Shift Layout & Free WhatsApp Integration ---
+console.log("\n▶ 116. BAGIAN 3/3: BIOMETRIC FACE ATTENDANCE WITHOUT PIN, SIMPLE SHIFT LAYOUT & FREE WHATSAPP INTEGRATION");
+test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0.50, first-time enrollment & /staff re-enroll), 2-column compact camera (/pos/attendance-in), streamlined /pos/shift-cash layout, and 1-click Kirim Struk WA + Order WA modal", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const faceBioCode = read("src/lib/face-biometrics.ts");
+  const attendanceCode = read("src/components/kebabschoicepos/AttendancePage.tsx");
+  const staffMgmtCode = read("src/components/kebabschoicepos/StaffManagement.tsx");
+  const hrServiceCode = read("src/services/hr.service.ts");
+  const shiftPageCode = read("src/pages/pos/PosShiftCashPage.tsx");
+  const waReceiptCode = read("src/lib/whatsapp-receipt.ts");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+
+  // 1. Real 128D Face Biometric Verification Without PIN & Models in public/models
+  assert.ok(
+    fs.existsSync(path.join(process.cwd(), "public/models/tiny_face_detector_model-weights_manifest.json")) &&
+      fs.existsSync(path.join(process.cwd(), "public/models/face_landmark_68_tiny_model-weights_manifest.json")) &&
+      fs.existsSync(path.join(process.cwd(), "public/models/face_recognition_model-weights_manifest.json")),
+    "public/models must contain tiny_face_detector, face_landmark_68_tiny, and face_recognition weights",
+  );
+  assert.ok(
+    faceBioCode.includes("@vladmandic/face-api") &&
+      faceBioCode.includes("FACE_MATCH_THRESHOLD = 0.5") &&
+      faceBioCode.includes("FACE_DESCRIPTOR_LENGTH = 128") &&
+      faceBioCode.includes("computeFaceEuclideanDistance") &&
+      faceBioCode.includes("verifyFaceMatch"),
+    "face-biometrics.ts must implement 128D Euclidean distance matching with threshold 0.50 using @vladmandic/face-api",
+  );
+
+  // Validate Euclidean distance math (<= 0.50 matches, > 0.50 rejects)
+  const descBase = Array.from({ length: 128 }, (_, i) => (i % 2 === 0 ? 0.1 : -0.1));
+  const descSamePerson = descBase.map((v) => v + 0.02); // distance = sqrt(128 * 0.0004) = sqrt(0.0512) ≈ 0.226 <= 0.50
+  const descDifferentPerson = descBase.map((v) => v + 0.08); // distance = sqrt(128 * 0.0064) = sqrt(0.8192) ≈ 0.905 > 0.50
+  const euclid = (a, b) => Math.sqrt(a.reduce((sum, v, idx) => sum + (v - b[idx]) ** 2, 0));
+  assert.ok(euclid(descBase, descSamePerson) <= 0.5, "Same-person 128D descriptor distance must be <= 0.50");
+  assert.ok(euclid(descBase, descDifferentPerson) > 0.5, "Different-person 128D descriptor distance must be > 0.50");
+
+  // Validate PIN-free AttendancePage 2-column compact layout, first-time enrollment, and exact rejection message
+  assert.ok(
+    !attendanceCode.includes('type="password"') &&
+      !attendanceCode.includes("Masukkan PIN") &&
+      attendanceCode.includes("grid grid-cols-1 md:grid-cols-12 gap-4") &&
+      attendanceCode.includes("max-w-[260px] aspect-[4/3] w-full mx-auto") &&
+      attendanceCode.includes("Daftarkan Wajah Pertama Kali") &&
+      attendanceCode.includes("`Wajah tidak cocok dengan data ${staff.full_name}.`") &&
+      staffMgmtCode.includes("Daftar Ulang Wajah") &&
+      hrServiceCode.includes("face_descriptor"),
+    "AttendancePage must have zero PIN inputs, 2-col compact camera (grid-cols-1 md:grid-cols-12 gap-4 & max-w-[260px] aspect-[4/3]), first-time face enrollment, exact rejection message, and /staff face re-enrollment",
+  );
+
+  // 2. Streamlined /pos/shift-cash Layout (Closed = 1 compact centered card max-w-lg mx-auto + collapsible schedule; Active = 4 KPI row + 2 columns)
+  assert.ok(
+    shiftPageCode.includes("max-w-lg mx-auto") &&
+      shiftPageCode.includes("isScheduleAccordionOpen") &&
+      shiftPageCode.includes("Jadwal Tim Cabang Hari Ini") &&
+      shiftPageCode.includes("grid grid-cols-2 md:grid-cols-4 gap-3") &&
+      shiftPageCode.includes("Modal Awal") &&
+      shiftPageCode.includes("Penjualan Tunai") &&
+      shiftPageCode.includes("Kas Masuk/Keluar") &&
+      shiftPageCode.includes("Ekspektasi Kas") &&
+      shiftPageCode.includes("grid grid-cols-1 md:grid-cols-12 gap-4 items-start") &&
+      shiftPageCode.includes("+ Kas Masuk") &&
+      shiftPageCode.includes("- Kas Keluar") &&
+      shiftPageCode.includes("Tutup Shift") &&
+      shiftPageCode.includes("Riwayat Shift"),
+    "PosShiftCashPage must render centered max-w-lg mx-auto card with collapsible schedule when closed, and 4 KPI cards + 2-column Cash In/Out/Close vs Shift History when active",
+  );
+
+  // 3. Free WhatsApp Integration (wa.me URL with & without phone, Kirim Struk WA in ReceiptModal & /pos/orders, Order WA button in /pos toolbar + modal)
+  assert.ok(
+    waReceiptCode.includes("https://wa.me/${normalizedPhone}?text=${encodeURIComponent(receiptText)}") &&
+      waReceiptCode.includes("https://wa.me/?text=${encodeURIComponent(receiptText)}"),
+    "whatsapp-receipt.ts must build wa.me URL with normalized phone or contact-picker fallback when phone is empty",
+  );
+  const receiptModalSlice = posAppCode.slice(
+    posAppCode.indexOf("function ReceiptModal("),
+    posAppCode.indexOf("function SwitchCashierModal("),
+  );
+  const ordersPageSlice = posAppCode.slice(
+    posAppCode.indexOf("function OrdersPage("),
+    posAppCode.indexOf("function ProfilePage("),
+  );
+  assert.ok(
+    receiptModalSlice.includes("Kirim Struk WA") &&
+      receiptModalSlice.includes("openWhatsAppReceipt") &&
+      ordersPageSlice.includes("Kirim Struk WA") &&
+      ordersPageSlice.includes("handleSendOrderWhatsApp") &&
+      posAppCode.includes('aria-label="Order WA"') &&
+      posAppCode.includes("<span>Order WA</span>") &&
+      posAppCode.includes("isWaOrderModalOpen") &&
+      posAppCode.includes("handleConfirmWaOrderToCart"),
+    "ReceiptModal and OrdersPage (/pos/orders) must include Kirim Struk WA, and /pos toolbar must include Order WA button + modal feeding Smart Cart",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

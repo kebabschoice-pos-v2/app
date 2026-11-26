@@ -3104,6 +3104,11 @@ function ReceiptModal({
   businessName?: string;
   onClose: () => void;
 }) {
+  const [waPhoneInput, setWaPhoneInput] = useState(data?.customerPhone || "");
+  useEffect(() => {
+    setWaPhoneInput(data?.customerPhone || "");
+  }, [data?.orderNumber, data?.customerPhone]);
+
   if (!data) return null;
   const printerCfg = getSavedPrinterConfig();
   const headerStoreName = printerCfg.storeName || businessName || "KEBABSCHOICE POS";
@@ -3271,7 +3276,18 @@ function ReceiptModal({
           <span className="font-bold text-foreground">Siap Cetak / RawBT</span>
         </div>
 
-        <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-border">
+        <div className="mt-2.5 flex items-center gap-2 rounded-xl border border-border/70 bg-background px-2.5 py-1.5">
+          <MessageSquare className="size-3.5 text-emerald-600 shrink-0" />
+          <input
+            type="tel"
+            value={waPhoneInput}
+            onChange={(e) => setWaPhoneInput(e.target.value)}
+            placeholder="No. WA tujuan (kosong = pilih kontak di WA)"
+            className="w-full bg-transparent text-xs font-medium text-foreground placeholder:text-muted-foreground focus:outline-none"
+          />
+        </div>
+
+        <div className="mt-2.5 flex flex-wrap gap-2 pt-2 border-t border-border">
           <Button
             type="button"
             variant="outline"
@@ -3285,6 +3301,7 @@ function ReceiptModal({
             variant="secondary"
             className="flex-1 rounded-xl text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
             onClick={() => {
+              const targetWaPhone = waPhoneInput.trim() || data.customerPhone || undefined;
               openWhatsAppReceipt(
                 {
                   storeName: headerStoreName,
@@ -3294,7 +3311,7 @@ function ReceiptModal({
                   orderType: data.orderType,
                   customerName: data.customerName || undefined,
                   customerQueueName: data.customerQueueName || undefined,
-                  customerPhone: data.customerPhone || undefined,
+                  customerPhone: targetWaPhone,
                   cashierName: data.cashierName,
                   paymentMethod: data.paymentMethod,
                   createdAt: data.createdAt,
@@ -3311,7 +3328,7 @@ function ReceiptModal({
                   changeAmount: data.changeAmount,
                   footerMessage: footerText,
                 },
-                data.customerPhone,
+                targetWaPhone,
               );
             }}
           >
@@ -6607,11 +6624,13 @@ function PosPage({
       cashier_name: effectiveCashierName,
       customer_queue_name: trimmedQueueName || null,
       customer_name: effectiveCustomerName,
+      customer_phone: receiptData.customerPhone || null,
       notes: orderPayload.notes || null,
       subtotal: safeSubtotal,
       discount_amount: safeDiscountAmount,
       cashReceived,
       changeAmount,
+      items: receiptData.items,
     };
 
     if (snapshot.orders) {
@@ -6747,6 +6766,12 @@ function PosPage({
     for (const rawLine of lines) {
       const line = rawLine.trim();
       if (!line) continue;
+      if (!waCustomerName.trim()) {
+        const nameMatch = line.match(/^(?:nama|atas\s*nama|a\.n\.?)\s*[:=-]\s*(.+)$/i);
+        if (nameMatch?.[1]?.trim()) {
+          setWaCustomerName(nameMatch[1].trim());
+        }
+      }
       if (!waCustomerPhone) {
         const phoneMatch = line.match(/(?:\+?62|08)\d{7,12}/);
         if (phoneMatch) {
@@ -6822,6 +6847,8 @@ function PosPage({
 
     playPosSound("success");
     toast.success(`Order WA (${addedItems.length} menu) masuk ke Smart Cart!`);
+    setWaCustomerName("");
+    setWaCustomerPhone("");
     setWaSelectedQty({});
     setWaRawNotes("");
     setWaMenuSearch("");
@@ -6918,6 +6945,21 @@ function PosPage({
               </button>
             )}
           </div>
+
+          {/* Tombol Order WA 1-Klik di Toolbar /pos */}
+          <button
+            type="button"
+            onClick={() => {
+              playPosSound("tap");
+              setIsWaOrderModalOpen(true);
+            }}
+            aria-label="Order WA"
+            title="Input / Paste Cepat Pesanan dari Chat WhatsApp"
+            className="inline-flex h-8 items-center gap-1.5 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer active:scale-95 transition-all shadow-xs"
+          >
+            <MessageSquare className="size-3.5 shrink-0" />
+            <span>Order WA</span>
+          </button>
         </div>
 
         {/* Category Filter Pills Horizontal */}
@@ -9948,6 +9990,7 @@ function OrdersPage({
         staff_name?: string;
         queue_name?: string | null;
         customer_name?: string | null;
+        customer_phone?: string | null;
         order_type?: string | null;
         table_number?: string | null;
         ojol_order_code?: string | null;
@@ -10037,6 +10080,14 @@ function OrdersPage({
     return map;
   }, [snapshot.customers]);
 
+  const customerPhoneMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    snapshot.customers.forEach((c) => {
+      if (c.phone) map[c.id] = c.phone;
+    });
+    return map;
+  }, [snapshot.customers]);
+
   const resolveOrderDisplayMeta = (ord: SalesOrder & Record<string, any>) => {
     const meta = orderMetadataMap[ord.id];
     const resolvedOutletId = ord.outlet_id || meta?.outlet_id || null;
@@ -10063,6 +10114,10 @@ function OrdersPage({
     const custName =
       crmMemberName ||
       (fallbackCustName && fallbackCustName !== "Pelanggan Umum" ? fallbackCustName : null);
+    const customerPhone =
+      meta?.customer_phone ||
+      ord.customer_phone ||
+      (ord.customer_id ? customerPhoneMap[ord.customer_id] || null : null);
 
     return {
       resolvedOutletId,
@@ -10070,6 +10125,7 @@ function OrdersPage({
       staffName,
       queueName,
       custName,
+      customerPhone,
       subtotal: Number(meta?.subtotal ?? ord.subtotal ?? ord.total) || 0,
       discountAmount: Number(meta?.discount_amount ?? ord.discount_amount ?? 0) || 0,
       taxAmount: Number(meta?.tax_amount ?? ord.tax_amount ?? 0) || 0,
@@ -10247,6 +10303,7 @@ function OrdersPage({
       paymentMethod: (order.payment_method || "CASH").toUpperCase(),
       customerName: displayMeta.custName || displayMeta.queueName,
       customerQueueName: displayMeta.queueName,
+      customerPhone: displayMeta.customerPhone || undefined,
       createdAt: order.created_at || new Date().toISOString(),
       subtotal: displayMeta.subtotal,
       discountAmount: displayMeta.discountAmount,
@@ -10267,6 +10324,7 @@ function OrdersPage({
           curr && curr.orderNumber === order.order_number
             ? {
                 ...curr,
+                customerPhone: firstMeta?.customer_phone || curr.customerPhone,
                 subtotal: Number(firstMeta?.subtotal ?? curr.subtotal) || curr.total,
                 discountAmount: Number(firstMeta?.discount_amount ?? curr.discountAmount) || 0,
                 serviceChargeAmount: Number(firstMeta?.service_charge ?? 0) || 0,
@@ -10279,6 +10337,74 @@ function OrdersPage({
         );
       }
     } catch {}
+  };
+
+  const handleSendOrderWhatsApp = (
+    order: SalesOrder,
+    explicitItems?: Array<{ name: string; quantity: number; price: number; subtotal: number }>,
+  ) => {
+    const displayMeta = resolveOrderDisplayMeta(order as any);
+    const printerCfg = getSavedPrinterConfig();
+    const headerStoreName = printerCfg.storeName || snapshot.businessName || "Kebab's Choice";
+    const snapshotItems = (snapshot.orderItems || []).filter((it: any) => it.order_id === order.id);
+    let resolvedItems = explicitItems;
+    if (!resolvedItems || resolvedItems.length === 0) {
+      if (snapshotItems.length > 0) {
+        resolvedItems = snapshotItems.map((it: any) => ({
+          name: it.name || `Order POS #${order.order_number}`,
+          quantity: Number(it.quantity) || 1,
+          price: Number(it.unit_price ?? it.price) || 0,
+          subtotal:
+            Number(it.subtotal) ||
+            (Number(it.unit_price ?? it.price) || 0) * (Number(it.quantity) || 1),
+        }));
+      } else {
+        const rawOrderItems = Array.isArray((order as any).items) ? (order as any).items : [];
+        resolvedItems =
+          rawOrderItems.length > 0
+            ? rawOrderItems.map((it: any) => ({
+                name: it.name || `Order POS #${order.order_number}`,
+                quantity: Number(it.quantity) || 1,
+                price: Number(it.unit_price ?? it.price) || 0,
+                subtotal:
+                  Number(it.subtotal) ||
+                  (Number(it.unit_price ?? it.price) || 0) * (Number(it.quantity) || 1),
+              }))
+            : [
+                {
+                  name: `Order POS #${order.order_number}`,
+                  quantity: 1,
+                  price: Number(order.total) || 0,
+                  subtotal: Number(order.total) || 0,
+                },
+              ];
+      }
+    }
+
+    openWhatsAppReceipt(
+      {
+        storeName: headerStoreName,
+        outletName: displayMeta.outletName,
+        branchAddress: printerCfg.branchAddress,
+        orderNumber: order.order_number,
+        orderType: (order as any).order_type || order.channel || undefined,
+        customerName: displayMeta.custName || undefined,
+        customerQueueName: displayMeta.queueName || undefined,
+        customerPhone: displayMeta.customerPhone || undefined,
+        cashierName: displayMeta.staffName,
+        paymentMethod: (order.payment_method || "CASH").toUpperCase(),
+        createdAt: order.created_at || new Date().toISOString(),
+        items: resolvedItems || [],
+        subtotal: displayMeta.subtotal,
+        discountAmount: displayMeta.discountAmount,
+        taxAmount: displayMeta.taxAmount,
+        total: Number(order.total) || 0,
+        cashReceived: (order as any).cashReceived,
+        changeAmount: (order as any).changeAmount,
+        footerMessage: printerCfg.footerMessage || "Terima kasih atas kunjungan Anda!",
+      },
+      displayMeta.customerPhone,
+    );
   };
 
   // Open Supervisor Action Modal (reject already void/cancelled/refunded orders immediately)
@@ -11170,6 +11296,20 @@ function OrdersPage({
                     >
                       <Button
                         type="button"
+                        variant="secondary"
+                        size="sm"
+                        className="h-8 rounded-xl text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          handleSendOrderWhatsApp(order);
+                        }}
+                      >
+                        <Send className="size-3.5" />
+                        Kirim Struk WA
+                      </Button>
+                      <Button
+                        type="button"
                         variant="outline"
                         size="sm"
                         className="h-8 rounded-xl text-xs font-bold gap-1.5 border-border bg-background hover:bg-secondary cursor-pointer"
@@ -11482,37 +11622,61 @@ function OrdersPage({
                     </div>
                   </div>
 
-                  {/* Action Buttons: Cetak Struk, Refund, Void */}
+                  {/* Action Buttons: Cetak Struk, Kirim Struk WA, Refund, Void */}
                   <div className="mt-6 flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-border">
-                    <Button
-                      variant="outline"
-                      className="rounded-xl font-bold text-xs gap-1.5"
-                      onClick={() => {
-                        setReceiptModalData({
-                          orderNumber: selectedDetailOrder.order_number,
-                          outletName: detailOutletName,
-                          cashierName: detailStaffName,
-                          paymentMethod: (selectedDetailOrder.payment_method || "CASH").toUpperCase(),
-                          customerName: detailCustName,
-                          customerQueueName: detailQueueName,
-                          createdAt: selectedDetailOrder.created_at || new Date().toISOString(),
-                          subtotal: detailSubtotal,
-                          discountAmount: detailDiscount,
-                          taxAmount: detailTax,
-                          items: detailItems.map((it) => ({
-                            name: it.name,
-                            quantity: it.quantity,
-                            price: it.unit_price,
-                            subtotal: it.subtotal || it.unit_price * it.quantity,
-                          })),
-                          total: selectedDetailOrder.total,
-                        });
-                        setSelectedDetailOrder(null);
-                      }}
-                    >
-                <Printer className="size-3.5" />
-                Cetak Struk
-              </Button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button
+                        variant="outline"
+                        className="rounded-xl font-bold text-xs gap-1.5"
+                        onClick={() => {
+                          setReceiptModalData({
+                            orderNumber: selectedDetailOrder.order_number,
+                            outletName: detailOutletName,
+                            cashierName: detailStaffName,
+                            paymentMethod: (selectedDetailOrder.payment_method || "CASH").toUpperCase(),
+                            customerName: detailCustName,
+                            customerQueueName: detailQueueName,
+                            customerPhone:
+                              resolveOrderDisplayMeta(selectedDetailOrder as any).customerPhone ||
+                              undefined,
+                            createdAt: selectedDetailOrder.created_at || new Date().toISOString(),
+                            subtotal: detailSubtotal,
+                            discountAmount: detailDiscount,
+                            taxAmount: detailTax,
+                            items: detailItems.map((it) => ({
+                              name: it.name,
+                              quantity: it.quantity,
+                              price: it.unit_price,
+                              subtotal: it.subtotal || it.unit_price * it.quantity,
+                            })),
+                            total: selectedDetailOrder.total,
+                          });
+                          setSelectedDetailOrder(null);
+                        }}
+                      >
+                        <Printer className="size-3.5" />
+                        Cetak Struk
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        className="rounded-xl font-bold text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                        onClick={() =>
+                          handleSendOrderWhatsApp(
+                            selectedDetailOrder,
+                            detailItems.map((it) => ({
+                              name: it.name,
+                              quantity: it.quantity,
+                              price: it.unit_price,
+                              subtotal: it.subtotal || it.unit_price * it.quantity,
+                            })),
+                          )
+                        }
+                      >
+                        <Send className="size-3.5" />
+                        Kirim Struk WA
+                      </Button>
+                    </div>
 
               <div className="flex items-center gap-2">
                 {selectedDetailOrder.status === "paid" ? (

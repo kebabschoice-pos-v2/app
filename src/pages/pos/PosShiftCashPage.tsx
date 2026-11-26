@@ -1504,41 +1504,12 @@ export function PosShiftCashPage() {
               Buka Shift Sekarang
             </Button>
           </div>
-
-          {/* Ringkasan Riwayat Shift saat Shift Tutup */}
-          {shiftHistory.length > 0 && (
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-2.5">
-              <div className="flex items-center justify-between">
-                <h3 className="font-bold text-xs text-foreground flex items-center gap-1.5">
-                  <FileSpreadsheet className="size-4 text-primary" />
-                  Riwayat Shift Terakhir ({shiftHistory.length})
-                </h3>
-              </div>
-              <div className="divide-y divide-border max-h-40 overflow-y-auto text-xs">
-                {shiftHistory.slice(0, 5).map((s) => (
-                  <div key={s.id} className="py-2 flex items-center justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="font-bold text-foreground truncate">{s.cashierName}</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {new Date(s.startTime).toLocaleDateString("id-ID")}
-                      </p>
-                    </div>
-                    <span className="font-bold tabular-nums text-foreground shrink-0">
-                      {formatRupiah(
-                        Number(s.actualEndingCash ?? s.expectedEndingCash ?? s.startingCash) || 0,
-                      )}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
       ) : (
-        /* SAAT SHIFT AKTIF: 4 KARTU ANGKA SEJAJAR 1 BARIS + 2 KOLOM BAWAH */
+        /* SAAT SHIFT AKTIF: 4 KARTU KPI SEJAJAR 1 BARIS + 2 KOLOM BAWAH */
         <div className="space-y-4">
-          {/* 4 Kartu Angka Sejajar 1 Baris di Atas */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* 4 Kartu KPI Sejajar 1 Baris di Atas */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
               <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                 Modal Awal
@@ -1571,7 +1542,7 @@ export function PosShiftCashPage() {
 
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
               <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Kas Masuk / Keluar
+                Kas Masuk/Keluar
               </span>
               <div className="text-sm xl:text-base font-black text-foreground tabular-nums mt-1 flex flex-wrap items-center gap-1.5">
                 <span className="text-success">+{formatRupiah(totalCashIn)}</span>
@@ -1595,9 +1566,9 @@ export function PosShiftCashPage() {
           </div>
 
           {/* 2 Kolom di Bawah: Kiri = + Kas Masuk / - Kas Keluar / Tutup Shift, Kanan = Riwayat Shift */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-            {/* KOLOM KIRI (lg:col-span-5): + Kas Masuk, - Kas Keluar & Tutup Shift */}
-            <div className="lg:col-span-5 space-y-3.5">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+            {/* KOLOM KIRI (md:col-span-5): + Kas Masuk, - Kas Keluar & Tutup Shift */}
+            <div className="md:col-span-5 space-y-3.5">
               <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
                 <h3 className="font-black text-sm text-foreground flex items-center gap-2">
                   <Calculator className="size-4 text-primary" />
@@ -1707,12 +1678,12 @@ export function PosShiftCashPage() {
               </div>
             </div>
 
-            {/* KOLOM KANAN (lg:col-span-7): Riwayat Shift */}
-            <div className="lg:col-span-7 rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
+            {/* KOLOM KANAN (md:col-span-7): Riwayat Shift */}
+            <div className="md:col-span-7 rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
               <div className="flex items-center justify-between border-b border-border/70 pb-2">
                 <h3 className="font-black text-sm text-foreground flex items-center gap-2">
                   <FileSpreadsheet className="size-4 text-primary" />
-                  Riwayat Shift Kasir
+                  Riwayat Shift
                 </h3>
                 <span className="text-xs text-muted-foreground font-semibold">
                   {shiftHistory.length} shift selesai

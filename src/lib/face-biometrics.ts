@@ -156,3 +156,18 @@ export function saveCachedFaceDescriptor(
     localStorage.setItem(STORAGE_FACE_DESCRIPTORS_KEY, JSON.stringify(map));
   } catch {}
 }
+
+export function clearCachedFaceDescriptor(
+  userId?: string | null,
+  fullName?: string | null,
+): void {
+  if (typeof window === "undefined") return;
+  try {
+    const raw = localStorage.getItem(STORAGE_FACE_DESCRIPTORS_KEY);
+    if (!raw) return;
+    const map: Record<string, number[]> = JSON.parse(raw);
+    if (userId) delete map[`id:${normalizeStaffKey(userId)}`];
+    if (fullName) delete map[`name:${normalizeStaffKey(fullName)}`];
+    localStorage.setItem(STORAGE_FACE_DESCRIPTORS_KEY, JSON.stringify(map));
+  } catch {}
+}

@@ -578,10 +578,10 @@ export function AttendancePage({
       setLastMatchDistance(matchResult.distance);
 
       if (!matchResult.matched) {
-        const rejectMsg = `Wajah tidak cocok dengan data ${staff.full_name}. Pastikan memilih nama sendiri.`;
+        const rejectMsg = `Wajah tidak cocok dengan data ${staff.full_name}.`;
         setFaceRejectMessage(rejectMsg);
         toast.error(rejectMsg, {
-          description: `Jarak biometrik ${matchResult.distance.toFixed(2)} > batas maksimal ${FACE_MATCH_THRESHOLD.toFixed(2)}`,
+          description: `Pastikan memilih nama sendiri (Euclidean distance ${matchResult.distance.toFixed(2)} > ${FACE_MATCH_THRESHOLD.toFixed(2)}).`,
         });
         return;
       }

@@ -48,7 +48,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import {
+  clearCachedFaceDescriptor,
   extractFaceDescriptorFromDataUrl,
+  getCachedFaceDescriptor,
+  isValidFaceDescriptor,
   saveCachedFaceDescriptor,
 } from "@/lib/face-biometrics";
 import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
@@ -524,6 +527,9 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
             phone: dp.phone || "-",
             address: dp.address || "-",
             avatar_url: dp.avatar_url || null,
+            face_descriptor: isValidFaceDescriptor(dp.face_descriptor)
+              ? dp.face_descriptor
+              : getCachedFaceDescriptor(k, dp.full_name || dp.name) || null,
             join_date: dp.join_date || dp.created_at || new Date().toISOString(),
             job_title: dp.job_title || (dp.role === "manager" ? "Manager Cabang" : "Kasir POS"),
             role: (dp.role as any) || "cashier",
@@ -580,6 +586,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
             phone: "-",
             address: "-",
             avatar_url: st.avatar_url || null,
+            face_descriptor: getCachedFaceDescriptor(staffKey, st.name) || null,
             join_date: st.created_at,
             job_title: st.role === "manager" ? "Manager Cabang" : "Kasir POS",
             role: st.role,
@@ -1517,6 +1524,34 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
     }
   }
 
+  async function handleResetFaceRegistration() {
+    if (!faceModalStaff) return;
+    try {
+      setSavingFace(true);
+      clearCachedFaceDescriptor(faceModalStaff.user_id, faceModalStaff.name);
+      await updateHRStaffProfile(faceModalStaff.user_id, {
+        full_name: faceModalStaff.name,
+        face_descriptor: null,
+      });
+      toast.success(`Biometrik wajah ${faceModalStaff.name} direset. Silakan daftar ulang wajah.`);
+      if (editingProfile && editingProfile.user_id === faceModalStaff.user_id) {
+        setEditingProfile({
+          ...editingProfile,
+          face_descriptor: null,
+        });
+      }
+      stopFaceCamera();
+      setFaceModalStaff(null);
+      setFaceModalProfile(null);
+      setFaceCapturedPhoto(null);
+      await loadData();
+    } catch {
+      toast.error("Gagal mereset data wajah biometrik");
+    } finally {
+      setSavingFace(false);
+    }
+  }
+
   // Filtered staff list with deduplication
   const filteredStaff = useMemo(() => {
     const uniqueMap = new Map<string, StaffItem>();
@@ -2066,16 +2101,30 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
                             <Button
                               variant="ghost"
                               size="sm"
-                              className="size-8 p-0 rounded-xl text-primary hover:bg-primary/10"
+                              className="h-8 px-2 rounded-xl text-primary hover:bg-primary/10 gap-1"
                               onClick={() => {
+                                const hasFace =
+                                  isValidFaceDescriptor(hr.face_descriptor) ||
+                                  Boolean(getCachedFaceDescriptor(staff.user_id, staff.name));
                                 setFaceModalStaff(staff);
                                 setFaceModalProfile(hr);
-                                setFaceCapturedPhoto(hr.avatar_url || null);
+                                setFaceCapturedPhoto(hasFace ? null : hr.avatar_url || null);
                                 startFaceCamera();
                               }}
-                              title="Daftar / Ubah Foto Wajah Biometrik"
+                              title={
+                                isValidFaceDescriptor(hr.face_descriptor) ||
+                                Boolean(getCachedFaceDescriptor(staff.user_id, staff.name))
+                                  ? "Daftar Ulang Wajah Biometrik"
+                                  : "Daftar Wajah Biometrik"
+                              }
                             >
-                              <Camera className="size-3.5" />
+                              <Camera className="size-3.5 shrink-0" />
+                              <span className="hidden xl:inline text-xs font-bold">
+                                {isValidFaceDescriptor(hr.face_descriptor) ||
+                                Boolean(getCachedFaceDescriptor(staff.user_id, staff.name))
+                                  ? "Daftar Ulang Wajah"
+                                  : "Daftar Wajah"}
+                              </span>
                             </Button>
 
                             <Button
@@ -3656,9 +3705,12 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
                     <h4 className="font-bold text-xs text-foreground">
                       Pendaftaran Wajah Biometrik
                     </h4>
-                    <p className="text-[11px] text-muted-foreground">
-                      {editingProfile.avatar_url
-                        ? "Foto biometrik aktif untuk absensi wajah POS"
+                    <p className="text-xs text-muted-foreground">
+                      {isValidFaceDescriptor(editingProfile.face_descriptor) ||
+                      Boolean(
+                        getCachedFaceDescriptor(editingProfile.user_id, editingProfile.full_name),
+                      )
+                        ? "Vektor 128D aktif untuk absensi wajah POS tanpa PIN"
                         : "Belum terdaftar untuk absensi wajah di POS"}
                     </p>
                   </div>
@@ -3669,15 +3721,25 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
                   variant="outline"
                   size="sm"
                   onClick={() => {
+                    const hasFace =
+                      isValidFaceDescriptor(editingProfile.face_descriptor) ||
+                      Boolean(
+                        getCachedFaceDescriptor(editingProfile.user_id, editingProfile.full_name),
+                      );
                     setFaceModalStaff(selectedStaff);
                     setFaceModalProfile(editingProfile);
-                    setFaceCapturedPhoto(editingProfile.avatar_url || null);
+                    setFaceCapturedPhoto(hasFace ? null : editingProfile.avatar_url || null);
                     startFaceCamera();
                   }}
                   className="rounded-xl text-xs font-bold gap-1.5 shrink-0"
                 >
                   <Camera className="size-3.5 text-primary" />
-                  {editingProfile.avatar_url ? "Ubah Foto Wajah" : "Daftar Wajah"}
+                  {isValidFaceDescriptor(editingProfile.face_descriptor) ||
+                  Boolean(
+                    getCachedFaceDescriptor(editingProfile.user_id, editingProfile.full_name),
+                  )
+                    ? "Daftar Ulang Wajah"
+                    : "Daftar Wajah"}
                 </Button>
               </div>
 
@@ -4394,19 +4456,36 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
 
             {/* Actions */}
             <div className="flex items-center justify-between pt-2 border-t border-border">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  stopFaceCamera();
-                  setFaceModalStaff(null);
-                  setFaceModalProfile(null);
-                  setFaceCapturedPhoto(null);
-                }}
-                className="rounded-xl text-xs font-bold"
-              >
-                Batal
-              </Button>
+              <div className="flex items-center gap-1.5">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => {
+                    stopFaceCamera();
+                    setFaceModalStaff(null);
+                    setFaceModalProfile(null);
+                    setFaceCapturedPhoto(null);
+                  }}
+                  className="rounded-xl text-xs font-bold"
+                >
+                  Batal
+                </Button>
+                {(isValidFaceDescriptor(faceModalProfile?.face_descriptor) ||
+                  Boolean(
+                    getCachedFaceDescriptor(faceModalStaff.user_id, faceModalStaff.name),
+                  )) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleResetFaceRegistration}
+                    disabled={savingFace}
+                    className="rounded-xl text-xs font-bold text-destructive border-destructive/30 hover:bg-destructive/10 gap-1"
+                  >
+                    <RefreshCw className="size-3.5" />
+                    Reset Wajah
+                  </Button>
+                )}
+              </div>
 
               <div className="flex items-center gap-2">
                 {faceCapturedPhoto ? (

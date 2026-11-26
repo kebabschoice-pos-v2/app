@@ -18,6 +18,7 @@ import {
   ArrowLeft,
   Bluetooth,
   Usb,
+  Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +28,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Link } from "@tanstack/react-router";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
 import { getUserRole } from "@/integrations/supabase/role-resolver";
+import { openWhatsAppReceipt } from "@/lib/whatsapp-receipt";
 import {
   printReceipt,
   kickCashDrawer,
@@ -482,6 +484,44 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
           >
             <Printer className="size-4" />
             Cetak Struk Ini
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={!selectedOrder}
+            onClick={() => {
+              if (!selectedOrder) return;
+              const printerConfig = getSavedPrinterConfig();
+              openWhatsAppReceipt({
+                storeName: printerConfig.storeName || businessProfile?.name || "Kebab's Choice",
+                outletName: selectedOrder.outlet_name || "Outlet Utama",
+                branchAddress: printerConfig.branchAddress || selectedOrder.outlet_address || businessProfile?.address,
+                orderNumber: selectedOrder.order_number,
+                orderType: selectedOrder.order_type || undefined,
+                customerName: selectedOrder.customer_name,
+                cashierName: selectedOrder.cashier_name || "Kasir POS",
+                paymentMethod: selectedOrder.payment_method || "CASH",
+                createdAt: selectedOrder.created_at,
+                items: (selectedOrder.items || []).map((it) => ({
+                  name: it.variant_name ? `${it.name} (${it.variant_name})` : it.name,
+                  quantity: it.quantity,
+                  price: it.unit_price,
+                  subtotal: it.subtotal,
+                })),
+                subtotal: selectedOrder.subtotal ?? selectedOrder.total,
+                discountAmount: selectedOrder.discount_amount ?? 0,
+                serviceChargeAmount: selectedOrder.service_charge ?? 0,
+                taxAmount: selectedOrder.tax_amount ?? 0,
+                total: selectedOrder.total,
+                cashReceived: selectedOrder.cashReceived,
+                changeAmount: selectedOrder.changeAmount,
+                footerMessage: printerConfig.footerMessage || "Terima kasih atas kunjungan Anda!",
+              });
+            }}
+            className="rounded-2xl gap-2 font-bold h-11 px-4 bg-emerald-600 hover:bg-emerald-700 text-white"
+          >
+            <Send className="size-4" />
+            Kirim Struk WA
           </Button>
           <Button
             variant="outline"

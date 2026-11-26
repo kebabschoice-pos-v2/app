@@ -2128,8 +2128,12 @@ function Sidebar({
                 navigator.maxTouchPoints > 0 ||
                 !!window.matchMedia?.("(pointer: coarse)")?.matches;
               if (isTouchOrMobile) {
-                // Skema native langsung, tanpa web.whatsapp.com & tanpa tab baru.
-                window.location.href = "whatsapp://";
+                // Intent filter WhatsApp butuh host "send"; skema polos diabaikan Android.
+                // iOS: whatsapp://send. Android: Intent URI tanpa package agar
+                // WhatsApp maupun WhatsApp Business yang terpasang bisa menangani.
+                window.location.href = /iPhone|iPad/i.test(navigator.userAgent)
+                  ? "whatsapp://send"
+                  : "intent://send#Intent;scheme=whatsapp;end";
               } else {
                 window.open("https://web.whatsapp.com/", "_blank", "noopener,noreferrer");
               }

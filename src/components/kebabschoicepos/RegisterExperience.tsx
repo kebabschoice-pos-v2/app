@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useNavigate } from "@tanstack/react-router";
-import { Loader2 } from "lucide-react";
+import { Link, useNavigate } from "@tanstack/react-router";
+import { Loader2, Store } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,9 +18,11 @@ export function RegisterExperience() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const EXPECTED_AUTH_CODE =
-    (typeof import.meta !== "undefined" && import.meta.env?.VITE_OWNER_REGISTRATION_CODE) ||
+  const rawExpectedAuthCode =
+    (typeof import.meta !== "undefined" &&
+      (import.meta.env?.VITE_OWNER_INVITE_CODE || import.meta.env?.VITE_OWNER_REGISTRATION_CODE)) ||
     "KEBABSCHOICE-OWNER-VIP";
+  const EXPECTED_AUTH_CODE = String(rawExpectedAuthCode).trim().toUpperCase();
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -161,10 +163,13 @@ export function RegisterExperience() {
           <Input
             value={authCode}
             onChange={(e) => setAuthCode(e.target.value)}
-            placeholder="Masukkan kode master owner (contoh: KEBABSCHOICE-OWNER-VIP)"
+            placeholder="Masukkan kode master internal"
             className="font-mono uppercase tracking-wider text-xs border-border focus:border-border"
             required
           />
+          <p className="text-xs text-muted-foreground">
+            Kode master khusus owner (tidak dikirim ke email).
+          </p>
         </div>
         <div className="space-y-2">
           <Label>Password</Label>
@@ -180,6 +185,22 @@ export function RegisterExperience() {
           {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
           Daftar
         </Button>
+
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-2 border-t border-border pt-4 text-sm">
+          <Link
+            to="/login/hq"
+            className="inline-flex items-center font-medium text-primary hover:underline"
+          >
+            ← Kembali ke Login HQ
+          </Link>
+          <Link
+            to="/login/pos"
+            className="inline-flex items-center gap-1.5 font-medium text-muted-foreground hover:text-foreground hover:underline"
+          >
+            <Store className="h-3.5 w-3.5" />
+            Masuk Kasir POS
+          </Link>
+        </div>
       </form>
     </div>
   );

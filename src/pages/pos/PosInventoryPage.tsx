@@ -262,27 +262,32 @@ export function PosInventoryPage() {
   };
 
   return (
-    <div className="space-y-6 w-full max-w-none pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-foreground flex items-center gap-2.5">
-            <Boxes className="size-7 text-primary" />
-            Inventory & Stok Outlet (POS)
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-2">
-            <Store className="size-4 text-primary" />
-            Cabang: <span className="font-bold text-foreground">{outletName}</span> · Monitoring
-            sisa stok kasir real-time.
-          </p>
+    <div className="space-y-3 w-full max-w-none pb-6">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-2xl border border-border bg-card px-3.5 py-2.5 shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Boxes className="size-4.5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-black tracking-tight text-foreground truncate">
+              Inventory & Stok Outlet (POS)
+            </h1>
+            <p className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
+              <Store className="size-3.5 text-primary shrink-0" />
+              <span>
+                Cabang: <span className="font-bold text-foreground">{outletName}</span> · Monitoring sisa stok real-time
+              </span>
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           <Button
             variant="outline"
             size="sm"
             onClick={loadInventory}
-            className="rounded-xl font-bold gap-2 text-xs"
+            className="h-8 rounded-xl font-bold gap-1.5 text-xs"
           >
             <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
             Refresh Stok
@@ -291,7 +296,7 @@ export function PosInventoryPage() {
           <Button
             onClick={() => setIsRequestModalOpen(true)}
             size="sm"
-            className="rounded-xl font-bold gap-2 text-xs shadow-brand"
+            className="h-8 rounded-xl font-bold gap-1.5 text-xs shadow-brand"
           >
             <ArrowRightLeft className="size-3.5" />
             Minta Stok ke HQ
@@ -338,14 +343,14 @@ export function PosInventoryPage() {
       )}
 
       {/* Filter and Search Bar */}
-      <div className="flex flex-col sm:flex-row gap-3 items-center justify-between">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
+      <div className="flex flex-col sm:flex-row gap-2.5 items-center justify-between">
+        <div className="relative w-full sm:w-72">
+          <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Cari bahan / kemasan / saus..."
-            className="pl-10 rounded-2xl"
+            className="h-9 pl-9 rounded-xl text-xs"
           />
         </div>
 
@@ -355,7 +360,7 @@ export function PosInventoryPage() {
             <button
               key={cat}
               onClick={() => setSelectedCategory(cat)}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all border ${
+              className={`px-2.5 py-1 rounded-xl text-xs font-bold transition-all border ${
                 selectedCategory === cat
                   ? "bg-primary text-primary-foreground border-primary shadow-brand"
                   : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
@@ -368,10 +373,10 @@ export function PosInventoryPage() {
       </div>
 
       {/* Inventory Table */}
-      <div className="rounded-3xl border border-border bg-card p-6 shadow-card space-y-4">
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="font-black text-base text-foreground flex items-center gap-2">
-            <Layers className="size-5 text-primary" />
+          <h2 className="font-black text-sm sm:text-base text-foreground flex items-center gap-2">
+            <Layers className="size-4.5 text-primary" />
             Daftar Persediaan Bahan di Outlet
           </h2>
           <span className="text-xs text-muted-foreground font-semibold">

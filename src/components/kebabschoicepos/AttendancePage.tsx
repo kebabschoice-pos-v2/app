@@ -26,7 +26,9 @@ import {
   getAttendanceList,
   getStaffShifts,
   getHRStaffProfiles,
+  updateHRStaffProfile,
   getRosterSchedule,
+  formatLocalDateWIB,
   type StaffAttendance,
   type StaffShift,
   type StaffProfile,
@@ -34,6 +36,16 @@ import {
 } from "@/services/hr.service";
 import { resolveActiveStaffOutlet } from "@/services/outlet.service";
 import { getStaffList, isOutletDeviceAccount, isOwnerAccount, type StaffItem } from "@/services/staff.service";
+import {
+  ensureFaceModelsLoaded,
+  extractFaceDescriptorFromElement,
+  FACE_MATCH_THRESHOLD,
+  getCachedFaceDescriptor,
+  isValidFaceDescriptor,
+  saveCachedFaceDescriptor,
+  verifyFaceMatch,
+} from "@/lib/face-biometrics";
+import { playPosSound } from "@/lib/pos-sound";
 
 interface AttendancePageProps {
   initialTab?: "in" | "out" | "history" | "shifts";
@@ -150,14 +162,30 @@ export function AttendancePage({
     }
   }, [branchStaffProfiles, selectedStaffId, profile?.id]);
 
-  // Camera & Face Recognition State
+  // Camera & Real Biometric Face Recognition State (Tanpa PIN Karyawan)
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isScanning, setIsScanning] = useState(false);
+  const [isEnrollingFace, setIsEnrollingFace] = useState(false);
+  const [forceReEnrollMode, setForceReEnrollMode] = useState(false);
+  const [faceModelsReady, setFaceModelsReady] = useState(false);
+  const [faceRejectMessage, setFaceRejectMessage] = useState<string | null>(null);
+  const [lastMatchDistance, setLastMatchDistance] = useState<number | null>(null);
   const [scanProgress, setScanProgress] = useState(0);
-  const [capturedSnapshot, setCapturedSnapshot] = useState<string | null>(null);
+  const [, setCapturedSnapshot] = useState<string | null>(null);
+
+  const canManageFaceReEnroll = useMemo(() => {
+    const r = String(snapshot?.role || "").toLowerCase();
+    return ["owner", "admin", "hq", "manager"].includes(r);
+  }, [snapshot?.role]);
+
+  useEffect(() => {
+    setFaceRejectMessage(null);
+    setLastMatchDistance(null);
+    setForceReEnrollMode(false);
+  }, [selectedStaffId, tab]);
 
   // Success Confirmation Modal
   const [successRecord, setSuccessRecord] = useState<StaffAttendance | null>(null);
@@ -231,6 +259,7 @@ export function AttendancePage({
           phone: "-",
           address: "-",
           avatar_url: st.avatar_url || null,
+          face_descriptor: getCachedFaceDescriptor(key, cleanName) || null,
           job_title:
             st.role === "manager"
               ? "Store Manager"
@@ -272,6 +301,9 @@ export function AttendancePage({
             phone: emp.phone || "-",
             address: emp.address || "-",
             avatar_url: emp.avatar_url || null,
+            face_descriptor: isValidFaceDescriptor(emp.face_descriptor)
+              ? emp.face_descriptor
+              : getCachedFaceDescriptor(key, cleanName) || null,
             job_title: emp.job_title || "Kasir POS",
             role: (emp.role as any) || "cashier",
             employment_status: emp.employment_status || "Tetap",
@@ -364,9 +396,7 @@ export function AttendancePage({
       }
     } catch (err) {
       console.warn("[startCamera] Camera access error:", err);
-      setCameraError(
-        "Kamera tidak dapat diakses atau izin ditolak. Anda dapat menggunakan mode simulasi.",
-      );
+      setCameraError("Kamera tidak dapat diakses atau izin kamera ditolak.");
       setIsCameraActive(false);
     }
   }
@@ -383,6 +413,9 @@ export function AttendancePage({
   useEffect(() => {
     if (tab === "in" || tab === "out") {
       startCamera();
+      ensureFaceModelsLoaded()
+        .then((ok) => setFaceModelsReady(ok))
+        .catch(() => setFaceModelsReady(false));
     } else {
       stopCamera();
     }
@@ -391,54 +424,181 @@ export function AttendancePage({
     };
   }, [tab]);
 
-  // Capture frame from video or fallback simulated photo
-  function captureFrame(): string {
-    if (isCameraActive && videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-      const ctx = canvas.getContext("2d");
-      if (ctx) {
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        return canvas.toDataURL("image/jpeg", 0.85);
-      }
+  // Capture live frame into hidden canvas and return JPEG dataURL
+  function captureLiveCanvasFrame(): { canvas: HTMLCanvasElement; dataUrl: string } | null {
+    if (!isCameraActive || !videoRef.current || !canvasRef.current) {
+      return null;
     }
-
-    // High quality biometric simulated portrait if camera is unaccessible
-    return `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300" viewBox="0 0 400 300"><rect width="400" height="300" fill="%231e293b"/><circle cx="200" cy="120" r="60" fill="%233b82f6" opacity="0.3"/><circle cx="200" cy="115" r="45" fill="%23cbd5e1"/><path d="M120 250 C120 190, 280 190, 280 250" fill="%2394a3b8"/><text x="200" y="280" font-family="sans-serif" font-size="14" fill="%2338bdf8" text-anchor="middle" font-weight="bold">AI BIOMETRIC VERIFIED</text></svg>`;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return null;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return {
+      canvas,
+      dataUrl: canvas.toDataURL("image/jpeg", 0.86),
+    };
   }
 
-  // Trigger Face Scan & Record Attendance
+  const selectedStaffProfile = useMemo(
+    () => staffList.find((s) => s.user_id === selectedStaffId) || null,
+    [staffList, selectedStaffId],
+  );
+
+  const selectedStaffDescriptor = useMemo(() => {
+    if (!selectedStaffProfile) return null;
+    if (isValidFaceDescriptor(selectedStaffProfile.face_descriptor)) {
+      return selectedStaffProfile.face_descriptor;
+    }
+    return getCachedFaceDescriptor(
+      selectedStaffProfile.user_id,
+      selectedStaffProfile.full_name,
+    );
+  }, [selectedStaffProfile]);
+
+  const isFirstTimeEnrollmentNeeded =
+    Boolean(selectedStaffProfile) && (!selectedStaffDescriptor || forceReEnrollMode);
+
+  // Enroll First-Time (or Manager Re-Enroll) Real 128D Face Descriptor
+  async function handleEnrollFaceDescriptor() {
+    const staff = selectedStaffProfile;
+    if (!staff) {
+      toast.error("Pilih karyawan terlebih dahulu");
+      return;
+    }
+    if (!isCameraActive) {
+      toast.error("Aktifkan kamera terlebih dahulu untuk mendaftarkan wajah.");
+      return;
+    }
+
+    setFaceRejectMessage(null);
+    setIsEnrollingFace(true);
+    setScanProgress(30);
+
+    try {
+      const captured = captureLiveCanvasFrame();
+      if (!captured) {
+        toast.error("Kamera belum siap menangkap gambar wajah.");
+        return;
+      }
+      setScanProgress(65);
+      const detection = await extractFaceDescriptorFromElement(captured.canvas);
+      if (!detection) {
+        const msg = `Wajah ${staff.full_name} belum terdeteksi jelas di kamera. Hadapkan wajah lurus ke kamera dengan cahaya cukup.`;
+        setFaceRejectMessage(msg);
+        toast.error(msg);
+        return;
+      }
+
+      setScanProgress(90);
+      saveCachedFaceDescriptor(staff.user_id, staff.full_name, detection.descriptor);
+      await updateHRStaffProfile(staff.user_id, {
+        full_name: staff.full_name,
+        outlet_id: staff.outlet_id,
+        role: staff.role,
+        job_title: staff.job_title,
+        employment_status: staff.employment_status,
+        avatar_url: captured.dataUrl,
+        face_descriptor: detection.descriptor,
+      });
+
+      setStaffList((prev) =>
+        prev.map((s) =>
+          s.user_id === staff.user_id
+            ? { ...s, avatar_url: captured.dataUrl, face_descriptor: detection.descriptor }
+            : s,
+        ),
+      );
+      setForceReEnrollMode(false);
+      playPosSound("success");
+      toast.success(`Wajah biometrik ${staff.full_name} berhasil didaftarkan!`, {
+        description: "Sekarang silakan ketuk tombol Absen untuk verifikasi kehadiran.",
+      });
+    } catch (err: any) {
+      console.error("[handleEnrollFaceDescriptor] Error:", err);
+      toast.error(err?.message || "Gagal mendaftarkan biometrik wajah");
+    } finally {
+      setIsEnrollingFace(false);
+      setScanProgress(0);
+    }
+  }
+
+  // Trigger Real Biometric Face Descriptor Match & Record Attendance (Tanpa PIN)
   async function handleScanAndVerify() {
-    const staff = staffList.find((s) => s.user_id === selectedStaffId);
+    const staff = selectedStaffProfile;
     if (!staff) {
       toast.error("Pilih karyawan terlebih dahulu");
       return;
     }
 
-    setIsScanning(true);
-    setScanProgress(0);
-
-    // Simulate animated biometric scanning sequence (progress 0 -> 100)
-    for (let p = 20; p <= 100; p += 20) {
-      await new Promise((res) => setTimeout(res, 140));
-      setScanProgress(p);
+    const registeredDesc = selectedStaffDescriptor;
+    if (!registeredDesc) {
+      const msg = `${staff.full_name} belum mendaftarkan wajah biometrik. Daftarkan wajah terlebih dahulu.`;
+      setFaceRejectMessage(msg);
+      toast.error(msg);
+      return;
     }
 
-    const photo = captureFrame();
-    setCapturedSnapshot(photo);
+    if (!isCameraActive) {
+      const msg = "Kamera belum aktif. Aktifkan kamera terlebih dahulu untuk verifikasi wajah asli.";
+      setFaceRejectMessage(msg);
+      toast.error(msg);
+      return;
+    }
+
+    setFaceRejectMessage(null);
+    setLastMatchDistance(null);
+    setIsScanning(true);
+    setScanProgress(25);
 
     try {
+      const captured = captureLiveCanvasFrame();
+      if (!captured) {
+        throw new Error("Kamera belum siap menangkap gambar.");
+      }
+
+      setScanProgress(60);
+      const liveDetection = await extractFaceDescriptorFromElement(captured.canvas);
+      if (!liveDetection) {
+        const msg =
+          "Wajah tidak terdeteksi jelas di kamera. Posisikan wajah lurus di tengah frame dengan pencahayaan cukup.";
+        setFaceRejectMessage(msg);
+        toast.error(msg);
+        return;
+      }
+
+      setScanProgress(85);
+      const matchResult = verifyFaceMatch(
+        liveDetection.descriptor,
+        registeredDesc,
+        FACE_MATCH_THRESHOLD,
+      );
+      setLastMatchDistance(matchResult.distance);
+
+      if (!matchResult.matched) {
+        const rejectMsg = `Wajah tidak cocok dengan data ${staff.full_name}. Pastikan memilih nama sendiri.`;
+        setFaceRejectMessage(rejectMsg);
+        toast.error(rejectMsg, {
+          description: `Jarak biometrik ${matchResult.distance.toFixed(2)} > batas maksimal ${FACE_MATCH_THRESHOLD.toFixed(2)}`,
+        });
+        return;
+      }
+
+      setScanProgress(100);
+      setCapturedSnapshot(captured.dataUrl);
+
       const result = await recordAttendance({
         userId: staff.user_id,
         staffName: staff.full_name,
         outletId: activeOutlet.id,
         outletName: activeOutlet.name || "Outlet Cabang",
         type: tab === "out" ? "out" : "in",
-        faceSnapshotUrl: photo,
+        faceSnapshotUrl: captured.dataUrl,
       });
 
+      playPosSound("success");
       setSuccessRecord(result);
       const statusLabel =
         result.status === "late"
@@ -452,9 +612,9 @@ export function AttendancePage({
       if (onRefresh) {
         await onRefresh();
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("[handleScanAndVerify] Error:", err);
-      toast.error("Gagal mencatat absensi");
+      toast.error(err?.message || "Gagal memverifikasi absensi wajah");
     } finally {
       setIsScanning(false);
       setScanProgress(0);
@@ -462,35 +622,34 @@ export function AttendancePage({
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 pb-6">
       {/* Hidden canvas for image capture */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Top Banner */}
-      <div className="rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex items-center gap-3">
-            <div className="flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-              <UserCheck className="size-6" />
+      {/* Compact Top Bar: Title + Navigation Tabs */}
+      <div className="rounded-2xl border border-border bg-card px-3.5 py-2.5 shadow-xs">
+        <div className="flex flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <UserCheck className="size-4.5" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 text-primary font-bold text-xs uppercase tracking-wider mb-0.5">
-                <Store className="size-3.5" />
-                <span>{activeOutlet.name} · Sistem Absensi Wajah POS</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-primary font-bold text-[11px] uppercase tracking-wider">
+                <Store className="size-3 shrink-0" />
+                <span className="truncate">{activeOutlet.name} · Biometrik Wajah Asli</span>
               </div>
-              <h1 className="text-2xl font-black tracking-normal">Absensi & Shift Karyawan</h1>
-              <p className="text-xs text-muted-foreground">
-                Verifikasi kehadiran biometrik wajah terhubung langsung dengan shift kerja dan
-                payroll.
-              </p>
+              <h1 className="text-base sm:text-lg font-black tracking-tight truncate">
+                Absensi & Jadwal Shift Karyawan
+              </h1>
             </div>
           </div>
 
           {/* Navigation Tabs */}
-          <div className="flex items-center gap-1.5 rounded-2xl bg-muted/60 p-1 border border-border">
+          <div className="flex flex-wrap items-center gap-1 rounded-xl bg-muted/60 p-1 border border-border">
             <button
+              type="button"
               onClick={() => setTab("in")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
                 tab === "in"
                   ? "bg-primary text-primary-foreground shadow-brand"
                   : "text-muted-foreground hover:text-foreground"
@@ -501,8 +660,9 @@ export function AttendancePage({
             </button>
 
             <button
+              type="button"
               onClick={() => setTab("out")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
                 tab === "out"
                   ? "bg-primary text-primary-foreground shadow-brand"
                   : "text-muted-foreground hover:text-foreground"
@@ -513,20 +673,22 @@ export function AttendancePage({
             </button>
 
             <button
+              type="button"
               onClick={() => setTab("history")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
                 tab === "history"
                   ? "bg-primary text-primary-foreground shadow-brand"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
               <Clock className="size-3.5" />
-              <span>Riwayat Absensi</span>
+              <span>Riwayat</span>
             </button>
 
             <button
+              type="button"
               onClick={() => setTab("shifts")}
-              className={`flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold transition-all ${
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold transition-all cursor-pointer ${
                 tab === "shifts"
                   ? "bg-primary text-primary-foreground shadow-brand"
                   : "text-muted-foreground hover:text-foreground"
@@ -540,162 +702,83 @@ export function AttendancePage({
       </div>
 
       {/* ======================================================== */}
-      {/* 1 & 2. ABSENSI MASUK & KELUAR WITH FACE RECOGNITION      */}
+      {/* 1 & 2. ABSENSI MASUK & KELUAR — 2 KOLOM KOMPAK TABLET     */}
       {/* ======================================================== */}
       {(tab === "in" || tab === "out") && (
-        <div className="grid gap-6 lg:grid-cols-12">
-          {/* Left Column: Biometric Face Scanner View */}
-          <div className="lg:col-span-7 rounded-[2rem] border border-border bg-card p-6 shadow-soft space-y-4">
-            <div className="flex items-center justify-between border-b border-border pb-3">
-              <div className="flex items-center gap-2">
-                <ShieldCheck className="size-4 text-primary" />
-                <h3 className="font-bold text-sm">
-                  {tab === "in"
-                    ? "Kamera Pindai Wajah · Masuk Kerja"
-                    : "Kamera Pindai Wajah · Selesai Shift"}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+          {/* KOLOM KIRI (md:col-span-5): Kamera Kompak (max-w-[260px] aspect-[4/3] mx-auto) */}
+          <div className="md:col-span-5 rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between border-b border-border/70 pb-2">
+              <div className="flex items-center gap-1.5">
+                <ShieldCheck className="size-4 text-primary shrink-0" />
+                <h3 className="font-bold text-xs sm:text-sm">
+                  {tab === "in" ? "Kamera Masuk Kerja" : "Kamera Pulang Shift"}
                 </h3>
               </div>
-              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-[0.65rem] font-bold text-emerald-600 dark:text-emerald-400">
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                 <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                AI Biometric Ready
+                {faceModelsReady ? "128D Siap" : "Memuat AI..."}
               </span>
             </div>
 
-            {/* Quick Employee Selector: "Pilih Nama Anda Sebelum Scan Wajah" */}
-            <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3.5 space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold text-foreground flex items-center gap-1.5">
-                  <UserCheck className="size-3.5 text-primary" />
-                  <span>Pilih Nama Anda Sebelum Scan Wajah:</span>
-                </label>
-                <span className="text-[10px] text-muted-foreground font-semibold">
-                  Cabang: {activeOutlet.name}
-                </span>
-              </div>
-
-              {/* Quick Staff Selection Pills */}
-              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pr-1">
-                {branchStaffProfiles.map((st) => {
-                  const isSelected = selectedStaffId === st.user_id;
-                  return (
-                    <button
-                      key={st.user_id}
-                      type="button"
-                      onClick={() => setSelectedStaffId(st.user_id)}
-                      className={cn(
-                        "px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5",
-                        isSelected
-                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                          : "bg-card hover:bg-muted text-foreground border-border/80",
-                      )}
-                    >
-                      <span>{st.full_name}</span>
-                      <span
-                        className={cn(
-                          "text-[9px] px-1 py-0.2 rounded font-semibold",
-                          isSelected ? "bg-white/20 text-white" : "bg-muted text-muted-foreground",
-                        )}
-                      >
-                        {st.job_title}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Video Stream Container with Holographic Biometric Overlay */}
-            <div className="relative aspect-4/3 w-full overflow-hidden rounded-2xl bg-black border border-border/80 shadow-inner flex items-center justify-center">
+            {/* Compact Camera Frame (max-w-[260px] aspect-[4/3] mx-auto) */}
+            <div className="relative max-w-[260px] aspect-[4/3] w-full mx-auto overflow-hidden rounded-xl bg-slate-950 border border-border/80 shadow-inner flex items-center justify-center">
               <video
                 ref={videoRef}
                 autoPlay
                 playsInline
                 muted
-                className={`size-full object-cover ${isCameraActive ? "block" : "hidden"}`}
+                className={`size-full object-cover scale-x-[-1] ${isCameraActive ? "block" : "hidden"}`}
               />
 
               {!isCameraActive && (
-                <div className="relative z-10 text-center p-6 space-y-3">
-                  <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-white/10 text-white/85 border border-white/15">
-                    <Camera className="size-7" />
+                <div className="relative z-10 text-center p-3 space-y-2">
+                  <div className="mx-auto flex size-10 items-center justify-center rounded-xl bg-white/10 text-white/85 border border-white/15">
+                    <Camera className="size-5" />
                   </div>
-                  <div>
-                    <p className="text-sm font-bold text-white/95">
-                      {cameraError || "Kamera Siap Diaktifkan"}
-                    </p>
-                    <p className="text-xs text-white/75 max-w-xs mx-auto mt-1">
-                      Pastikan wajah Anda berada di dalam garis panduan oval di bawah pencahayaan
-                      yang cukup.
-                    </p>
-                  </div>
+                  <p className="text-xs font-bold text-white/95 leading-snug">
+                    {cameraError || "Kamera Belum Aktif"}
+                  </p>
                   <Button
+                    type="button"
                     onClick={startCamera}
                     size="sm"
-                    className="rounded-xl font-bold gap-1.5 shadow-brand"
+                    className="h-7 rounded-lg text-xs font-bold gap-1 shadow-brand"
                   >
-                    <Camera className="size-4" />
+                    <Camera className="size-3.5" />
                     Aktifkan Kamera
                   </Button>
                 </div>
               )}
 
-              {/* Holographic Biometric Face Box Overlay */}
-              <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
-                {/* Oval Face Guide */}
-                <div
-                  className={`size-56 rounded-[3.5rem] border-2 transition-all ${
-                    isScanning
-                      ? "border-primary shadow-[0_0_30px_rgba(234,88,12,0.6)] scale-105"
-                      : "border-primary/50 shadow-[0_0_15px_rgba(234,88,12,0.2)]"
-                  } relative`}
-                >
-                  {/* Target Corners */}
-                  <span className="absolute -top-1 -left-1 size-4 border-t-2 border-l-2 border-primary" />
-                  <span className="absolute -top-1 -right-1 size-4 border-t-2 border-r-2 border-primary" />
-                  <span className="absolute -bottom-1 -left-1 size-4 border-b-2 border-l-2 border-primary" />
-                  <span className="absolute -bottom-1 -right-1 size-4 border-b-2 border-r-2 border-primary" />
-
-                  {/* Animated Scanning Laser Beam */}
-                  {isScanning && (
-                    <div className="absolute inset-x-0 h-1 bg-gradient-to-r from-transparent via-primary to-transparent animate-bounce top-1/2 shadow-[0_0_12px_#ea580c]" />
-                  )}
+              {/* Compact Oval Face Guide */}
+              {isCameraActive && (
+                <div className="absolute inset-0 pointer-events-none flex flex-col items-center justify-center">
+                  <div
+                    className={cn(
+                      "w-28 h-36 rounded-full border-2 transition-all relative",
+                      isScanning || isEnrollingFace
+                        ? "border-emerald-400 scale-105"
+                        : faceRejectMessage
+                          ? "border-rose-500"
+                          : "border-primary/70",
+                    )}
+                  />
+                  <div className="mt-1.5 rounded-full bg-black/65 px-2.5 py-0.5 text-[10px] font-bold text-white">
+                    {isScanning || isEnrollingFace
+                      ? `Memindai... ${scanProgress}%`
+                      : "Posisikan Wajah Lurus"}
+                  </div>
                 </div>
-
-                <div className="mt-4 rounded-full bg-black/60 backdrop-blur-md px-3 py-1 text-[0.68rem] font-bold text-white flex items-center gap-1.5 border border-white/10">
-                  <Sparkles className="size-3 text-primary animate-spin" />
-                  <span>
-                    {isScanning
-                      ? `Menganalisis Biometrik... (${scanProgress}%)`
-                      : "Posisikan Wajah di Tengah Frame"}
-                  </span>
-                </div>
-              </div>
+              )}
             </div>
 
-            {/* Camera Controls & Status */}
-            <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
-              <span className="flex items-center gap-1.5">
-                <Laptop className="size-3.5 text-primary" />
-                <span>
-                  Device: Browser Client (
-                  {(() => {
-                    if (typeof navigator === "undefined") return "Desktop";
-                    const ua = navigator.userAgent || "";
-                    const isMobileUa =
-                      /Android.*Mobile|iPhone|iPod|BlackBerry|IEMobile|Opera Mini/i.test(ua);
-                    const isTabletUa = /iPad|Tablet|Android(?!.*Mobile)/i.test(ua);
-                    if (isMobileUa) return "Mobile";
-                    if (isTabletUa) return "Tablet";
-                    if (typeof window !== "undefined" && window.innerWidth < 640) return "Mobile";
-                    return "Desktop";
-                  })()}
-                  )
-                </span>
-              </span>
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
+              <span>Tanpa PIN · Verifikasi Biometrik</span>
               <button
                 type="button"
                 onClick={startCamera}
-                className="text-primary hover:underline font-bold flex items-center gap-1"
+                className="text-primary hover:underline font-bold flex items-center gap-1 cursor-pointer"
               >
                 <RefreshCw className="size-3" />
                 Refresh Kamera
@@ -703,165 +786,253 @@ export function AttendancePage({
             </div>
           </div>
 
-          {/* Right Column: Employee Selection & Verification Trigger */}
-          <div className="lg:col-span-5 space-y-5">
-            <div className="rounded-[2rem] border border-border bg-card p-6 shadow-soft space-y-4">
-              <div className="border-b border-border pb-3">
-                <h3 className="font-bold text-base">Pilih Karyawan</h3>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Karyawan yang bertugas di <strong>{activeOutlet.name}</strong>
+          {/* KOLOM KANAN (md:col-span-7): Pilih Staf, Status Kecocokan Wajah & Tombol Aksi */}
+          <div className="md:col-span-7 rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
+            <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2">
+              <div>
+                <h3 className="font-bold text-sm">Pilih Karyawan & Verifikasi Wajah</h3>
+                <p className="text-[11px] text-muted-foreground">
+                  Cabang aktif: <strong>{activeOutlet.name}</strong> (Toleransi keterlambatan 15 menit)
                 </p>
               </div>
-
-              {/* Staff Select Box */}
-              <div>
-                <label className="text-xs font-bold text-foreground/80 mb-1.5 block">
-                  Nama Staff / Kasir
-                </label>
-                <select
-                  value={selectedStaffId}
-                  onChange={(e) => setSelectedStaffId(e.target.value)}
-                  className="w-full h-11 rounded-xl border border-input bg-card px-3 text-sm font-semibold shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              {selectedStaffDescriptor && canManageFaceReEnroll && !forceReEnrollMode && (
+                <button
+                  type="button"
+                  onClick={() => setForceReEnrollMode(true)}
+                  className="rounded-lg border border-border bg-secondary/70 hover:bg-secondary px-2.5 py-1 text-[11px] font-bold text-foreground cursor-pointer shrink-0"
                 >
-                  {branchStaffProfiles.map((st) => (
-                    <option key={st.user_id} value={st.user_id}>
-                      {st.full_name} · {st.job_title} ({st.role.toUpperCase()})
-                    </option>
-                  ))}
-                </select>
-              </div>
+                  Daftar Ulang Wajah
+                </button>
+              )}
+            </div>
 
-              {/* Selected Staff Card */}
-              {(() => {
-                const cur = staffList.find((s) => s.user_id === selectedStaffId);
-                if (!cur) return null;
-                const todayStr = new Date().toISOString().split("T")[0];
-                const todayInRecord = attendances.find(
-                  (a) => a.user_id === selectedStaffId && a.type === "in" && a.date === todayStr,
-                );
-                const todayOutRecord = attendances.find(
-                  (a) => a.user_id === selectedStaffId && a.type === "out" && a.date === todayStr,
-                );
-                const inTime = todayInRecord?.check_in_time || todayInRecord?.created_at;
-                const outTime = todayOutRecord?.check_out_time || todayOutRecord?.created_at;
-
+            {/* Quick Staff Selection Pills */}
+            <div className="flex flex-wrap gap-1.5">
+              {branchStaffProfiles.map((st) => {
+                const isSelected = selectedStaffId === st.user_id;
+                const hasFace =
+                  isValidFaceDescriptor(st.face_descriptor) ||
+                  Boolean(getCachedFaceDescriptor(st.user_id, st.full_name));
                 return (
-                  <div className="rounded-2xl border border-border/80 bg-muted/20 p-4 space-y-3">
-                    <div className="flex items-center gap-3">
+                  <button
+                    key={st.user_id}
+                    type="button"
+                    onClick={() => {
+                      playPosSound("option");
+                      setSelectedStaffId(st.user_id);
+                    }}
+                    className={cn(
+                      "px-2.5 py-1.5 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5 active:scale-95",
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                        : "bg-secondary/50 hover:bg-secondary text-foreground border-border/80",
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "size-2 rounded-full shrink-0",
+                        hasFace
+                          ? isSelected
+                            ? "bg-white"
+                            : "bg-emerald-500"
+                          : "bg-rose-500",
+                      )}
+                    />
+                    <span>{st.full_name}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Selected Staff Status & Biometric Badge */}
+            {(() => {
+              const cur = selectedStaffProfile;
+              if (!cur) return null;
+              const todayStr = formatLocalDateWIB();
+              const todayInRecord = attendances.find(
+                (a) => a.user_id === selectedStaffId && a.type === "in" && a.date === todayStr,
+              );
+              const todayOutRecord = attendances.find(
+                (a) => a.user_id === selectedStaffId && a.type === "out" && a.date === todayStr,
+              );
+              const inTime = todayInRecord?.check_in_time || todayInRecord?.created_at;
+              const outTime = todayOutRecord?.check_out_time || todayOutRecord?.created_at;
+
+              return (
+                <div className="rounded-xl border border-border/80 bg-muted/20 p-3 space-y-2.5">
+                  <div className="flex items-center justify-between gap-2.5">
+                    <div className="flex items-center gap-2.5 min-w-0">
                       {cur.avatar_url ? (
                         <img
                           src={cur.avatar_url}
                           alt={cur.full_name}
-                          className="size-12 rounded-xl object-cover border border-border shadow-xs shrink-0"
+                          className="size-10 rounded-lg object-cover border border-border shrink-0"
                         />
                       ) : (
-                        <div className="flex size-12 items-center justify-center rounded-xl bg-primary/10 text-primary font-black text-base shrink-0">
+                        <div className="flex size-10 items-center justify-center rounded-lg bg-primary/10 text-primary font-black text-sm shrink-0">
                           {cur.full_name ? cur.full_name.charAt(0).toUpperCase() : "U"}
                         </div>
                       )}
-                      <div>
-                        <h4 className="font-bold text-sm text-foreground">{cur.full_name}</h4>
-                        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                          <span className="font-semibold text-primary">{cur.job_title}</span>
-                          &bull;
-                          <span>Status: {cur.employment_status}</span>
-                        </div>
-                        <p className="text-[11px] text-muted-foreground mt-0.5">
-                          {cur.avatar_url
-                            ? "Wajah biometrik terdaftar"
-                            : "Belum daftar foto biometrik"}
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-sm text-foreground truncate">
+                          {cur.full_name}
+                        </h4>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {cur.job_title} · {cur.employment_status}
                         </p>
                       </div>
                     </div>
 
-                    {/* Ringkasan Kehadiran Hari Ini (Privasi Terjaga: Tanpa Data Finansial / Gaji) */}
-                    <div className="border-t border-border/60 pt-2 grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-muted-foreground text-[0.68rem] block">
-                          Jam Masuk:
-                        </span>
-                        <strong className="text-foreground">
-                          {inTime
-                            ? new Date(inTime).toLocaleTimeString("id-ID", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "-"}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-muted-foreground text-[0.68rem] block">
-                          Jam Keluar:
-                        </span>
-                        <strong className="text-foreground">
-                          {outTime
-                            ? new Date(outTime).toLocaleTimeString("id-ID", {
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })
-                            : "-"}
-                        </strong>
-                      </div>
-                      <div className="col-span-2">
-                        <span className="text-muted-foreground text-[0.68rem] block">
-                          Status Kehadiran Hari Ini:
-                        </span>
-                        <span
-                          className={cn(
-                            "inline-block mt-0.5 px-2 py-0.5 rounded text-[11px] font-bold",
-                            todayInRecord?.status === "on_time"
-                              ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
-                              : todayInRecord?.status === "late"
-                                ? "bg-muted text-foreground/75 border border-border"
-                                : "bg-muted text-muted-foreground",
-                          )}
-                        >
-                          {todayInRecord
-                            ? todayInRecord.status === "late"
-                              ? "Terlambat"
-                              : "Tepat Waktu"
-                            : "Belum Absen Masuk"}
-                        </span>
-                      </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-1 text-[11px] font-bold whitespace-nowrap shrink-0 border",
+                        selectedStaffDescriptor
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30"
+                          : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30",
+                      )}
+                    >
+                      {selectedStaffDescriptor ? "Wajah Terdaftar" : "Wajah Belum Terdaftar"}
+                    </span>
+                  </div>
+
+                  {/* Ringkasan Kehadiran Hari Ini (Tanpa Data Gaji) */}
+                  <div className="border-t border-border/60 pt-2 grid grid-cols-3 gap-2 text-xs">
+                    <div>
+                      <span className="text-muted-foreground text-[11px] block">Jam Masuk:</span>
+                      <strong className="text-foreground">
+                        {inTime
+                          ? new Date(inTime).toLocaleTimeString("id-ID", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "-"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-[11px] block">Jam Keluar:</span>
+                      <strong className="text-foreground">
+                        {outTime
+                          ? new Date(outTime).toLocaleTimeString("id-ID", {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })
+                          : "-"}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-muted-foreground text-[11px] block">
+                        Status Kehadiran Hari Ini:
+                      </span>
+                      <span
+                        className={cn(
+                          "inline-block mt-0.5 px-1.5 py-0.5 rounded text-[11px] font-bold",
+                          todayInRecord?.status === "on_time"
+                            ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                            : todayInRecord?.status === "late"
+                              ? "bg-rose-500/10 text-rose-600 dark:text-rose-400"
+                              : "bg-muted text-muted-foreground",
+                        )}
+                      >
+                        {todayInRecord
+                          ? todayInRecord.status === "late"
+                            ? "Terlambat"
+                            : "Tepat Waktu"
+                          : "Belum Absen"}
+                      </span>
                     </div>
                   </div>
-                );
-              })()}
+                </div>
+              );
+            })()}
 
-              {/* Shift Rule Banner */}
-              <div className="rounded-xl border border-border bg-muted p-3 text-xs space-y-1">
-                <span className="font-bold text-foreground/75 flex items-center gap-1.5">
-                  <Clock className="size-3.5" />
-                  Aturan Kehadiran Shift
-                </span>
-                <p className="text-muted-foreground text-[0.72rem] leading-relaxed">
-                  Toleransi keterlambatan adalah <strong>15 menit</strong> dari jam mulai shift.
-                  Keterlambatan akan dikenakan penyesuaian otomatis pada modul penggajian (payroll).
-                </p>
+            {/* Alert Penolakan Biometrik jika Wajah Tidak Cocok */}
+            {faceRejectMessage && (
+              <div
+                role="alert"
+                className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2.5 text-xs font-bold text-rose-700 dark:text-rose-300 flex items-start gap-2"
+              >
+                <AlertTriangle className="size-4 shrink-0 mt-0.5 text-rose-600 dark:text-rose-400" />
+                <div className="space-y-0.5">
+                  <p>{faceRejectMessage}</p>
+                  {lastMatchDistance !== null && Number.isFinite(lastMatchDistance) && (
+                    <p className="text-[11px] font-medium opacity-85">
+                      Selisih vektor wajah: {lastMatchDistance.toFixed(2)} (Batas cocok maksimal{" "}
+                      {FACE_MATCH_THRESHOLD.toFixed(2)})
+                    </p>
+                  )}
+                </div>
               </div>
+            )}
 
-              {/* Action Button: Scan & Verifikasi */}
+            {/* Mode Daftarkan Wajah Pertama Kali vs Tombol Absen */}
+            {isFirstTimeEnrollmentNeeded ? (
+              <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-xs font-bold text-foreground">
+                    {forceReEnrollMode
+                      ? `Perbarui Biometrik Wajah — ${selectedStaffProfile?.full_name}`
+                      : `Daftarkan Wajah Pertama Kali — ${selectedStaffProfile?.full_name}`}
+                  </p>
+                  {forceReEnrollMode && (
+                    <button
+                      type="button"
+                      onClick={() => setForceReEnrollMode(false)}
+                      className="text-[11px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Batal
+                    </button>
+                  )}
+                </div>
+                <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  Karyawan yang belum mendaftarkan wajah tidak dapat langsung absen. Hadapkan wajah{" "}
+                  <strong>{selectedStaffProfile?.full_name}</strong> ke kamera untuk menyimpan
+                  vektor biometrik 128-angka pertama kali.
+                </p>
+                <Button
+                  type="button"
+                  size="lg"
+                  onClick={handleEnrollFaceDescriptor}
+                  disabled={isEnrollingFace || !selectedStaffId}
+                  className="w-full h-11 rounded-xl font-bold shadow-brand gap-2 text-xs sm:text-sm active:scale-95 transition-transform duration-100"
+                >
+                  {isEnrollingFace ? (
+                    <>
+                      <RefreshCw className="size-4 animate-spin" />
+                      <span>Menyimpan Vektor Wajah ({scanProgress}%)...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="size-4" />
+                      <span>Daftarkan Wajah {selectedStaffProfile?.full_name}</span>
+                    </>
+                  )}
+                </Button>
+              </div>
+            ) : (
               <Button
+                type="button"
                 size="lg"
                 onClick={handleScanAndVerify}
                 disabled={isScanning || !selectedStaffId}
-                className="w-full h-12 rounded-xl font-bold shadow-brand gap-2 text-sm"
+                className="w-full h-11 rounded-xl font-bold shadow-brand gap-2 text-xs sm:text-sm active:scale-95 transition-transform duration-100"
               >
                 {isScanning ? (
                   <>
                     <RefreshCw className="size-4 animate-spin" />
-                    <span>Memverifikasi Wajah ({scanProgress}%)...</span>
+                    <span>Memverifikasi Wajah Asli ({scanProgress}%)...</span>
                   </>
                 ) : (
                   <>
                     <Camera className="size-4" />
                     <span>
-                      {tab === "in" ? "Pindai Wajah & Absen Masuk" : "Pindai Wajah & Absen Keluar"}
+                      {tab === "in"
+                        ? `Verifikasi Wajah & Absen Masuk`
+                        : `Verifikasi Wajah & Absen Pulang`}
                     </span>
                   </>
                 )}
               </Button>
-            </div>
+            )}
           </div>
         </div>
       )}

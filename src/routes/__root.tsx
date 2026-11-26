@@ -146,7 +146,7 @@ function RootShell({ children }: { children: ReactNode }) {
         <HeadContent />
         <script
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var s=localStorage.getItem("kebabschoicepos_ui_scale");var m={"80":"12.8px","85":"13.6px","90":"14.4px","100":"16px"};var k=(s&&m[s])?s:(window.innerWidth>=680&&window.innerWidth<=1180?"85":"100");document.documentElement.style.fontSize=m[k];document.documentElement.dataset.uiScale=k;}catch(e){}})();`,
+            __html: `(function(){try{var s=localStorage.getItem("kebabschoicepos_ui_scale");var m={"80":"12.8px","85":"13.6px","90":"14.4px","100":"16px"};var coarse=window.matchMedia&&window.matchMedia("(pointer: coarse)").matches;var k=(s&&m[s])?s:(window.innerWidth<=1280||coarse?"85":"100");document.documentElement.style.fontSize=m[k];document.documentElement.dataset.uiScale=k;}catch(e){}})();`,
           }}
         />
       </head>

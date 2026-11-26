@@ -18,6 +18,7 @@ import {
   Eye,
   EyeOff,
   ShieldCheck,
+  ChevronDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -201,6 +202,7 @@ export function PosShiftCashPage() {
   const [closingNotes, setClosingNotes] = useState("");
   const [isClosingModalOpen, setIsClosingModalOpen] = useState(false);
   const [isCountRevealed, setIsCountRevealed] = useState(false);
+  const [isScheduleAccordionOpen, setIsScheduleAccordionOpen] = useState(false);
 
   // Load shifts and user details on mount and whenever active POS branch changes
   const [outletReloadTick, setOutletReloadTick] = useState(0);
@@ -1168,66 +1170,101 @@ export function PosShiftCashPage() {
     : "(13:00 - 22:00)";
 
   return (
-    <div className="space-y-6 w-full max-w-none pb-12">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border pb-5">
-        <div>
-          <h1 className="text-2xl font-black tracking-tight text-foreground flex items-center gap-2.5">
-            <Wallet className="size-7 text-primary" />
-            Shift & Cash Management (Kasir POS)
-          </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Buka shift kasir, pencatatan kas masuk/keluar, dan rekonsiliasi saldo akhir otomatis.
-          </p>
+    <div className="space-y-3 w-full max-w-none pb-6">
+      {/* Compact Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-2xl border border-border bg-card px-3.5 py-2.5 shadow-xs">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <Wallet className="size-4.5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-base sm:text-lg font-black tracking-tight text-foreground truncate">
+              Shift & Kas Laci Kasir
+            </h1>
+            <p className="text-xs text-muted-foreground truncate">
+              Cabang: <strong className="text-foreground">{outletName}</strong> · Buka shift, mutasi kas, & rekonsiliasi.
+            </p>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0">
           {activeShift ? (
             <Badge
               variant="outline"
-              className="bg-success-soft text-success border-success/30 px-3 py-1 font-bold"
+              className="bg-success-soft text-success border-success/30 px-2.5 py-1 text-xs font-bold"
             >
-              ● Shift Aktif: {activeShift.cashierName}
+              Shift Aktif: {activeShift.cashierName}
             </Badge>
           ) : (
             <Badge
               variant="outline"
-              className="bg-destructive/10 text-destructive border-destructive/30 px-3 py-1 font-bold"
+              className="bg-destructive/10 text-destructive border-destructive/30 px-2.5 py-1 text-xs font-bold"
             >
-              ○ Kasir Belum Buka Shift
+              Shift Tutup
             </Badge>
           )}
         </div>
       </div>
 
-      {/* Main Grid: Shift Status & Controls */}
+      {/* Main Content: Shift Closed vs Shift Active */}
       {!activeShift ? (
-        /* OPEN SHIFT CARD */
-        <div className="rounded-3xl border border-border bg-card p-6 md:p-8 shadow-card max-w-xl mx-auto">
-          <div className="flex items-center gap-3 mb-6">
-            <div className="size-12 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
-              <Clock className="size-6" />
+        /* SAAT SHIFT TUTUP: 1 KARTU RINGKAS TERPUSAT (max-w-lg mx-auto) */
+        <div className="max-w-lg mx-auto space-y-4">
+          <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 shadow-xs space-y-3.5">
+            <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2.5">
+              <div className="flex items-center gap-2.5">
+                <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  <Clock className="size-4.5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-black text-foreground leading-tight">
+                    Buka Shift Kasir Baru
+                  </h2>
+                  <p className="text-xs text-muted-foreground">
+                    Pilih kasir, kru pendamping, & modal awal laci kas.
+                  </p>
+                </div>
+              </div>
             </div>
-            <div>
-              <h2 className="text-lg font-black text-foreground">Buka Shift Kasir Baru</h2>
-              <p className="text-xs text-muted-foreground">
-                Isi saldo modal awal kas sebelum memulai transaksi POS.
-              </p>
-            </div>
-          </div>
 
-          <div className="space-y-4">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <Label className="text-xs font-bold text-foreground">Nama Kasir Bertugas *</Label>
-                <span className="text-[10px] text-muted-foreground">
-                  Pilih cepat kru cabang atau ketik manual
-                </span>
+            {/* Baris Outlet Aktif (Locked ReadOnly) & Nama Kasir */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <div>
+                <Label className="text-xs font-bold text-foreground">Outlet Aktif</Label>
+                <div className="relative mt-1">
+                  <Store className="absolute left-3 top-2.5 size-3.5 text-muted-foreground" />
+                  <Input
+                    value={outletName}
+                    readOnly
+                    aria-readonly="true"
+                    placeholder="Outlet Cabang"
+                    className="h-9 pl-8 rounded-xl bg-muted/50 text-xs font-bold text-foreground cursor-not-allowed"
+                  />
+                </div>
               </div>
 
-              {/* Quick Select Staff Pills */}
-              {branchStaffList.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-2.5">
+              <div>
+                <Label className="text-xs font-bold text-foreground">Nama Kasir Bertugas *</Label>
+                <div className="relative mt-1">
+                  <User className="absolute left-3 top-2.5 size-3.5 text-muted-foreground" />
+                  <Input
+                    value={cashierName}
+                    onChange={(e) => setCashierName(e.target.value)}
+                    placeholder="Nama Kasir Bertugas"
+                    className="h-9 pl-8 rounded-xl text-xs font-bold"
+                    required
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Select Staff Pills */}
+            {branchStaffList.length > 0 && (
+              <div>
+                <span className="text-[11px] font-semibold text-muted-foreground block mb-1">
+                  Pilih Cepat Kasir Cabang:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
                   {branchStaffList.map((st) => {
                     const isMorning = todayRoster?.morningStaff.includes(st.name);
                     const isNight = todayRoster?.nightStaff.includes(st.name);
@@ -1240,7 +1277,7 @@ export function PosShiftCashPage() {
                         type="button"
                         onClick={() => setCashierName(st.name)}
                         className={cn(
-                          "px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1.5",
+                          "px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer flex items-center gap-1 active:scale-95",
                           isSelected
                             ? "bg-primary text-primary-foreground border-primary shadow-xs"
                             : "bg-secondary/60 hover:bg-secondary text-foreground border-border/80",
@@ -1248,74 +1285,42 @@ export function PosShiftCashPage() {
                       >
                         <User className="size-3" />
                         <span>{st.name}</span>
-                        {isMorning && (
+                        {(isMorning || isNight) && (
                           <span
                             className={cn(
-                              "text-[9px] px-1 py-0.2 rounded font-black",
-                              isSelected
-                                ? "bg-white/20 text-white"
-                                : "bg-muted text-foreground/75",
+                              "text-[10px] px-1 rounded font-bold",
+                              isSelected ? "bg-white/20 text-white" : "bg-muted text-foreground/75",
                             )}
                           >
-                            Pagi
-                          </span>
-                        )}
-                        {isNight && (
-                          <span
-                            className={cn(
-                              "text-[9px] px-1 py-0.2 rounded font-black",
-                              isSelected
-                                ? "bg-white/20 text-white"
-                                : "bg-muted text-foreground/75",
-                            )}
-                          >
-                            Malam
+                            {isMorning ? "Pagi" : "Malam"}
                           </span>
                         )}
                       </button>
                     );
                   })}
                 </div>
-              )}
-
-              {/* Cashier input with manual edit support */}
-              <div className="relative">
-                <User className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
-                <Input
-                  value={cashierName}
-                  onChange={(e) => setCashierName(e.target.value)}
-                  placeholder="Nama Kasir Bertugas"
-                  className="pl-10 rounded-xl"
-                  required
-                />
               </div>
-            </div>
+            )}
 
-            <div>
-              <Label className="text-xs font-bold text-foreground">Outlet Aktif</Label>
-              <div className="relative mt-1">
-                <Store className="absolute left-3.5 top-3 size-4 text-muted-foreground" />
-                <Input
-                  value={outletName}
-                  readOnly
-                  aria-readonly="true"
-                  placeholder="Outlet Cabang"
-                  className="pl-10 rounded-xl bg-muted/50 font-bold text-foreground cursor-not-allowed"
-                />
+            {/* Kru Pendamping (Otomatis Mengecualikan Kasir Terpilih) */}
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-bold text-foreground">
+                  Kru Pendamping (Opsional)
+                </Label>
+                {selectedCompanionList.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setTeamMembersInput("")}
+                    className="text-[11px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    Reset ({selectedCompanionList.length})
+                  </button>
+                )}
               </div>
-            </div>
 
-            <div>
-              <Label className="text-xs font-bold text-foreground flex items-center justify-between">
-                <span>Kru Pendamping / Tim Shift (Opsional)</span>
-                <span className="text-xs text-muted-foreground">
-                  Pilih multi-kru selain {cashierName || "kasir bertugas"}
-                </span>
-              </Label>
-
-              {/* Multi-Select Companion Crew Chips (Otomatis mengecualikan kasir yang sedang dipilih) */}
               {availableCompanionCrew.length > 0 ? (
-                <div className="mt-1.5 flex flex-wrap gap-1.5 rounded-2xl border border-border bg-muted/25 p-2.5">
+                <div className="flex flex-wrap gap-1.5 rounded-xl border border-border bg-muted/25 p-2">
                   {availableCompanionCrew.map((crew) => {
                     const isPicked = selectedCompanionList.some(
                       (n) => n.toLowerCase() === crew.name.toLowerCase(),
@@ -1326,7 +1331,7 @@ export function PosShiftCashPage() {
                         type="button"
                         onClick={() => toggleCompanionMember(crew.name)}
                         className={cn(
-                          "px-2.5 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer inline-flex items-center gap-1.5",
+                          "px-2.5 py-1 rounded-lg text-xs font-bold border transition-all cursor-pointer inline-flex items-center gap-1 active:scale-95",
                           isPicked
                             ? "bg-primary text-primary-foreground border-primary shadow-xs"
                             : "bg-card hover:bg-secondary text-foreground border-border/80",
@@ -1337,10 +1342,8 @@ export function PosShiftCashPage() {
                         {crew.shiftTag && (
                           <span
                             className={cn(
-                              "text-[9px] px-1 py-0.2 rounded font-black",
-                              isPicked
-                                ? "bg-white/20 text-white"
-                                : "bg-muted text-foreground/75",
+                              "text-[10px] px-1 rounded font-bold",
+                              isPicked ? "bg-white/20 text-white" : "bg-muted text-foreground/75",
                             )}
                           >
                             {crew.shiftTag}
@@ -1351,133 +1354,118 @@ export function PosShiftCashPage() {
                   })}
                 </div>
               ) : (
-                <div className="mt-1.5 rounded-2xl border border-dashed border-border bg-muted/20 p-2.5 text-xs text-muted-foreground">
-                  Tidak ada kru pendamping lain di luar kasir bertugas ({cashierName}).
-                </div>
+                <p className="text-xs text-muted-foreground rounded-xl border border-dashed border-border bg-muted/20 px-2.5 py-1.5">
+                  Tidak ada kru pendamping lain selain {cashierName}.
+                </p>
               )}
 
-              {selectedCompanionList.length > 0 && (
-                <div className="mt-1.5 flex items-center justify-between text-xs text-muted-foreground px-1">
-                  <span>
-                    Terpilih:{" "}
-                    <strong className="text-foreground">{selectedCompanionList.join(", ")}</strong>
+              {/* Accordion Collapsible Jadwal Tim Cabang Hari Ini */}
+              <div className="rounded-xl border border-border/70 bg-muted/20 overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsScheduleAccordionOpen((prev) => !prev)}
+                  className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold text-foreground/85 hover:bg-secondary/50 transition-colors cursor-pointer"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Calendar className="size-3.5 text-primary" />
+                    <span>Jadwal Tim Cabang Hari Ini</span>
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => setTeamMembersInput("")}
-                    className="text-xs font-bold text-muted-foreground hover:text-foreground cursor-pointer"
-                  >
-                    Reset Kru
-                  </button>
-                </div>
-              )}
+                  <ChevronDown
+                    className={cn(
+                      "size-4 text-muted-foreground transition-transform duration-150",
+                      isScheduleAccordionOpen && "rotate-180",
+                    )}
+                  />
+                </button>
 
-              {/* Jadwal Tim Cabang Hari Ini (Sinkron HR) Card */}
-              <div className="mt-2.5 rounded-2xl border border-border bg-muted/30 p-3.5 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5">
-                    <Calendar className="size-3.5 text-foreground/70" />
-                    <span className="text-xs font-bold text-foreground">
-                      Jadwal Tim Cabang Hari Ini (Sinkron HR)
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-semibold text-muted-foreground">
-                    {new Date().toLocaleDateString("id-ID", {
-                      weekday: "long",
-                      day: "numeric",
-                      month: "short",
-                    })}
-                  </span>
-                </div>
+                {isScheduleAccordionOpen && (
+                  <div className="px-3 pb-3 pt-1.5 border-t border-border/60 space-y-2 text-xs">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="rounded-lg border border-border/60 bg-card p-2 space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold text-[11px] text-foreground">
+                            Shift Pagi {morningHours}
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-5 px-1.5 text-[10px] font-bold rounded"
+                            onClick={() => {
+                              if (todayRoster?.morningStaff && todayRoster.morningStaff.length > 0) {
+                                const activeLower = cashierName.trim().toLowerCase();
+                                const companions = todayRoster.morningStaff.filter(
+                                  (n) => n.trim().toLowerCase() !== activeLower,
+                                );
+                                setTeamMembersInput(companions.join(", "));
+                                toast.success("Kru pendamping Shift Pagi dipilih");
+                              }
+                            }}
+                          >
+                            Isi Pagi
+                          </Button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {todayRoster?.morningStaff && todayRoster.morningStaff.length > 0
+                            ? todayRoster.morningStaff.join(", ")
+                            : "Belum ada jadwal"}
+                        </p>
+                      </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                  {/* Shift Pagi */}
-                  <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[11px] text-foreground">
-                        Shift Pagi {morningHours}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-5 px-2 text-[10px] font-bold rounded-md"
-                        onClick={() => {
-                          if (todayRoster?.morningStaff && todayRoster.morningStaff.length > 0) {
-                            const activeLower = cashierName.trim().toLowerCase();
-                            const companions = todayRoster.morningStaff.filter(
-                              (n) => n.trim().toLowerCase() !== activeLower,
-                            );
-                            setTeamMembersInput(companions.join(", "));
-                            toast.success("Kru pendamping Shift Pagi dipilih");
-                          }
-                        }}
-                      >
-                        Isi Kru Pagi
-                      </Button>
+                      <div className="rounded-lg border border-border/60 bg-card p-2 space-y-1">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-bold text-[11px] text-foreground">
+                            Shift Malam {nightHours}
+                          </span>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            className="h-5 px-1.5 text-[10px] font-bold rounded"
+                            onClick={() => {
+                              if (todayRoster?.nightStaff && todayRoster.nightStaff.length > 0) {
+                                const activeLower = cashierName.trim().toLowerCase();
+                                const companions = todayRoster.nightStaff.filter(
+                                  (n) => n.trim().toLowerCase() !== activeLower,
+                                );
+                                setTeamMembersInput(companions.join(", "));
+                                toast.success("Kru pendamping Shift Malam dipilih");
+                              }
+                            }}
+                          >
+                            Isi Malam
+                          </Button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground truncate">
+                          {todayRoster?.nightStaff && todayRoster.nightStaff.length > 0
+                            ? todayRoster.nightStaff.join(", ")
+                            : "Belum ada jadwal"}
+                        </p>
+                      </div>
                     </div>
-                    <p className="text-[11px] font-medium text-muted-foreground truncate">
-                      {todayRoster?.morningStaff && todayRoster.morningStaff.length > 0
-                        ? todayRoster.morningStaff.join(", ")
-                        : "Belum ada jadwal"}
-                    </p>
-                  </div>
 
-                  {/* Shift Malam */}
-                  <div className="rounded-xl border border-border/60 bg-card p-2.5 space-y-1">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-[11px] text-foreground">
-                        Shift Malam {nightHours}
-                      </span>
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="h-5 px-2 text-[10px] font-bold rounded-md"
-                        onClick={() => {
-                          if (todayRoster?.nightStaff && todayRoster.nightStaff.length > 0) {
-                            const activeLower = cashierName.trim().toLowerCase();
-                            const companions = todayRoster.nightStaff.filter(
-                              (n) => n.trim().toLowerCase() !== activeLower,
-                            );
-                            setTeamMembersInput(companions.join(", "));
-                            toast.success("Kru pendamping Shift Malam dipilih");
-                          }
-                        }}
-                      >
-                        Isi Kru Malam
-                      </Button>
-                    </div>
-                    <p className="text-[11px] font-medium text-muted-foreground truncate">
-                      {todayRoster?.nightStaff && todayRoster.nightStaff.length > 0
-                        ? todayRoster.nightStaff.join(", ")
-                        : "Belum ada jadwal"}
-                    </p>
-                  </div>
-                </div>
-
-                {todayRoster?.offOrLeaveStaff && todayRoster.offOrLeaveStaff.length > 0 && (
-                  <div className="pt-1 border-t border-border/40 text-[10.5px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
-                    <span className="font-semibold text-foreground">Libur / Cuti / OFF:</span>
-                    {todayRoster.offOrLeaveStaff.map((st, i) => (
-                      <span
-                        key={i}
-                        className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-bold"
-                      >
-                        {st.name} ({st.status})
-                      </span>
-                    ))}
+                    {todayRoster?.offOrLeaveStaff && todayRoster.offOrLeaveStaff.length > 0 && (
+                      <div className="pt-1 border-t border-border/40 text-[11px] text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                        <span className="font-semibold text-foreground">OFF/Izin:</span>
+                        {todayRoster.offOrLeaveStaff.map((st, i) => (
+                          <span key={i} className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-bold">
+                            {st.name} ({st.status})
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
             </div>
 
+            {/* Modal Awal Cepat */}
             <div>
               <Label className="text-xs font-bold text-foreground">
-                Saldo Awal (Modal Kas Kasir)
+                Modal Awal Kasir (Uang Kembalian)
               </Label>
               <div className="relative mt-1">
-                <span className="absolute left-3.5 top-2.5 text-sm font-bold text-muted-foreground">
+                <span className="absolute left-3 top-2 text-xs font-bold text-muted-foreground">
                   Rp
                 </span>
                 <Input
@@ -1486,10 +1474,10 @@ export function PosShiftCashPage() {
                   value={startingCashInput}
                   onChange={(e) => setStartingCashInput(formatRupiahInput(e.target.value))}
                   placeholder="200.000"
-                  className="pl-10 rounded-xl font-bold text-base tabular-nums"
+                  className="h-9 pl-9 rounded-xl font-bold text-sm tabular-nums"
                 />
               </div>
-              <div className="mt-2 grid grid-cols-4 gap-1.5">
+              <div className="mt-1.5 grid grid-cols-4 gap-1.5">
                 {[100000, 200000, 300000, 500000].map((preset) => {
                   const formattedPreset = formatRupiahInput(preset);
                   const isCurrent = parseNumberFromDots(startingCashInput) === preset;
@@ -1500,41 +1488,67 @@ export function PosShiftCashPage() {
                       size="sm"
                       variant={isCurrent ? "default" : "outline"}
                       onClick={() => setStartingCashInput(formattedPreset)}
-                      className="h-8 rounded-xl text-xs font-bold tabular-nums px-2"
+                      className="h-8 rounded-lg text-xs font-bold tabular-nums px-2"
                     >
                       {formattedPreset}
                     </Button>
                   );
                 })}
               </div>
-              <p className="text-[11px] text-muted-foreground mt-1.5">
-                Modal uang kecil pecahan untuk kembalian pelanggan.
-              </p>
             </div>
 
             <Button
               onClick={handleOpenShift}
-              className="w-full rounded-2xl font-black py-6 text-base shadow-brand mt-4"
+              className="w-full h-11 rounded-xl font-black text-sm shadow-brand active:scale-95 transition-transform duration-100"
             >
-              Mulai & Buka Shift Sekarang
+              Buka Shift Sekarang
             </Button>
           </div>
+
+          {/* Ringkasan Riwayat Shift saat Shift Tutup */}
+          {shiftHistory.length > 0 && (
+            <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-xs text-foreground flex items-center gap-1.5">
+                  <FileSpreadsheet className="size-4 text-primary" />
+                  Riwayat Shift Terakhir ({shiftHistory.length})
+                </h3>
+              </div>
+              <div className="divide-y divide-border max-h-40 overflow-y-auto text-xs">
+                {shiftHistory.slice(0, 5).map((s) => (
+                  <div key={s.id} className="py-2 flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="font-bold text-foreground truncate">{s.cashierName}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {new Date(s.startTime).toLocaleDateString("id-ID")}
+                      </p>
+                    </div>
+                    <span className="font-bold tabular-nums text-foreground shrink-0">
+                      {formatRupiah(
+                        Number(s.actualEndingCash ?? s.expectedEndingCash ?? s.startingCash) || 0,
+                      )}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
-        /* ACTIVE SHIFT DASHBOARD */
-        <div className="space-y-6">
-          {/* Shift Metrics 4-Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Saldo Awal (Modal)
+        /* SAAT SHIFT AKTIF: 4 KARTU ANGKA SEJAJAR 1 BARIS + 2 KOLOM BAWAH */
+        <div className="space-y-4">
+          {/* 4 Kartu Angka Sejajar 1 Baris di Atas */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                Modal Awal
               </span>
-              <div className="text-xl font-black text-foreground mt-1">
+              <div className="text-lg xl:text-xl font-black text-foreground tabular-nums mt-0.5">
                 {formatRupiah(activeShift.startingCash)}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1 flex items-center gap-1">
+              <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
                 <Clock className="size-3" />
-                Mulai:{" "}
+                Mulai{" "}
                 {new Date(activeShift.startTime).toLocaleTimeString("id-ID", {
                   hour: "2-digit",
                   minute: "2-digit",
@@ -1543,156 +1557,128 @@ export function PosShiftCashPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+            <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
                 Penjualan Tunai
               </span>
-              <div className="text-xl font-black text-success mt-1">
+              <div className="text-lg xl:text-xl font-black text-success tabular-nums mt-0.5">
                 +{formatRupiah(effectiveCashSales)}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1 flex items-center justify-between">
-                <span>{liveOrderCount} order ({formatRupiah(liveNonCashSales)} Non-Tunai)</span>
+              <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                {liveOrderCount} order ({formatRupiah(liveNonCashSales)} Non-Tunai)
               </div>
             </div>
 
-            <div className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                Cash In & Out
+            <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
+              <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+                Kas Masuk / Keluar
               </span>
-              <div className="text-xl font-black text-foreground mt-1 flex items-center gap-2">
-                <span className="text-success text-base">+{formatRupiah(totalCashIn)}</span>
-                <span className="text-destructive text-base">-{formatRupiah(totalCashOut)}</span>
+              <div className="text-sm xl:text-base font-black text-foreground tabular-nums mt-1 flex flex-wrap items-center gap-1.5">
+                <span className="text-success">+{formatRupiah(totalCashIn)}</span>
+                <span className="text-muted-foreground">/</span>
+                <span className="text-destructive">-{formatRupiah(totalCashOut)}</span>
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1">
-                {currentShiftMovements.length} mutasi tercatat
+              <div className="text-[11px] text-muted-foreground mt-0.5">
+                {currentShiftMovements.length} mutasi kas
               </div>
             </div>
 
-            <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 shadow-sm">
-              <span className="text-xs font-bold text-primary uppercase tracking-wider">
-                Saldo Kas Akhir (Expected)
+            <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3.5 shadow-xs">
+              <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
+                Ekspektasi Kas
               </span>
-              <div className="text-2xl font-black text-primary mt-1">
+              <div className="text-lg xl:text-xl font-black text-primary tabular-nums mt-0.5">
                 {formatRupiah(expectedEndingCash)}
               </div>
-              <div className="text-[11px] text-muted-foreground mt-1">Modal + Cash + In - Out</div>
+              <div className="text-[11px] text-muted-foreground mt-0.5">Modal + Tunai + In - Out</div>
             </div>
           </div>
 
-          {/* Action Row: Cash Movement & Close Shift Trigger */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Form Cash Movement */}
-            <div className="lg:col-span-1 rounded-3xl border border-border bg-card p-5 shadow-card">
-              <h3 className="font-black text-base text-foreground flex items-center gap-2 mb-4">
-                <Calculator className="size-5 text-primary" />
-                Catat Cash In / Cash Out
-              </h3>
+          {/* 2 Kolom di Bawah: Kiri = + Kas Masuk / - Kas Keluar / Tutup Shift, Kanan = Riwayat Shift */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+            {/* KOLOM KIRI (lg:col-span-5): + Kas Masuk, - Kas Keluar & Tutup Shift */}
+            <div className="lg:col-span-5 space-y-3.5">
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
+                <h3 className="font-black text-sm text-foreground flex items-center gap-2">
+                  <Calculator className="size-4 text-primary" />
+                  Aksi Kas Laci (+ Kas Masuk / - Kas Keluar)
+                </h3>
 
-              <form onSubmit={handleAddMovement} className="space-y-4">
-                <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setMovementType("in")}
-                    className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all border ${
-                      movementType === "in"
-                        ? "bg-success text-success-foreground border-success shadow-sm"
-                        : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
-                    }`}
-                  >
-                    <ArrowDownLeft className="size-4" />
-                    Cash In (Masuk)
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setMovementType("out")}
-                    className={`flex items-center justify-center gap-1.5 py-2.5 rounded-xl text-xs font-bold transition-all border ${
-                      movementType === "out"
-                        ? "bg-destructive text-destructive-foreground border-destructive shadow-sm"
-                        : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
-                    }`}
-                  >
-                    <ArrowUpRight className="size-4" />
-                    Cash Out (Keluar)
-                  </button>
-                </div>
-
-                <div>
-                  <Label className="text-xs font-bold text-foreground">Nominal (Rp)</Label>
-                  <Input
-                    type="text"
-                    inputMode="numeric"
-                    value={movementAmount}
-                    onChange={(e) => setMovementAmount(formatRupiahInput(e.target.value))}
-                    placeholder="Contoh: 50.000"
-                    className="mt-1 rounded-xl font-bold tabular-nums"
-                  />
-                </div>
-
-                <div>
-                  <Label className="text-xs font-bold text-foreground">Keterangan / Alasan</Label>
-                  <Input
-                    value={movementNotes}
-                    onChange={(e) => setMovementNotes(e.target.value)}
-                    placeholder={
-                      movementType === "in" ? "Tambah modal receh" : "Beli es batu / gas"
-                    }
-                    className="mt-1 rounded-xl"
-                  />
-                </div>
-
-                <Button type="submit" className="w-full rounded-xl font-bold">
-                  <Plus className="size-4 mr-1.5" />
-                  Simpan Mutasi Kas
-                </Button>
-              </form>
-            </div>
-
-            {/* List of Movements & Closing Section */}
-            <div className="lg:col-span-2 space-y-4">
-              <div className="rounded-3xl border border-border bg-card p-5 shadow-card">
-                <div className="flex items-center justify-between mb-4">
-                  <h3 className="font-black text-base text-foreground flex items-center gap-2">
-                    <Receipt className="size-5 text-primary" />
-                    Mutasi Kas Shift Berjalan
-                  </h3>
-                  <span className="text-xs text-muted-foreground font-semibold">
-                    {currentShiftMovements.length} transaksi
-                  </span>
-                </div>
-
-                {currentShiftMovements.length === 0 ? (
-                  <div className="py-8 text-center text-muted-foreground text-xs">
-                    Belum ada pencatatan Cash In / Cash Out pada shift ini.
+                <form onSubmit={handleAddMovement} className="space-y-2.5">
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setMovementType("in")}
+                      className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                        movementType === "in"
+                          ? "bg-success text-success-foreground border-success shadow-xs"
+                          : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
+                      }`}
+                    >
+                      <ArrowDownLeft className="size-3.5" />
+                      + Kas Masuk
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMovementType("out")}
+                      className={`flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-bold transition-all border cursor-pointer ${
+                        movementType === "out"
+                          ? "bg-destructive text-destructive-foreground border-destructive shadow-xs"
+                          : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
+                      }`}
+                    >
+                      <ArrowUpRight className="size-3.5" />
+                      - Kas Keluar
+                    </button>
                   </div>
-                ) : (
-                  <div className="divide-y divide-border max-h-56 overflow-y-auto">
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <div>
+                      <Label className="text-xs font-bold text-foreground">Nominal (Rp)</Label>
+                      <Input
+                        type="text"
+                        inputMode="numeric"
+                        value={movementAmount}
+                        onChange={(e) => setMovementAmount(formatRupiahInput(e.target.value))}
+                        placeholder="50.000"
+                        className="mt-1 h-9 rounded-xl text-xs font-bold tabular-nums"
+                      />
+                    </div>
+                    <div>
+                      <Label className="text-xs font-bold text-foreground">Keterangan</Label>
+                      <Input
+                        value={movementNotes}
+                        onChange={(e) => setMovementNotes(e.target.value)}
+                        placeholder={
+                          movementType === "in" ? "Modal receh" : "Beli es batu / gas"
+                        }
+                        className="mt-1 h-9 rounded-xl text-xs"
+                      />
+                    </div>
+                  </div>
+
+                  <Button type="submit" size="sm" className="w-full h-9 rounded-xl text-xs font-bold">
+                    <Plus className="size-3.5 mr-1" />
+                    Simpan Mutasi Kas
+                  </Button>
+                </form>
+
+                {currentShiftMovements.length > 0 && (
+                  <div className="pt-2 border-t border-border/60 space-y-1.5 max-h-36 overflow-y-auto">
+                    <span className="text-[11px] font-bold text-muted-foreground block">
+                      Mutasi Shift Ini ({currentShiftMovements.length})
+                    </span>
                     {currentShiftMovements.map((m) => (
-                      <div key={m.id} className="py-2.5 flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                          <div
-                            className={`size-8 rounded-xl flex items-center justify-center ${
-                              m.type === "in"
-                                ? "bg-success-soft text-success"
-                                : "bg-destructive/10 text-destructive"
-                            }`}
-                          >
-                            {m.type === "in" ? (
-                              <ArrowDownLeft className="size-4" />
-                            ) : (
-                              <ArrowUpRight className="size-4" />
-                            )}
-                          </div>
-                          <div>
-                            <p className="text-xs font-bold text-foreground">{m.notes}</p>
-                            <p className="text-[10px] text-muted-foreground">
-                              {new Date(m.timestamp).toLocaleTimeString("id-ID")} WIB
-                            </p>
-                          </div>
-                        </div>
+                      <div
+                        key={m.id}
+                        className="flex items-center justify-between gap-2 text-xs py-1 border-b border-border/40 last:border-b-0"
+                      >
+                        <span className="truncate text-foreground font-medium">{m.notes}</span>
                         <span
-                          className={`text-xs font-black ${
-                            m.type === "in" ? "text-success" : "text-destructive"
-                          }`}
+                          className={cn(
+                            "font-bold tabular-nums shrink-0",
+                            m.type === "in" ? "text-success" : "text-destructive",
+                          )}
                         >
                           {m.type === "in" ? "+" : "-"}
                           {formatRupiah(m.amount)}
@@ -1703,25 +1689,122 @@ export function PosShiftCashPage() {
                 )}
               </div>
 
-              {/* Close Shift Box */}
-              <div className="rounded-3xl border border-border bg-card p-5 shadow-card flex flex-col sm:flex-row items-center justify-between gap-4">
-                <div>
-                  <h4 className="font-black text-base text-foreground">
-                    Selesaikan Shift & Rekonsiliasi
-                  </h4>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Hitung uang tunai fisik di laci kasir dan cocokkan dengan sistem sebelum serah
-                    terima.
+              {/* Kartu Tutup Shift */}
+              <div className="rounded-2xl border border-border bg-card p-4 shadow-xs flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <h4 className="font-black text-sm text-foreground">Tutup Shift & Rekonsiliasi</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Hitung uang fisik laci kasir saat pergantian shift.
                   </p>
                 </div>
                 <Button
                   variant="destructive"
                   onClick={() => setIsClosingModalOpen(true)}
-                  className="rounded-2xl font-bold px-6 shrink-0 shadow-sm"
+                  className="h-10 rounded-xl font-bold px-4 text-xs shrink-0 shadow-xs active:scale-95 transition-transform duration-100"
                 >
-                  Tutup Shift Sekarang
+                  Tutup Shift
                 </Button>
               </div>
+            </div>
+
+            {/* KOLOM KANAN (lg:col-span-7): Riwayat Shift */}
+            <div className="lg:col-span-7 rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
+              <div className="flex items-center justify-between border-b border-border/70 pb-2">
+                <h3 className="font-black text-sm text-foreground flex items-center gap-2">
+                  <FileSpreadsheet className="size-4 text-primary" />
+                  Riwayat Shift Kasir
+                </h3>
+                <span className="text-xs text-muted-foreground font-semibold">
+                  {shiftHistory.length} shift selesai
+                </span>
+              </div>
+
+              {shiftHistory.length === 0 ? (
+                <div className="py-10 text-center text-xs text-muted-foreground">
+                  Belum ada riwayat penutupan shift sebelumnya di cabang ini.
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-[340px] overflow-y-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="border-b border-border text-muted-foreground uppercase text-[10px] tracking-wider sticky top-0 bg-card">
+                      <tr>
+                        <th className="py-2 px-2 font-bold">Waktu</th>
+                        <th className="py-2 px-2 font-bold">Kasir</th>
+                        <th className="py-2 px-2 font-bold text-right">Modal</th>
+                        <th className="py-2 px-2 font-bold text-right">Tunai</th>
+                        <th className="py-2 px-2 font-bold text-right">Fisik</th>
+                        <th className="py-2 px-2 font-bold text-right">Selisih</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {shiftHistory.map((s) => {
+                        const openingCash = Number(s.startingCash ?? (s as any).opening_cash) || 0;
+                        const cashSales = Number(s.cashSales ?? (s as any).cash_sales) || 0;
+                        const cashIn = Number(s.totalCashIn ?? (s as any).total_cash_in) || 0;
+                        const cashOut = Number(s.totalCashOut ?? (s as any).total_cash_out) || 0;
+                        const expectedCash = openingCash + cashSales + cashIn - cashOut;
+                        const actualCash =
+                          s.actualEndingCash !== undefined && s.actualEndingCash !== null
+                            ? Number(s.actualEndingCash)
+                            : expectedCash;
+                        const variance = actualCash - expectedCash;
+                        const rowOutletName =
+                          (s.outletName && s.outletName.trim()) ||
+                          (s.outletId ? outletNameMap[s.outletId] : null) ||
+                          outletName ||
+                          "Outlet Utama";
+
+                        return (
+                          <tr key={s.id} className="hover:bg-secondary/40 transition-colors">
+                            <td className="py-2.5 px-2 font-medium whitespace-nowrap">
+                              <div>{new Date(s.startTime).toLocaleDateString("id-ID")}</div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {new Date(s.startTime).toLocaleTimeString("id-ID", {
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                })}
+                                {s.endTime
+                                  ? ` - ${new Date(s.endTime).toLocaleTimeString("id-ID", {
+                                      hour: "2-digit",
+                                      minute: "2-digit",
+                                    })}`
+                                  : ""}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2">
+                              <div className="font-bold text-foreground">{s.cashierName}</div>
+                              <div className="text-[10px] text-muted-foreground truncate max-w-[120px]">
+                                {rowOutletName}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-2 text-right tabular-nums">
+                              {formatRupiah(openingCash)}
+                            </td>
+                            <td className="py-2.5 px-2 text-right tabular-nums text-success font-semibold">
+                              +{formatRupiah(cashSales)}
+                            </td>
+                            <td className="py-2.5 px-2 text-right font-bold text-foreground tabular-nums">
+                              {formatRupiah(actualCash)}
+                            </td>
+                            <td
+                              className={cn(
+                                "py-2.5 px-2 text-right font-bold tabular-nums",
+                                variance === 0
+                                  ? "text-muted-foreground"
+                                  : variance > 0
+                                    ? "text-success"
+                                    : "text-destructive",
+                              )}
+                            >
+                              {variance > 0 ? `+${formatRupiah(variance)}` : formatRupiah(variance)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1730,15 +1813,15 @@ export function PosShiftCashPage() {
       {/* MODAL / DIALOG CLOSE SHIFT (BLIND CASH COUNT ENTERPRISE) */}
       {isClosingModalOpen && activeShift && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-          <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl space-y-5">
-            <div className="flex items-center justify-between border-b border-border pb-4">
+          <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-5 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-border pb-3">
               <div>
-                <h3 className="text-lg font-black text-foreground flex items-center gap-2">
+                <h3 className="text-base font-black text-foreground flex items-center gap-2">
                   <ShieldCheck className="size-5 text-primary" />
-                  Rekonsiliasi & Tutup Shift (Blind Count)
+                  Rekonsiliasi & Tutup Shift
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Protokol anti-curang: Kasir menghitung fisik laci kasir secara buta sebelum audit sistem.
+                  Hitung fisik uang tunai di laci kasir sebelum menutup shift.
                 </p>
               </div>
               <Button
@@ -1754,10 +1837,9 @@ export function PosShiftCashPage() {
               </Button>
             </div>
 
-            {/* Ringkasan Perhitungan Kas Sistem (Modal Awal + Tunai + Kas Masuk - Kas Keluar) */}
-            <div className="rounded-2xl bg-secondary/60 p-4 space-y-2 text-xs font-semibold">
+            <div className="rounded-xl bg-secondary/60 p-3.5 space-y-1.5 text-xs font-semibold">
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Saldo Awal (Modal):</span>
+                <span className="text-muted-foreground">Modal Awal:</span>
                 <span className="tabular-nums font-bold text-foreground">
                   {formatRupiah(activeShift.startingCash)}
                 </span>
@@ -1775,18 +1857,12 @@ export function PosShiftCashPage() {
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Total Kas Masuk (Cash In):</span>
+                <span className="text-muted-foreground">Kas Masuk / Keluar:</span>
                 <span className="tabular-nums font-bold text-foreground">
-                  +{formatRupiah(totalCashIn)}
+                  +{formatRupiah(totalCashIn)} / -{formatRupiah(totalCashOut)}
                 </span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Total Kas Keluar (Cash Out):</span>
-                <span className="tabular-nums font-bold text-foreground">
-                  -{formatRupiah(totalCashOut)}
-                </span>
-              </div>
-              <div className="border-t border-border pt-2 flex justify-between font-bold text-sm">
+              <div className="border-t border-border pt-1.5 flex justify-between font-bold text-sm">
                 <span className="text-foreground">Ekspektasi Kas Sistem:</span>
                 <span className="text-primary font-black tabular-nums">
                   {formatRupiah(expectedEndingCash)}
@@ -1794,7 +1870,6 @@ export function PosShiftCashPage() {
               </div>
             </div>
 
-            {/* Actual Cash Input */}
             <div className="space-y-3">
               <div>
                 <Label className="text-xs font-bold text-foreground flex items-center justify-between">
@@ -1851,10 +1926,9 @@ export function PosShiftCashPage() {
                 </div>
               </div>
 
-              {/* Reveal Result & Discrepancy Status */}
               {actualCashInput !== "" && (
                 <div
-                  className={`p-3.5 rounded-2xl border text-xs font-bold space-y-1 ${
+                  className={`p-3 rounded-xl border text-xs font-bold space-y-0.5 ${
                     parseNumberFromDots(actualCashInput) - expectedEndingCash === 0
                       ? "bg-success-soft text-success border-success/30"
                       : parseNumberFromDots(actualCashInput) - expectedEndingCash > 0
@@ -1867,17 +1941,13 @@ export function PosShiftCashPage() {
                       {parseNumberFromDots(actualCashInput) - expectedEndingCash === 0
                         ? "Status: PAS / IMPAS (Selisih Rp 0)"
                         : parseNumberFromDots(actualCashInput) - expectedEndingCash > 0
-                          ? "▲ Status: SELISIH LEBIH (OVERAGE)"
-                          : "▼ Status: SELISIH KURANG (SHORTAGE)"}
+                          ? "Status: SELISIH LEBIH"
+                          : "Status: SELISIH KURANG"}
                     </span>
                     <span className="font-black text-sm tabular-nums">
                       {formatRupiah(parseNumberFromDots(actualCashInput) - expectedEndingCash)}
                     </span>
                   </div>
-                  <p className="text-[10px] font-normal opacity-80 tabular-nums">
-                    Fisik: {formatRupiah(parseNumberFromDots(actualCashInput))} vs Sistem:{" "}
-                    {formatRupiah(expectedEndingCash)}
-                  </p>
                 </div>
               )}
 
@@ -1886,16 +1956,16 @@ export function PosShiftCashPage() {
                 <Input
                   value={closingNotes}
                   onChange={(e) => setClosingNotes(e.target.value)}
-                  placeholder="Catatan untuk kasir shift berikutnya / keterangan selisih..."
+                  placeholder="Catatan serah terima shift..."
                   className="mt-1 rounded-xl"
                 />
               </div>
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-2">
+            <div className="flex items-center justify-end gap-2.5 pt-1">
               <Button
                 variant="outline"
-                className="rounded-xl font-bold"
+                className="rounded-xl font-bold text-xs"
                 onClick={() => {
                   setIsClosingModalOpen(false);
                   setIsCountRevealed(false);
@@ -1906,118 +1976,13 @@ export function PosShiftCashPage() {
 
               <Button
                 variant="destructive"
-                className="rounded-xl font-black shadow-sm"
+                className="rounded-xl font-black text-xs shadow-xs"
                 onClick={handleCloseShift}
                 disabled={!actualCashInput}
               >
-                Konfirmasi & Tutup Shift Resmi
+                Konfirmasi & Tutup Shift
               </Button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* SHIFT HISTORY LOG TABLE */}
-      {shiftHistory.length > 0 && (
-        <div className="rounded-3xl border border-border bg-card p-6 shadow-card space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-black text-lg text-foreground flex items-center gap-2">
-              <FileSpreadsheet className="size-5 text-primary" />
-              Riwayat Shift Kasir Terdahulu
-            </h3>
-            <span className="text-xs text-muted-foreground">
-              {shiftHistory.length} shift selesai
-            </span>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs">
-              <thead className="border-b border-border text-muted-foreground uppercase text-[10px] tracking-wider">
-                <tr>
-                  <th className="py-2.5 font-bold">Waktu Mulai - Selesai</th>
-                  <th className="py-2.5 font-bold">Kasir</th>
-                  <th className="py-2.5 font-bold">Outlet</th>
-                  <th className="py-2.5 font-bold text-right">Modal Awal</th>
-                  <th className="py-2.5 font-bold text-right">Penjualan Cash</th>
-                  <th className="py-2.5 font-bold text-right">Kas Riil</th>
-                  <th className="py-2.5 font-bold text-right">Selisih</th>
-                  <th className="py-2.5 font-bold text-center">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {shiftHistory.map((s) => {
-                  const openingCash = Number(s.startingCash ?? (s as any).opening_cash) || 0;
-                  const cashSales = Number(s.cashSales ?? (s as any).cash_sales) || 0;
-                  const cashIn = Number(s.totalCashIn ?? (s as any).total_cash_in) || 0;
-                  const cashOut = Number(s.totalCashOut ?? (s as any).total_cash_out) || 0;
-                  const expectedCash = openingCash + cashSales + cashIn - cashOut;
-                  const actualCash =
-                    s.actualEndingCash !== undefined && s.actualEndingCash !== null
-                      ? Number(s.actualEndingCash)
-                      : expectedCash;
-                  const variance = actualCash - expectedCash;
-                  const rowOutletName =
-                    (s.outletName && s.outletName.trim()) ||
-                    (s.outletId ? outletNameMap[s.outletId] : null) ||
-                    outletName ||
-                    "Outlet Utama";
-
-                  return (
-                  <tr key={s.id} className="hover:bg-secondary/40 transition-colors">
-                    <td className="py-3 font-medium">
-                      <div>{new Date(s.startTime).toLocaleDateString("id-ID")}</div>
-                      <div className="text-[10px] text-muted-foreground">
-                        {new Date(s.startTime).toLocaleTimeString("id-ID", {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                        {s.endTime
-                          ? ` - ${new Date(s.endTime).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`
-                          : ""}
-                      </div>
-                    </td>
-                    <td className="py-3 font-bold text-foreground">{s.cashierName}</td>
-                    <td className="py-3 text-muted-foreground font-medium">{rowOutletName}</td>
-                    <td className="py-3 text-right font-medium tabular-nums">
-                      {formatRupiah(openingCash)}
-                    </td>
-                    <td className="py-3 text-right font-medium tabular-nums">
-                      <div className="text-success">+{formatRupiah(cashSales)}</div>
-                      {cashIn > 0 && (
-                        <div className="text-[10px] text-success font-medium">
-                          Kas Masuk: +{formatRupiah(cashIn)}
-                        </div>
-                      )}
-                      {cashOut > 0 && (
-                        <div className="text-[10px] text-destructive font-medium">
-                          Kas Keluar: -{formatRupiah(cashOut)}
-                        </div>
-                      )}
-                    </td>
-                    <td className="py-3 text-right font-bold text-foreground tabular-nums">
-                      {formatRupiah(actualCash)}
-                    </td>
-                    <td
-                      className={`py-3 text-right font-bold tabular-nums ${
-                        variance === 0
-                          ? "text-muted-foreground"
-                          : variance > 0
-                            ? "text-success"
-                            : "text-destructive"
-                      }`}
-                    >
-                      {variance > 0 ? `+${formatRupiah(variance)}` : formatRupiah(variance)}
-                    </td>
-                    <td className="py-3 text-center">
-                      <Badge variant="outline" className="bg-success-soft text-success text-[10px]">
-                        Ditutup
-                      </Badge>
-                    </td>
-                  </tr>
-                  );
-                })}
-              </tbody>
-            </table>
           </div>
         </div>
       )}

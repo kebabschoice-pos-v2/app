@@ -2,6 +2,11 @@ import { supabase } from "@/integrations/supabase/client";
 import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import { getStaffList, type StaffItem, isOutletDeviceAccount, isOwnerAccount } from "./staff.service";
 import { getOutletList, resolveCurrentBusinessIds, type OutletItem } from "./outlet.service";
+import {
+  getCachedFaceDescriptor,
+  isValidFaceDescriptor,
+  saveCachedFaceDescriptor,
+} from "@/lib/face-biometrics";
 
 export interface StaffProfile {
   id: string;
@@ -13,6 +18,7 @@ export interface StaffProfile {
   phone: string;
   address: string;
   avatar_url: string | null;
+  face_descriptor?: number[] | null;
   job_title: string;
   role: "owner" | "admin" | "manager" | "cashier";
   gender?: "male" | "female";
@@ -284,13 +290,30 @@ export async function getHRStaffProfiles(businessId?: string): Promise<StaffProf
       if (p?.user_id) profileMap.set(p.user_id, p);
     }
 
-    // Also pull hr_profiles embedded in outlets.settings
+    // Also pull hr_profiles & outlet_staff_roster face descriptors embedded in outlets.settings
+    const rosterDescriptorByName = new Map<string, number[]>();
     for (const out of outlets) {
       const s = (out.settings && typeof out.settings === "object" ? out.settings : {}) as Record<string, any>;
       if (s.hr_profiles && typeof s.hr_profiles === "object") {
-        for (const [uid, hp] of Object.entries(s.hr_profiles)) {
+        for (const [uid, hp] of Object.entries(s.hr_profiles as Record<string, any>)) {
           if (uid && !profileMap.has(uid)) {
             profileMap.set(uid, hp);
+          } else if (uid && hp && isValidFaceDescriptor(hp.face_descriptor)) {
+            const cur = profileMap.get(uid) || {};
+            if (!isValidFaceDescriptor(cur.face_descriptor)) {
+              profileMap.set(uid, { ...cur, face_descriptor: hp.face_descriptor });
+            }
+          }
+          if (hp?.full_name && isValidFaceDescriptor(hp.face_descriptor)) {
+            rosterDescriptorByName.set(String(hp.full_name).trim().toLowerCase(), hp.face_descriptor);
+          }
+        }
+      }
+      if (Array.isArray(s.outlet_staff_roster)) {
+        for (const emp of s.outlet_staff_roster) {
+          const nm = String(emp?.name || emp?.full_name || "").trim().toLowerCase();
+          if (nm && isValidFaceDescriptor(emp?.face_descriptor)) {
+            rosterDescriptorByName.set(nm, emp.face_descriptor);
           }
         }
       }
@@ -428,6 +451,13 @@ export async function getHRStaffProfiles(businessId?: string): Promise<StaffProf
           phone: db.phone || local.phone || "081234567890",
           address: db.address || local.address || "Jl. Kebon Jeruk No. 12, Jakarta",
           avatar_url: db.avatar_url || local.avatar_url || staff.avatar_url || null,
+          face_descriptor: isValidFaceDescriptor(db.face_descriptor)
+            ? db.face_descriptor
+            : isValidFaceDescriptor(local.face_descriptor)
+              ? local.face_descriptor
+              : rosterDescriptorByName.get(String(db.full_name || staff.name || "").trim().toLowerCase()) ||
+                getCachedFaceDescriptor(staff.user_id, db.full_name || staff.name) ||
+                null,
           job_title: jobTitle,
           role: staff.role,
           gender: db.gender || local.gender || staff.gender || "male",
@@ -459,6 +489,13 @@ export async function updateHRStaffProfile(
       const local = JSON.parse(localStorage.getItem(LOCAL_STORAGE_PROFILES_KEY) || "{}");
       local[userId] = { ...(local[userId] || {}), ...data, updated_at: nowIso };
       localStorage.setItem(LOCAL_STORAGE_PROFILES_KEY, JSON.stringify(local));
+      if (isValidFaceDescriptor(data.face_descriptor)) {
+        saveCachedFaceDescriptor(
+          userId,
+          data.full_name || local[userId]?.full_name || "",
+          data.face_descriptor,
+        );
+      }
     }
 
     let persistedToSupabase = false;
@@ -542,6 +579,10 @@ export async function updateHRStaffProfile(
               address: data.address || updatedRoster[idx].address,
               avatar_url:
                 data.avatar_url !== undefined ? data.avatar_url : updatedRoster[idx].avatar_url,
+              face_descriptor:
+                data.face_descriptor !== undefined
+                  ? data.face_descriptor
+                  : updatedRoster[idx].face_descriptor,
               employment_status: data.employment_status || updatedRoster[idx].employment_status,
               base_salary: data.base_salary ?? updatedRoster[idx].base_salary,
               daily_allowance: data.daily_allowance ?? updatedRoster[idx].daily_allowance,

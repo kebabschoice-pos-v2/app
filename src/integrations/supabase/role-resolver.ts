@@ -1,6 +1,8 @@
 import { supabase } from "@/integrations/supabase/client";
+import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   DEFAULT_MANAGER_PERMISSIONS,
+  getCachedManagerPermissions,
   getManagerPermissions,
   type ManagerPermissions,
 } from "@/services/manager-permissions.service";
@@ -288,8 +290,67 @@ export function resolveAccessLevel(role: string | null | undefined, loginType: L
   return { allowed: false, targetRoute: "", errorMessage: "Akses tidak sesuai" };
 }
 
+const STORAGE_SWR_ROLE_KEY = "kebabschoicepos_swr_user_role_v1";
+let memoryRoleCache: { userId: string; businessId: string; role: AppRole; ts: number } | null = null;
+let roleListenerAttached = false;
+
+function ensureRoleCacheListener() {
+  if (roleListenerAttached || typeof window === "undefined") return;
+  roleListenerAttached = true;
+  supabase.auth.onAuthStateChange((event) => {
+    if (event === "SIGNED_OUT") {
+      memoryRoleCache = null;
+      try {
+        localStorage.removeItem(STORAGE_SWR_ROLE_KEY);
+      } catch {}
+    }
+  });
+}
+
+function readSwrRole(userId: string, activeBusinessId: string): AppRole {
+  if (
+    memoryRoleCache &&
+    memoryRoleCache.userId === userId &&
+    memoryRoleCache.businessId === activeBusinessId &&
+    memoryRoleCache.role
+  ) {
+    return memoryRoleCache.role;
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(STORAGE_SWR_ROLE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.userId === userId && parsed?.businessId === activeBusinessId && parsed?.role) {
+          memoryRoleCache = {
+            userId,
+            businessId: activeBusinessId,
+            role: parsed.role as AppRole,
+            ts: Number(parsed.ts) || Date.now(),
+          };
+          return parsed.role as AppRole;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
+function writeSwrRole(userId: string, activeBusinessId: string, role: AppRole) {
+  if (!role) return;
+  const entry = { userId, businessId: activeBusinessId, role, ts: Date.now() };
+  memoryRoleCache = entry;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.setItem(STORAGE_SWR_ROLE_KEY, JSON.stringify(entry));
+    } catch {}
+  }
+}
+
 /**
  * Unified async route guard for TanStack Router HQ `beforeLoad` hooks.
+ * Uses stale-while-revalidate caching so route transitions execute in 0ms
+ * while refreshing role & manager permissions silently in the background.
  * - Owner / Admin: always allowed
  * - Manager: allowed when the corresponding `manager-permissions.service.ts` toggle is ON
  * - Cashier / Staff / POS: strictly blocked and redirected to `/pos`
@@ -303,13 +364,30 @@ export async function checkHQRouteAccess(routeKey: HQRouteKey): Promise<{
     return { allowed: true, role: null, redirectTo: "/pos" };
   }
 
-  const { data } = await supabase.auth.getUser();
-  const user = data.user;
+  ensureRoleCacheListener();
+
+  const user = await resolveAuthenticatedUser();
   if (!user) {
     return { allowed: false, role: null, redirectTo: "/auth" };
   }
 
-  const role = await getUserRole(user.id);
+  const activeBusinessId = localStorage.getItem("kebabschoicepos_active_business_id") || "";
+  const simulatedDevRole =
+    import.meta.env.DEV ? (localStorage.getItem("kebabschoicepos_simulated_role") as AppRole) : null;
+
+  let role: AppRole = simulatedDevRole || readSwrRole(user.id, activeBusinessId);
+  if (role) {
+    // Revalidate silently in background (stale-while-revalidate)
+    void getUserRole(user.id)
+      .then((fresh) => {
+        if (fresh) writeSwrRole(user.id, activeBusinessId, fresh);
+      })
+      .catch(() => {});
+  } else {
+    role = await getUserRole(user.id);
+    if (role) writeSwrRole(user.id, activeBusinessId, role);
+  }
+
   if (!isHQRole(role)) {
     return {
       allowed: false,
@@ -322,13 +400,15 @@ export async function checkHQRouteAccess(routeKey: HQRouteKey): Promise<{
     return { allowed: true, role, redirectTo: "/dashboard" };
   }
 
-  // Manager: enforce live Owner toggle permissions
-  const activeBusinessId = localStorage.getItem("kebabschoicepos_active_business_id") || undefined;
+  // Manager: enforce Owner toggle permissions with instant cached read + background revalidate
   const activeOutletId =
     localStorage.getItem("kebabschoicepos_active_outlet_id") ||
     localStorage.getItem("kebabschoicepos_selected_outlet_id") ||
     undefined;
-  const perms = await getManagerPermissions(activeBusinessId, activeOutletId);
+  const cachedPerms = getCachedManagerPermissions();
+  void getManagerPermissions(activeBusinessId || undefined, activeOutletId).catch(() => {});
+
+  const perms = cachedPerms || (await getManagerPermissions(activeBusinessId || undefined, activeOutletId));
 
   if (canManagerAccessHQRoute(routeKey, perms)) {
     return { allowed: true, role, redirectTo: "/dashboard" };

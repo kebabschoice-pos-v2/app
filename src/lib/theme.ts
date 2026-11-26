@@ -1,6 +1,38 @@
 export type ThemeAppearance = "light" | "dark" | "system";
 export type ThemeColor = "orange" | "blue" | "green" | "purple";
 export type UiScale = "80" | "85" | "90" | "100";
+export type PosViewMode = "compact" | "normal" | "list";
+
+export const POS_VIEW_MODE_OPTIONS: Array<{
+  value: PosViewMode;
+  label: string;
+  desc: string;
+}> = [
+  { value: "compact", label: "Kotak Padat", desc: "Default Tablet" },
+  { value: "normal", label: "Normal", desc: "Foto sedang" },
+  { value: "list", label: "List", desc: "Baris ringkas" },
+];
+
+export const STORAGE_POS_VIEW_MODE_KEY = "kebabschoicepos_view_mode";
+
+export function getStoredPosViewMode(): PosViewMode {
+  if (typeof window === "undefined") return "compact";
+  try {
+    const saved = localStorage.getItem(STORAGE_POS_VIEW_MODE_KEY);
+    if (saved === "compact" || saved === "normal" || saved === "list") {
+      return saved;
+    }
+  } catch {}
+  return "compact";
+}
+
+export function savePosViewMode(mode: PosViewMode) {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_POS_VIEW_MODE_KEY, mode);
+  } catch {}
+  window.dispatchEvent(new CustomEvent("pos:view-mode-changed", { detail: mode }));
+}
 
 export const UI_SCALE_OPTIONS: Array<{
   value: UiScale;
@@ -69,8 +101,12 @@ export function resolveAutoUiScale(viewportWidth?: number): UiScale {
       ? viewportWidth
       : typeof window !== "undefined"
         ? window.innerWidth
-        : 1280;
-  if (width >= 680 && width <= 1180) {
+        : 1440;
+  const isCoarsePointer =
+    typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(pointer: coarse)").matches;
+  if (width <= 1280 || isCoarsePointer) {
     return "85";
   }
   return "100";
@@ -152,7 +188,7 @@ export function applyTheme(appearance: ThemeAppearance, color: ThemeColor) {
   root.style.setProperty("--sidebar-primary", colorConfig.primary);
   root.style.setProperty("--shadow-brand", colorConfig.shadow);
 
-  // 3. Global UI Scale (Auto 85% / 13.6px on Tablet 680px-1180px unless explicitly saved)
+  // 3. Global UI Scale (Auto 85% / 13.6px on Tablet <=1280px or coarse pointer unless explicitly saved)
   applyUiScale();
 }
 

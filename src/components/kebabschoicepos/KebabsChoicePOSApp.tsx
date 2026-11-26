@@ -85,6 +85,7 @@ import {
   Grid3X3,
   LayoutGrid,
   List,
+  MessageSquare,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -228,6 +229,7 @@ import { LanguageSettingsPage } from "@/pages/account/LanguageSettingsPage";
 import { PosShiftCashPage } from "@/pages/pos/PosShiftCashPage";
 import { PosInventoryPage } from "@/pages/pos/PosInventoryPage";
 import { PosProfilePage } from "@/pages/pos/PosProfilePage";
+import { UnifiedProfileTabs } from "@/components/kebabschoicepos/UnifiedProfileTabs";
 import { PosReceiptPage } from "@/pages/pos/PosReceiptPage";
 import { AttendancePage } from "@/components/kebabschoicepos/AttendancePage";
 import { MoneyAllocationPage } from "@/pages/money/MoneyAllocationPage";
@@ -236,12 +238,16 @@ import { GlobalSearchModal } from "@/components/search/GlobalSearchModal";
 import {
   applyTheme,
   applyUiScale,
+  getStoredPosViewMode,
   getStoredTheme,
   getStoredUiScale,
   saveUiScale,
   UI_SCALE_OPTIONS,
+  type PosViewMode,
   type UiScale,
 } from "@/lib/theme";
+import { playPosSound } from "@/lib/pos-sound";
+import { openWhatsAppReceipt } from "@/lib/whatsapp-receipt";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -1445,7 +1451,7 @@ function Header({
     <header
       className={cn(
         "sticky top-0 z-30 border-b border-border bg-background/86 backdrop-blur-2xl transition-all duration-300",
-        active === "pos" && "min-[680px]:hidden",
+        isPosPage && "min-[680px]:hidden",
         isTabletFocusMode ? "py-1" : "py-0",
       )}
     >
@@ -2023,7 +2029,6 @@ function Sidebar({
         icon: WalletCards,
         isActive: active === "pos-shift-cash",
         title: hasActiveShift ? "Shift Aktif — Kelola Kas Laci" : "Shift Tutup — Buka Shift Kasir",
-        badgeDot: hasActiveShift ? "bg-emerald-500" : "bg-muted-foreground",
       },
       {
         key: "pos-inventory",
@@ -2047,17 +2052,25 @@ function Sidebar({
       <aside
         aria-label="Navigasi Kasir POS 1-Klik"
         className={cn(
-          "sticky hidden shrink-0 border-r border-border bg-card/90 backdrop-blur-xl transition-all duration-300 ease-in-out min-[680px]:flex flex-col items-center justify-between overflow-y-auto no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
-          active === "pos"
-            ? "min-[680px]:top-0 min-[680px]:h-[100dvh]"
-            : "top-14 h-[calc(100vh-3.5rem)]",
+          "sticky min-[680px]:top-0 min-[680px]:h-[100dvh] hidden shrink-0 border-r border-border bg-card/90 backdrop-blur-xl transition-all duration-300 ease-in-out min-[680px]:flex flex-col items-center justify-between overflow-y-auto no-scrollbar [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]",
           isCollapsed
             ? "w-0 px-0 py-0 border-r-0 opacity-0 overflow-hidden pointer-events-none min-[680px]:w-0"
             : "w-16 sm:w-20 px-2 py-3 opacity-100",
         )}
       >
-        {/* Top 1-Click Primary POS Rail with Brand Logo */}
+        {/* Top 1-Click Primary POS Rail with Consistent Top-Left Sidebar Toggle + Brand Logo */}
         <nav className="flex w-full flex-col items-center gap-1">
+          {onToggleCollapse && (
+            <button
+              type="button"
+              onClick={onToggleCollapse}
+              title="Tutup Sidebar (Perluas Layar POS)"
+              aria-label="Tutup Sidebar"
+              className="mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border bg-background hover:bg-secondary text-foreground/80 transition-colors cursor-pointer"
+            >
+              <PanelLeftClose className="size-4" />
+            </button>
+          )}
           <div className="mb-0.5 flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-white p-1 shadow-xs">
             <img
               src={snapshot?.logo || "/logo-brand.png?v=2"}
@@ -2072,22 +2085,14 @@ function Sidebar({
                 key={item.key}
                 to={item.to}
                 title={item.title}
+                onClick={() => playPosSound("option")}
                 className={cn(
-                  "relative flex w-full min-h-[44px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] sm:text-[11px] font-bold transition-all active:scale-95",
+                  "relative flex w-full min-h-[42px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] sm:text-[11px] font-bold transition-all active:scale-95",
                   item.isActive
                     ? "bg-primary text-primary-foreground shadow-brand font-black"
                     : "text-muted-foreground hover:bg-secondary hover:text-foreground",
                 )}
               >
-                {item.badgeDot && (
-                  <span
-                    className={cn(
-                      "absolute top-1.5 right-2 size-2 rounded-full ring-2",
-                      item.badgeDot,
-                      item.isActive ? "ring-primary" : "ring-card",
-                    )}
-                  />
-                )}
                 <IconComp className="size-4 sm:size-5 shrink-0" />
                 <span className="leading-none">{item.label}</span>
               </Link>
@@ -3067,6 +3072,7 @@ interface ReceiptData {
   paymentMethod: string;
   customerName?: string | null;
   customerQueueName?: string | null;
+  customerPhone?: string | null;
   ojolOrderCode?: string | null;
   createdAt: string;
   items: Array<{
@@ -3257,15 +3263,63 @@ function ReceiptModal({
           </p>
         </div>
 
-        <div className="mt-5 flex gap-2 pt-2 border-t border-border">
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-border/60 bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
+          <span className="font-semibold flex items-center gap-1.5">
+            <Printer className="size-3.5 text-primary" />
+            <span>Printer & Laci</span>
+          </span>
+          <span className="font-bold text-foreground">Siap Cetak / RawBT</span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-border">
           <Button
+            type="button"
             variant="outline"
-            className="flex-1 rounded-xl text-xs font-bold"
+            className="rounded-xl text-xs font-bold px-3"
             onClick={onClose}
           >
             Tutup
           </Button>
           <Button
+            type="button"
+            variant="secondary"
+            className="flex-1 rounded-xl text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+            onClick={() => {
+              openWhatsAppReceipt(
+                {
+                  storeName: headerStoreName,
+                  outletName: data.outletName,
+                  branchAddress,
+                  orderNumber: data.orderNumber,
+                  orderType: data.orderType,
+                  customerName: data.customerName || undefined,
+                  customerQueueName: data.customerQueueName || undefined,
+                  customerPhone: data.customerPhone || undefined,
+                  cashierName: data.cashierName,
+                  paymentMethod: data.paymentMethod,
+                  createdAt: data.createdAt,
+                  items: data.items,
+                  subtotal: data.subtotal,
+                  discountAmount: data.discountAmount,
+                  serviceChargeAmount: data.serviceChargeAmount,
+                  taxAmount: data.taxAmount,
+                  taxName: data.taxName,
+                  taxRate: data.taxRate,
+                  taxMode: data.taxMode,
+                  total: data.total,
+                  cashReceived: data.cashReceived,
+                  changeAmount: data.changeAmount,
+                  footerMessage: footerText,
+                },
+                data.customerPhone,
+              );
+            }}
+          >
+            <Send className="size-3.5" />
+            Kirim Struk WA
+          </Button>
+          <Button
+            type="button"
             className="flex-1 rounded-xl text-xs font-bold gap-1.5 shadow-brand"
             onClick={async () => {
               try {
@@ -4408,33 +4462,43 @@ function PosPage({
     return null;
   });
 
-  // Redesign A (TOMORO-style POS): Inline Menu Search, Category Filter, View Mode, Compact Cart Popover & Focus Payment Modal
+  // Redesign A (TOMORO-style POS): Inline Menu Search, Category Filter, View Mode, 3-Step Checkout & Order WA Modal
   const [menuSearch, setMenuSearch] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("all");
-  const [posViewMode, setPosViewMode] = useState<"compact" | "normal" | "list">(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const saved = window.localStorage.getItem("kebabschoicepos_view_mode");
-        if (saved === "compact" || saved === "normal" || saved === "list") {
-          return saved;
-        }
-      } catch {}
-    }
-    return "compact";
-  });
-  const handlePosViewModeChange = (mode: "compact" | "normal" | "list") => {
-    setPosViewMode(mode);
-    if (typeof window !== "undefined") {
-      try {
-        window.localStorage.setItem("kebabschoicepos_view_mode", mode);
-      } catch {}
-    }
-  };
+  const [posViewMode, setPosViewMode] = useState<PosViewMode>(() => getStoredPosViewMode());
+
+  useEffect(() => {
+    const syncViewMode = (e: Event) => {
+      const next = (e as CustomEvent<PosViewMode>).detail;
+      setPosViewMode(next || getStoredPosViewMode());
+    };
+    const syncStorageViewMode = (e: StorageEvent) => {
+      if (!e.key || e.key === "kebabschoicepos_view_mode") {
+        setPosViewMode(getStoredPosViewMode());
+      }
+    };
+    window.addEventListener("pos:view-mode-changed", syncViewMode);
+    window.addEventListener("storage", syncStorageViewMode);
+    return () => {
+      window.removeEventListener("pos:view-mode-changed", syncViewMode);
+      window.removeEventListener("storage", syncStorageViewMode);
+    };
+  }, []);
+
   const [activeCartPopover, setActiveCartPopover] = useState<
     "channel" | "customer" | "discount" | null
   >(null);
+  const [isCustomerStepModalOpen, setIsCustomerStepModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingCheckout, setIsSubmittingCheckout] = useState(false);
+
+  // WhatsApp Quick Order Modal State
+  const [isWaOrderModalOpen, setIsWaOrderModalOpen] = useState(false);
+  const [waCustomerName, setWaCustomerName] = useState("");
+  const [waCustomerPhone, setWaCustomerPhone] = useState("");
+  const [waRawNotes, setWaRawNotes] = useState("");
+  const [waMenuSearch, setWaMenuSearch] = useState("");
+  const [waSelectedQty, setWaSelectedQty] = useState<Record<string, number>>({});
 
   const productCategories = useMemo(() => {
     const cats = new Set<string>();
@@ -4589,7 +4653,9 @@ function PosPage({
     if (typeof window !== "undefined") {
       localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
     }
+    playPosSound("success");
     setCart([]);
+    setIsCustomerStepModalOpen(false);
     setIsPaymentModalOpen(false);
     setIsMobileCartDrawerOpen(false);
     setActiveCartPopover(null);
@@ -4863,10 +4929,12 @@ function PosPage({
       Boolean(product.modifiers && product.modifiers.length > 0);
 
     if (hasAnyVariantsOrMods) {
+      playPosSound("tap");
       handleOpenCustomize(product);
       return;
     }
 
+    playPosSound("tap");
     const effectivePrice = product.promo_price && product.promo_price < product.price ? product.promo_price : product.price;
     setCart((current) => {
       const existingIdx = current.findIndex(
@@ -4921,6 +4989,7 @@ function PosPage({
 
   // Open Customization Modal
   const handleOpenCustomize = (product: Product) => {
+    playPosSound("tap");
     setCustomizingProduct(product);
 
     // Initialize variant groups options (do not force pre-selection on optional groups like Tambahan)
@@ -5629,7 +5698,9 @@ function PosPage({
     setQrisStatus("PENDING");
     setCompletedReceipt(receiptData);
 
+    playPosSound("success");
     setCart([]);
+    setIsCustomerStepModalOpen(false);
     setIsPaymentModalOpen(false);
     setIsMobileCartDrawerOpen(false);
     setActiveCartPopover(null);
@@ -6487,6 +6558,11 @@ function PosPage({
       paymentMethod: paymentMethod.toUpperCase(),
       customerName: effectiveCustomerName,
       customerQueueName: trimmedQueueName || undefined,
+      customerPhone:
+        trimmedCustomerPhone ||
+        (selectedCustomerId
+          ? snapshot.customers.find((c) => c.id === selectedCustomerId)?.phone || undefined
+          : undefined),
       ojolOrderCode: ojolOrderCode || undefined,
       createdAt: new Date().toISOString(),
       subtotal: safeSubtotal,
@@ -6561,7 +6637,9 @@ function PosPage({
       kickCashDrawer().catch(() => {});
     }
 
+    playPosSound("success");
     setCart([]);
+    setIsCustomerStepModalOpen(false);
     setIsPaymentModalOpen(false);
     setIsMobileCartDrawerOpen(false);
     setActiveCartPopover(null);
@@ -6656,38 +6734,109 @@ function PosPage({
     );
   }, [snapshot.customers, memberSearchQuery]);
 
+  const handleParseWaChatText = () => {
+    if (!waRawNotes.trim()) {
+      toast.info("Tempel teks chat WhatsApp pelanggan terlebih dahulu");
+      return;
+    }
+    const lines = waRawNotes.split(/\r?\n/);
+    const nextQty = { ...waSelectedQty };
+    let matchedCount = 0;
+
+    for (const rawLine of lines) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (!waCustomerPhone) {
+        const phoneMatch = line.match(/(?:\+?62|08)\d{7,12}/);
+        if (phoneMatch) {
+          setWaCustomerPhone(phoneMatch[0]);
+        }
+      }
+      const lower = line.toLowerCase();
+      for (const prod of displayedProducts) {
+        const pName = String(prod.name || "").trim().toLowerCase();
+        if (pName && pName.length >= 3 && lower.includes(pName)) {
+          const qtyMatch =
+            line.match(/(\d+)\s*(?:x|pcs|porsi|bh|buah)?/i) ||
+            line.match(/(?:x|qty)\s*(\d+)/i);
+          const qty = qtyMatch ? Math.max(1, Math.min(50, parseInt(qtyMatch[1] || "1", 10))) : 1;
+          nextQty[prod.id] = (nextQty[prod.id] || 0) + qty;
+          matchedCount += qty;
+          break;
+        }
+      }
+    }
+
+    if (matchedCount > 0) {
+      setWaSelectedQty(nextQty);
+      playPosSound("option");
+      toast.success(`${matchedCount} porsi menu berhasil dikenali dari teks WA`);
+    } else {
+      toast.info("Pilih menu cepat di daftar bawah untuk dimasukkan ke keranjang");
+    }
+  };
+
+  const handleConfirmWaOrderToCart = () => {
+    const selectedEntries = Object.entries(waSelectedQty).filter(([, q]) => q > 0);
+    if (selectedEntries.length === 0) {
+      toast.error("Pilih minimal 1 menu pesanan WA terlebih dahulu");
+      return;
+    }
+
+    const addedItems: CartItem[] = [];
+    for (const [prodId, qty] of selectedEntries) {
+      const product = displayedProducts.find((p) => p.id === prodId);
+      if (!product) continue;
+      const effectivePrice =
+        product.promo_price && product.promo_price < product.price
+          ? product.promo_price
+          : product.price;
+      addedItems.push({
+        ...product,
+        cart_item_id: `${product.id}-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        quantity: qty,
+        base_price: product.price,
+        unit_price: effectivePrice,
+        price: effectivePrice,
+        selected_variant: null,
+        selected_variant_groups: [],
+        selected_modifiers: [],
+        selected_addons: [],
+        notes: waRawNotes.trim() ? waRawNotes.trim().slice(0, 120) : undefined,
+      });
+    }
+
+    if (addedItems.length === 0) return;
+
+    setCart((prev) => [...prev, ...addedItems]);
+    setCustomerMode("public");
+    setSelectedCustomerId("");
+    setOrderType("take_away");
+    if (waCustomerName.trim()) {
+      setCustomerQueueName(waCustomerName.trim());
+    }
+    if (waCustomerPhone.trim()) {
+      setNewCustomerPhone(waCustomerPhone.trim());
+    }
+
+    playPosSound("success");
+    toast.success(`Order WA (${addedItems.length} menu) masuk ke Smart Cart!`);
+    setWaSelectedQty({});
+    setWaRawNotes("");
+    setWaMenuSearch("");
+    setIsWaOrderModalOpen(false);
+  };
+
   return (
     <div className="flex flex-col min-[680px]:flex-row min-[680px]:h-full min-[680px]:overflow-hidden gap-2">
-      {/* TENGAH: 1 TOOLBAR TUNGGAL TIPIS + KATEGORI + KATALOG MENU FLEKSIBEL (PADAT / NORMAL / LIST) */}
+      {/* TENGAH: TOOLBAR BERSIH + KATEGORI + KATALOG MENU KOTAK PROPORSIONAL */}
       <section className="flex-1 min-w-0 w-full flex flex-col min-[680px]:h-full min-[680px]:overflow-hidden gap-1.5">
-        {/* 1 Baris Toolbar Tunggal Tipis (h-11 px-2.5 flex items-center gap-2): Toggle Sidebar + Status Online/Cabang/Shift + Cari Menu + Ukuran Tampilan + Skala UI + Printer */}
-        <div className="shrink-0 h-11 px-2.5 flex items-center gap-2 rounded-xl border border-border/60 bg-card shadow-xs">
-          {/* Tombol Buka/Tutup Sidebar (Icon Rail) Konsisten di /pos */}
-          {onToggleSidebar && (
-            <button
-              type="button"
-              onClick={onToggleSidebar}
-              title={isSidebarCollapsed ? "Buka Sidebar Navigasi" : "Tutup Sidebar Navigasi"}
-              aria-label={isSidebarCollapsed ? "Buka Sidebar" : "Tutup Sidebar"}
-              className={cn(
-                "hidden min-[680px]:inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border text-xs font-bold transition-all cursor-pointer",
-                isSidebarCollapsed
-                  ? "border-primary/50 bg-primary/10 text-primary shadow-xs"
-                  : "border-border bg-background hover:bg-secondary text-foreground/80",
-              )}
-            >
-              {isSidebarCollapsed ? (
-                <PanelLeftOpen className="size-4" />
-              ) : (
-                <PanelLeftClose className="size-4" />
-              )}
-            </button>
-          )}
-
+        {/* Toolbar Atas Bersih (Tanpa Tombol Terpotong): Status Online + Cabang/Shift + Cari Menu Lebar + Order WA */}
+        <div className="shrink-0 h-11 px-2.5 flex items-center gap-2 rounded-lg border border-border/60 bg-card shadow-xs">
           {/* Badge Status Online Ringkas */}
           {isPosBrowserOnline ? (
             <span
-              className="inline-flex h-7 items-center gap-1.5 px-2 rounded-lg bg-emerald-500/10 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap shrink-0"
+              className="inline-flex h-7 items-center gap-1.5 px-2 rounded-md bg-emerald-500/10 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 whitespace-nowrap shrink-0"
               title="Status Koneksi Kasir"
             >
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
@@ -6699,7 +6848,7 @@ function PosPage({
             </span>
           ) : (
             <span
-              className="inline-flex h-7 items-center gap-1.5 px-2 rounded-lg bg-rose-500/10 text-[11px] font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap shrink-0"
+              className="inline-flex h-7 items-center gap-1.5 px-2 rounded-md bg-rose-500/10 text-[11px] font-bold text-rose-600 dark:text-rose-400 whitespace-nowrap shrink-0"
               title="Mode Offline Aktif"
             >
               <span className="w-2 h-2 rounded-full bg-rose-500 inline-block shrink-0" />
@@ -6719,7 +6868,7 @@ function PosPage({
                 ? "Cabang Aktif: Terkunci — Klik untuk buka Shift & Kas"
                 : "Klik untuk kelola Shift & Kas"
             }
-            className="inline-flex h-7 max-w-[180px] lg:max-w-[240px] items-center gap-1.5 px-2 rounded-lg bg-secondary/80 hover:bg-secondary text-[11px] font-semibold text-foreground whitespace-nowrap shrink-0 transition-colors"
+            className="inline-flex h-7 max-w-[190px] lg:max-w-[260px] items-center gap-1.5 px-2.5 rounded-md bg-secondary/80 hover:bg-secondary text-[11px] font-semibold text-foreground whitespace-nowrap shrink-0 transition-colors"
           >
             <span
               className={cn(
@@ -6746,8 +6895,8 @@ function PosPage({
             </span>
           </Link>
 
-          {/* Input Cari Menu... (flex-1 h-8 text-xs) */}
-          <div className="relative flex-1 min-w-[90px]" title="Cari Menu / Barcode Scanner">
+          {/* Input Cari Menu... yang Lebar */}
+          <div className="relative flex-1 min-w-[110px]" title="Cari Menu / Barcode Scanner">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
             <input
               type="text"
@@ -6755,7 +6904,7 @@ function PosPage({
               onChange={(e) => setMenuSearch(e.target.value)}
               placeholder="Cari menu..."
               aria-label="Cari menu kasir"
-              className="h-8 w-full rounded-lg border border-border bg-muted/40 pl-8 pr-7 text-xs font-medium text-foreground placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
+              className="h-8 w-full rounded-md border border-border bg-muted/40 pl-8 pr-7 text-xs font-medium text-foreground placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
             />
             {menuSearch && (
               <button
@@ -6768,206 +6917,18 @@ function PosPage({
               </button>
             )}
           </div>
-
-          {/* Pengatur Tampilan Menu: Padat (Default) | Normal | List */}
-          <div
-            className="flex items-center rounded-lg border border-border bg-muted/60 p-0.5 shrink-0"
-            role="group"
-            aria-label="Ukuran Tampilan Menu"
-          >
-            {(
-              [
-                { id: "compact", label: "Padat", icon: Grid3X3 },
-                { id: "normal", label: "Normal", icon: LayoutGrid },
-                { id: "list", label: "List", icon: List },
-              ] as const
-            ).map((mode) => {
-              const ModeIcon = mode.icon;
-              const isSelected = posViewMode === mode.id;
-              return (
-                <button
-                  key={mode.id}
-                  type="button"
-                  onClick={() => handlePosViewModeChange(mode.id)}
-                  title={`Tampilan ${mode.label}`}
-                  className={cn(
-                    "inline-flex h-7 items-center gap-1 rounded-md px-2 text-[11px] font-bold transition-all cursor-pointer",
-                    isSelected
-                      ? "bg-primary text-primary-foreground shadow-xs"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <ModeIcon className="size-3.5 shrink-0" />
-                  <span className="hidden lg:inline">{mode.label}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Kontrol Cepat Skala Tampilan Global (80% / 85% / 90% / 100% + A-/A+) */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setShowScaleMenu(!showScaleMenu);
-                setShowPrinterMenu(false);
-              }}
-              className="flex h-8 items-center gap-1 px-2 rounded-lg text-xs font-bold border border-border bg-background hover:bg-secondary transition-colors cursor-pointer"
-              title="Ukuran Skala Tampilan Layar (80% - 100%)"
-              aria-label="Ukuran Skala Tampilan"
-            >
-              <span className="text-[11px] font-black tracking-tight">Aa</span>
-              <span className="text-[11px] font-bold text-primary">{uiScale}%</span>
-            </button>
-
-            {showScaleMenu && (
-              <div className="absolute right-0 top-full mt-2 w-56 rounded-2xl border border-border bg-popover p-2.5 shadow-float z-50 animate-in fade-in zoom-in-95 space-y-2">
-                <div className="flex items-center justify-between pb-1.5 border-b border-border/60 text-xs font-bold">
-                  <span>Ukuran Layar</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => handleStepPosUiScale(-1)}
-                      disabled={uiScale === "80"}
-                      className="h-6 px-1.5 rounded border border-border bg-secondary/70 hover:bg-secondary text-[11px] font-black disabled:opacity-40 cursor-pointer"
-                      title="Perkecil tampilan (A-)"
-                    >
-                      A-
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleStepPosUiScale(1)}
-                      disabled={uiScale === "100"}
-                      className="h-6 px-1.5 rounded border border-border bg-secondary/70 hover:bg-secondary text-[11px] font-black disabled:opacity-40 cursor-pointer"
-                      title="Perbesar tampilan (A+)"
-                    >
-                      A+
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setShowScaleMenu(false)}
-                      className="ml-1 text-muted-foreground hover:text-foreground text-xs font-bold cursor-pointer"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                </div>
-                <div className="grid grid-cols-4 gap-1">
-                  {UI_SCALE_OPTIONS.map((opt) => {
-                    const active = uiScale === opt.value;
-                    return (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => handleSelectPosUiScale(opt.value)}
-                        className={cn(
-                          "flex flex-col items-center justify-center rounded-lg border py-1.5 px-1 text-[11px] font-bold transition-all cursor-pointer",
-                          active
-                            ? "border-primary bg-primary text-primary-foreground shadow-xs"
-                            : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
-                        )}
-                      >
-                        <span>{opt.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Tombol Printer Ringkas (h-8 text-xs) */}
-          <div className="relative shrink-0">
-            <button
-              type="button"
-              onClick={() => {
-                setShowPrinterMenu(!showPrinterMenu);
-                setShowScaleMenu(false);
-              }}
-              className="flex h-8 items-center gap-1 px-2 rounded-lg text-xs font-bold border border-border bg-background hover:bg-secondary transition-colors cursor-pointer"
-              title="Status Printer & Laci Kas"
-            >
-              <Printer
-                className={cn(
-                  "size-3.5",
-                  printerInfo.status === "connected" ? "text-emerald-500" : "text-muted-foreground",
-                )}
-              />
-              <span className="hidden xl:inline">Printer</span>
-              <ChevronDown className="size-3 text-muted-foreground" />
-            </button>
-
-            {showPrinterMenu && (
-              <div className="absolute right-0 top-full mt-2 w-64 rounded-2xl border border-border bg-popover p-3 shadow-float z-50 animate-in fade-in zoom-in-95">
-                <div className="flex items-center justify-between pb-2 border-b border-border/60 text-xs font-bold">
-                  <span className="flex items-center gap-1.5">
-                    <Printer className="size-3.5 text-primary" />
-                    Status Hardware POS
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowPrinterMenu(false)}
-                    className="text-muted-foreground hover:text-foreground text-xs font-bold"
-                  >
-                    ✕
-                  </button>
-                </div>
-                <div className="space-y-1.5 py-2 text-xs">
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Thermal Printer</span>
-                    <span
-                      className={cn(
-                        "font-bold",
-                        printerInfo.status === "connected" ? "text-emerald-600" : "text-foreground/75",
-                      )}
-                    >
-                      {printerInfo.status === "connected"
-                        ? `${printerInfo.paperSize} Siap`
-                        : "Dialog Browser"}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-muted-foreground">Laci Kas RJ11</span>
-                    <span className="font-bold text-emerald-600">Siap</span>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/60">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={async () => {
-                      await testThermalPrint();
-                    }}
-                    className="h-8 text-xs rounded-xl"
-                  >
-                    Tes Print
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="secondary"
-                    onClick={async () => {
-                      await kickCashDrawer();
-                      toast.success("Sinyal pulsa laci kas terkirim!");
-                    }}
-                    className="h-8 text-xs rounded-xl"
-                  >
-                    Buka Laci
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
 
-        {/* Category Filter Pills Horizontal (Pil Aktif Hijau Brand) */}
+        {/* Category Filter Pills Horizontal */}
         <div className="shrink-0 flex items-center gap-1.5 overflow-x-auto py-0.5 no-scrollbar [&::-webkit-scrollbar]:hidden">
           <button
             type="button"
-            onClick={() => setSelectedCategory("all")}
+            onClick={() => {
+              playPosSound("option");
+              setSelectedCategory("all");
+            }}
             className={cn(
-              "h-7 px-3 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border",
+              "h-7 px-3 rounded-md text-xs font-bold whitespace-nowrap transition-all active:scale-95 shrink-0 cursor-pointer border",
               selectedCategory === "all"
                 ? "bg-primary text-primary-foreground border-primary shadow-xs"
                 : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
@@ -6979,9 +6940,12 @@ function PosPage({
             <button
               key={cat}
               type="button"
-              onClick={() => setSelectedCategory(cat)}
+              onClick={() => {
+                playPosSound("option");
+                setSelectedCategory(cat);
+              }}
               className={cn(
-                "h-7 px-3 rounded-full text-xs font-bold whitespace-nowrap transition-all shrink-0 cursor-pointer border",
+                "h-7 px-3 rounded-md text-xs font-bold whitespace-nowrap transition-all active:scale-95 shrink-0 cursor-pointer border",
                 selectedCategory === cat
                   ? "bg-primary text-primary-foreground border-primary shadow-xs"
                   : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
@@ -6992,10 +6956,10 @@ function PosPage({
           ))}
         </div>
 
-        {/* Katalog Menu Scrollable dengan 3 Mode Tampilan (Padat / Normal / List) & Tap Kartu Langsung Tambah */}
-        <div className="flex-1 min-h-0 min-[680px]:overflow-y-auto rounded-2xl border border-border/60 bg-muted/30 p-2.5">
+        {/* Katalog Menu Kotak Compact, Proporsional & Lengkungan Rapi (rounded-lg kartu, rounded-md gambar, p-2.5 seragam) */}
+        <div className="flex-1 min-h-0 min-[680px]:overflow-y-auto rounded-xl border border-border/60 bg-muted/30 p-2.5">
           {filteredProducts.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border bg-card/80 p-8 text-center">
+            <div className="rounded-lg border border-dashed border-border bg-card/80 p-8 text-center">
               <Store className="mx-auto size-9 text-muted-foreground opacity-50 mb-2.5" />
               <h3 className="font-bold text-sm">
                 {menuSearch.trim()
@@ -7016,7 +6980,7 @@ function PosPage({
                     setMenuSearch("");
                     setSelectedCategory("all");
                   }}
-                  className="mt-3 rounded-xl text-xs font-bold"
+                  className="mt-3 rounded-md text-xs font-bold"
                 >
                   Tampilkan Semua Menu
                 </Button>
@@ -7025,9 +6989,11 @@ function PosPage({
           ) : (
             <div
               className={cn(
-                posViewMode === "compact" && "grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2",
-                posViewMode === "normal" && "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5",
-                posViewMode === "list" && "grid grid-cols-1 sm:grid-cols-2 gap-1.5",
+                posViewMode === "compact" &&
+                  "grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2",
+                posViewMode === "normal" &&
+                  "grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5",
+                posViewMode === "list" && "grid grid-cols-1 sm:grid-cols-2 gap-2",
               )}
             >
               {filteredProducts.map((product) => {
@@ -7036,7 +7002,8 @@ function PosPage({
                   Boolean(product.modifiers && product.modifiers.length > 0);
                 const qtyInCart = cartQtyByProductId[product.id] || 0;
                 const isPromo = Boolean(product.promo_price && product.promo_price < product.price);
-                const displayPrice = isPromo && product.promo_price ? product.promo_price : product.price;
+                const displayPrice =
+                  isPromo && product.promo_price ? product.promo_price : product.price;
 
                 if (posViewMode === "list") {
                   return (
@@ -7046,14 +7013,14 @@ function PosPage({
                         hasVariantsOrMods ? handleOpenCustomize(product) : handleFastAddToCart(product)
                       }
                       className={cn(
-                        "group relative h-12 px-2.5 cursor-pointer rounded-xl border bg-card hover:bg-secondary/40 transition-all active:scale-[0.99] overflow-hidden flex items-center justify-between gap-2",
+                        "group relative p-2.5 cursor-pointer rounded-lg border bg-card hover:bg-secondary/40 active:scale-95 transition-transform duration-100 overflow-hidden flex items-center justify-between gap-2",
                         qtyInCart > 0
                           ? "border-primary/60 ring-1 ring-primary/25"
                           : "border-border/80 hover:border-primary/40",
                       )}
                     >
-                      <div className="flex items-center gap-2 min-w-0 flex-1">
-                        <div className="relative flex w-9 h-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted border border-border/50">
+                      <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                        <div className="relative flex w-9 h-9 shrink-0 items-center justify-center overflow-hidden rounded-md bg-muted border border-border/50">
                           {product.image_url ? (
                             <img
                               src={product.image_url}
@@ -7073,7 +7040,7 @@ function PosPage({
                             {product.name}
                           </p>
                           {hasVariantsOrMods && (
-                            <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary shrink-0">
+                            <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary shrink-0">
                               Varian
                             </span>
                           )}
@@ -7112,8 +7079,7 @@ function PosPage({
                       hasVariantsOrMods ? handleOpenCustomize(product) : handleFastAddToCart(product)
                     }
                     className={cn(
-                      "group relative cursor-pointer rounded-xl border bg-card shadow-xs hover:shadow-md transition-all active:scale-[0.98] overflow-hidden flex flex-col justify-between",
-                      posViewMode === "compact" ? "p-2" : "p-2.5",
+                      "group relative cursor-pointer rounded-lg border bg-card p-2.5 shadow-xs hover:shadow-md active:scale-95 transition-transform duration-100 overflow-hidden flex flex-col justify-between",
                       qtyInCart > 0
                         ? "border-primary/60 ring-1 ring-primary/25"
                         : "border-border/80 hover:border-primary/40",
@@ -7123,18 +7089,18 @@ function PosPage({
                     {qtyInCart > 0 && (
                       <span
                         aria-label={`${qtyInCart} di keranjang`}
-                        className="absolute top-1.5 right-1.5 z-20 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-black shadow-md ring-2 ring-card"
+                        className="absolute top-2 right-2 z-20 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground text-xs font-black shadow-md ring-2 ring-card"
                       >
                         {qtyInCart}
                       </span>
                     )}
 
                     <div>
-                      {/* Foto Produk Ringkas (Padat: h-16, Normal: h-24) */}
+                      {/* Gambar Kotak Proporsional (rounded-md, tidak mepet garis bingkai atas karena p-2.5 seragam) */}
                       <div
                         className={cn(
-                          "relative w-full flex items-center justify-center overflow-hidden rounded-lg bg-muted border border-border/50",
-                          posViewMode === "compact" ? "h-16 mb-1.5" : "h-24 mb-2",
+                          "relative w-full flex items-center justify-center overflow-hidden rounded-md bg-muted border border-border/50 mb-2",
+                          posViewMode === "compact" ? "aspect-[4/3]" : "h-28",
                         )}
                       >
                         {product.image_url ? (
@@ -7145,42 +7111,36 @@ function PosPage({
                               transform: `translate(${(product.image_position_x ?? product.image_crop_position?.x ?? 50) - 50}%, ${(product.image_position_y ?? product.image_crop_position?.y ?? 50) - 50}%) scale(${product.image_zoom || product.zoom || 1}) rotate(${product.image_rotation || product.rotation || 0}deg)`,
                               transformOrigin: "center center",
                             }}
-                            className={cn(
-                              "w-full object-cover pointer-events-none transition-transform group-hover:scale-105",
-                              posViewMode === "compact" ? "h-16" : "h-24",
-                            )}
+                            className="h-full w-full object-cover pointer-events-none transition-transform group-hover:scale-105"
                           />
                         ) : (
                           <img
                             src="/logo-brand.png?v=2"
                             alt={product.name}
-                            className={cn(
-                              "object-contain opacity-80",
-                              posViewMode === "compact" ? "h-8 w-8" : "h-10 w-10",
-                            )}
+                            className="h-9 w-9 object-contain opacity-80"
                           />
                         )}
                         {isPromo && (
-                          <span className="absolute top-1 left-1 z-10 rounded bg-rose-600 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-xs">
+                          <span className="absolute top-1.5 left-1.5 z-10 rounded-md bg-rose-600 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-wider text-white shadow-xs">
                             PROMO
                           </span>
                         )}
                       </div>
 
-                      {/* Nama Menu */}
+                      {/* Nama Menu Seimbang */}
                       <p
                         className={cn(
-                          "text-foreground leading-tight",
+                          "text-foreground leading-snug mb-1.5",
                           posViewMode === "compact"
-                            ? "text-xs font-semibold line-clamp-1 mb-1"
-                            : "text-xs sm:text-sm font-bold line-clamp-2 mb-1.5",
+                            ? "text-xs font-semibold line-clamp-1"
+                            : "text-xs sm:text-sm font-bold line-clamp-2",
                         )}
                       >
                         {product.name}
                       </p>
                     </div>
 
-                    {/* Baris Harga + Badge Kecil Varian / Stok (Tanpa Tombol Besar + Tambah) */}
+                    {/* Baris Harga + Badge Kecil Varian / Stok */}
                     <div className="flex items-center justify-between gap-1 pt-0.5">
                       <div className="flex items-baseline gap-1 min-w-0">
                         <span
@@ -7199,7 +7159,7 @@ function PosPage({
                         )}
                       </div>
                       {hasVariantsOrMods ? (
-                        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary whitespace-nowrap shrink-0">
+                        <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary whitespace-nowrap shrink-0">
                           Varian
                         </span>
                       ) : (
@@ -7216,12 +7176,12 @@ function PosPage({
         </div>
       </section>
 
-      {/* STICKY FLOATING BAR KHUSUS LAYAR HP PORTRAIT (< 680px) — SELALU TAMPIL DI ATAS BOTTOM NAV */}
+      {/* STICKY FLOATING BAR KHUSUS LAYAR HP PORTRAIT (< 680px) */}
       <div className="fixed inset-x-3 bottom-[4.75rem] z-40 flex min-[680px]:hidden">
         <button
           type="button"
           onClick={() => setIsMobileCartDrawerOpen(true)}
-          className="flex w-full items-center justify-between gap-2 rounded-2xl bg-primary px-4 py-3 text-primary-foreground shadow-float ring-1 ring-primary-foreground/20 active:scale-[0.99] cursor-pointer"
+          className="flex w-full items-center justify-between gap-2 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-float ring-1 ring-primary-foreground/20 active:scale-95 transition-transform duration-100 cursor-pointer"
         >
           <div className="flex items-center gap-2 min-w-0">
             <ShoppingCart className="size-4 shrink-0" />
@@ -7235,245 +7195,76 @@ function PosPage({
         </button>
       </div>
 
-      {/* KANAN: SMART CART 3-ZONA TERKUNCI (h-full flex flex-col overflow-hidden) + DRAWER PENUH DI HP (< 680px) */}
+      {/* ======================================================================== */}
+      {/* LANGKAH 1 — SMART CART KANAN BERSIH (HANYA DAFTAR MAKANAN & TOTAL)       */}
+      {/* ======================================================================== */}
       <aside
         className={cn(
-          "w-[270px] md:w-[300px] lg:w-[340px] shrink-0 h-full flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-float min-w-0",
+          "w-[270px] md:w-[300px] lg:w-[330px] shrink-0 h-full flex flex-col overflow-hidden rounded-xl border border-border bg-card shadow-float min-w-0",
           isMobileCartDrawerOpen
-            ? "fixed inset-0 z-50 flex w-full h-[100dvh] rounded-none min-[680px]:static min-[680px]:z-auto min-[680px]:w-[270px] md:w-[300px] lg:w-[340px] min-[680px]:h-full min-[680px]:rounded-2xl"
+            ? "fixed inset-0 z-50 flex w-full h-[100dvh] rounded-none min-[680px]:static min-[680px]:z-auto min-[680px]:w-[270px] md:w-[300px] lg:w-[330px] min-[680px]:h-full min-[680px]:rounded-xl"
             : "hidden min-[680px]:flex",
         )}
       >
-        {/* ZONA ATAS (shrink-0 p-2 border-b space-y-1.5) — SUPER RINGKAS (~145px) */}
-        <div className="shrink-0 p-2 border-b border-border/60 space-y-1.5">
-          {/* Baris Judul Tipis (h-6): Smart Cart + X item + Tertahan + Hapus Keranjang */}
-          <div className="flex items-center justify-between gap-1.5 h-6">
-            <div className="flex items-center gap-1.5 min-w-0">
-              <h2 className="text-xs font-black tracking-tight text-foreground truncate">
-                {t("cart.title", "Smart Cart")}
-              </h2>
-              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-black text-primary whitespace-nowrap">
-                {totalCartItemCount} item
-              </span>
-            </div>
+        {/* Header Smart Cart Ringkas: Smart Cart (X item) + Tertahan + Hapus */}
+        <div className="shrink-0 px-3 py-2.5 border-b border-border/60 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <h2 className="text-xs sm:text-sm font-black tracking-tight text-foreground truncate">
+              {t("cart.title", "Smart Cart")}
+            </h2>
+            <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[11px] font-black text-primary whitespace-nowrap">
+              {totalCartItemCount} item
+            </span>
+          </div>
 
-            <div className="flex items-center gap-1 shrink-0">
-              {heldOrders.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setHeldOrdersModalOpen(true)}
-                  className="inline-flex h-6 items-center gap-1 rounded-full border border-border bg-muted px-2 text-[10px] font-bold text-foreground hover:bg-secondary cursor-pointer whitespace-nowrap"
-                  title="Lihat pesanan tertahan (Hold)"
-                >
-                  <Clock className="size-3 shrink-0" />
-                  <span>Tertahan ({heldOrders.length})</span>
-                </button>
-              )}
-              {cart.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm("Kosongkan semua item di keranjang?")) {
-                      setCart([]);
-                      setDiscountValue(0);
-                    }
-                  }}
-                  title="Kosongkan keranjang"
-                  aria-label="Kosongkan keranjang"
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer"
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              )}
+          <div className="flex items-center gap-1 shrink-0">
+            {heldOrders.length > 0 && (
               <button
                 type="button"
-                onClick={() => setIsMobileCartDrawerOpen(false)}
-                title="Tutup Drawer Keranjang"
-                aria-label="Tutup Drawer Keranjang"
-                className="flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground min-[680px]:hidden cursor-pointer"
+                onClick={() => setHeldOrdersModalOpen(true)}
+                className="inline-flex h-7 items-center gap-1 rounded-md border border-border bg-muted px-2 text-[11px] font-bold text-foreground hover:bg-secondary cursor-pointer whitespace-nowrap"
+                title="Lihat pesanan tertahan (Hold)"
               >
-                <X className="size-3.5" />
+                <Clock className="size-3 shrink-0" />
+                <span>Tertahan ({heldOrders.length})</span>
               </button>
-            </div>
-          </div>
-
-          {/* Tab Umum (Default) | Member Diperkecil (h-7 text-[11px]) */}
-          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/60 p-0.5">
-            <button
-              type="button"
-              onClick={() => {
-                setCustomerMode("public");
-                setSelectedCustomerId("");
-              }}
-              className={cn(
-                "h-7 rounded-md text-[11px] font-black transition-all cursor-pointer",
-                customerMode !== "member"
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Umum
-            </button>
-            <button
-              type="button"
-              onClick={() => setCustomerMode("member")}
-              className={cn(
-                "h-7 rounded-md text-[11px] font-black transition-all cursor-pointer",
-                customerMode === "member"
-                  ? "bg-primary text-primary-foreground shadow-xs"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Member
-            </button>
-          </div>
-
-          {customerMode !== "member" ? (
-            <div className="space-y-1">
-              {/* Baris 1 (grid-cols-3 gap-1): Take Away (default hijau), Dine In, Delivery (h-7 text-[11px] px-1) */}
-              <div className="grid grid-cols-3 gap-1">
-                {(
-                  [
-                    { id: "take_away", label: "Take Away" },
-                    { id: "dine_in", label: "Dine In" },
-                    { id: "delivery", label: "Delivery" },
-                  ] as Array<{ id: PosOrderType; label: string }>
-                ).map((tItem) => (
-                  <button
-                    key={tItem.id}
-                    type="button"
-                    onClick={() => setOrderType(tItem.id)}
-                    className={cn(
-                      "h-7 min-w-0 rounded-lg text-[11px] font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-1",
-                      orderType === tItem.id
-                        ? "bg-primary text-primary-foreground border-primary shadow-xs"
-                        : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
-                    )}
-                  >
-                    {tItem.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Baris 2 (grid-cols-3 gap-1): GoFood, GrabFood, ShopeeFood (disabled, abu-abu tua, h-6 text-[10px] px-1) */}
-              <div className="grid grid-cols-3 gap-1">
-                {(
-                  [
-                    { id: "gofood", label: "GoFood" },
-                    { id: "grabfood", label: "GrabFood" },
-                    { id: "shopeefood", label: "ShopeeFood" },
-                  ] as Array<{ id: PosOrderType; label: string }>
-                ).map((ojol) => (
-                  <button
-                    key={ojol.id}
-                    type="button"
-                    disabled
-                    title={`${ojol.label} segera hadir`}
-                    className="h-6 min-w-0 rounded-lg text-[10px] font-bold border flex items-center justify-center text-center truncate px-1 bg-slate-200 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed opacity-75"
-                  >
-                    {ojol.label}
-                  </button>
-                ))}
-              </div>
-
-              {/* Baris 3 (grid-cols-2 gap-1): Nama Pelanggan (kiri) & No. WA (Opsional) (kanan) Sejajar 1 Baris */}
-              <div className="grid grid-cols-2 gap-1">
-                <input
-                  type="text"
-                  aria-label="Nama Pelanggan / Antrean"
-                  title="Nama Pelanggan / Antrean (Otomatis Daftar Member Cepat CRM)"
-                  placeholder="Nama Pelanggan"
-                  value={customerQueueName}
-                  onChange={(e) => setCustomerQueueName(e.target.value)}
-                  className="min-w-0 h-7 rounded-lg border border-border bg-background px-2 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-                <input
-                  type="tel"
-                  aria-label="No. Telepon / WA (Opsional)"
-                  placeholder="No. WA (Opsional)"
-                  value={newCustomerPhone}
-                  onChange={(e) => setNewCustomerPhone(e.target.value)}
-                  className="min-w-0 h-7 rounded-lg border border-border bg-background px-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-            </div>
-          ) : (
-            /* ISI TAB MEMBER RINGKAS */
-            <div className="space-y-1">
-              <div className="relative">
-                <Search className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 size-3 text-muted-foreground" />
-                <input
-                  type="text"
-                  value={memberSearchQuery}
-                  onChange={(e) => setMemberSearchQuery(e.target.value)}
-                  placeholder="Cari nama / no. HP member..."
-                  aria-label="Cari Member Terdaftar"
-                  className="w-full h-7 rounded-lg border border-border bg-background pl-7 pr-2 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-
-              <select
-                aria-label="Pilih Member Terdaftar"
-                value={selectedCustomerId}
-                onChange={(e) => {
-                  const nextId = e.target.value;
-                  setSelectedCustomerId(nextId);
-                  if (nextId) {
-                    const found = snapshot.customers.find((c) => c.id === nextId);
-                    if (found) {
-                      setCustomerQueueName(found.name);
-                      setNewCustomerPhone(found.phone || "");
-                    }
+            )}
+            {cart.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirm("Kosongkan semua item di keranjang?")) {
+                    setCart([]);
+                    setDiscountValue(0);
                   }
                 }}
-                className="w-full h-7 rounded-lg border border-border bg-secondary/70 px-2 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
+                title="Kosongkan keranjang"
+                aria-label="Kosongkan keranjang"
+                className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer"
               >
-                <option value="">
-                  Pilih Member Terdaftar ({filteredMemberCustomers.length})
-                </option>
-                {filteredMemberCustomers.map((c) => {
-                  const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
-                  return (
-                    <option key={c.id} value={c.id}>
-                      {c.name} ({pts} Poin · {c.visits}x)
-                    </option>
-                  );
-                })}
-              </select>
-
-              {selectedCustomerId && (
-                <div className="flex items-center justify-between gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2 py-1 text-[11px]">
-                  <span className="font-black text-primary truncate">
-                    {snapshot.customers.find((c) => c.id === selectedCustomerId)?.name ||
-                      "Member Aktif"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCustomerId("");
-                      setCustomerQueueName("");
-                      setNewCustomerPhone("");
-                    }}
-                    aria-label="Lepas member"
-                    title="Lepas pilihan member"
-                    className="flex size-5 shrink-0 items-center justify-center rounded bg-background/80 text-muted-foreground hover:text-destructive cursor-pointer"
-                  >
-                    <X className="size-3" />
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
+                <Trash2 className="size-3.5" />
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setIsMobileCartDrawerOpen(false)}
+              title="Tutup Drawer Keranjang"
+              aria-label="Tutup Drawer Keranjang"
+              className="flex h-7 w-7 items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground min-[680px]:hidden cursor-pointer"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
         </div>
 
-        {/* ZONA TENGAH (flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5) — DAFTAR ITEM KOMPAK MAKS 2 BARIS */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-2 space-y-1.5">
+        {/* Daftar Item Pesanan yang Lega */}
+        <div className="flex-1 min-h-0 overflow-y-auto p-2.5 space-y-1.5">
           {cart.length === 0 ? (
-            <div className="flex h-full flex-col items-center justify-center rounded-xl border border-dashed border-border/80 bg-muted/20 p-4 text-center">
-              <ShoppingCart className="size-7 text-muted-foreground/40 mb-1.5" />
-              <p className="text-xs font-bold text-foreground">Keranjang kosong</p>
-              <p className="mt-0.5 text-[11px] text-muted-foreground max-w-[200px]">
-                Sentuh kartu menu di kiri untuk langsung menambah pesanan.
+            <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/20 p-5 text-center">
+              <ShoppingCart className="size-8 text-muted-foreground/40 mb-2" />
+              <p className="text-xs font-bold text-foreground">Keranjang masih kosong</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground max-w-[210px]">
+                Ketuk kartu menu di kiri untuk langsung menambah pesanan pelanggan.
               </p>
             </div>
           ) : (
@@ -7509,16 +7300,18 @@ function PosPage({
               return (
                 <div
                   key={itemKey}
-                  className="rounded-xl border border-border/70 bg-muted/25 px-2.5 py-1.5 space-y-0.5"
+                  className="rounded-lg border border-border/70 bg-muted/25 px-2.5 py-2 space-y-1"
                 >
-                  {/* Baris 1: Nama Produk + Tombol - qty + & Hapus Sejajar */}
                   <div className="flex items-center justify-between gap-1.5">
                     <p className="text-xs font-bold text-foreground truncate flex-1">{item.name}</p>
                     <div className="flex items-center gap-1 shrink-0">
                       <button
                         type="button"
-                        className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-secondary cursor-pointer active:scale-95"
-                        onClick={() => changeQuantity(itemKey, -1)}
+                        className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-secondary cursor-pointer active:scale-95 transition-transform duration-100"
+                        onClick={() => {
+                          playPosSound("option");
+                          changeQuantity(itemKey, -1);
+                        }}
                         aria-label="Kurangi"
                       >
                         <Minus className="size-3" />
@@ -7526,8 +7319,11 @@ function PosPage({
                       <span className="w-5 text-center text-xs font-black">{item.quantity}</span>
                       <button
                         type="button"
-                        className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-secondary cursor-pointer active:scale-95"
-                        onClick={() => changeQuantity(itemKey, 1)}
+                        className="flex h-6 w-6 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-secondary cursor-pointer active:scale-95 transition-transform duration-100"
+                        onClick={() => {
+                          playPosSound("option");
+                          changeQuantity(itemKey, 1);
+                        }}
                         aria-label="Tambah"
                       >
                         <Plus className="size-3" />
@@ -7543,7 +7339,6 @@ function PosPage({
                     </div>
                   </div>
 
-                  {/* Baris 2: Ringkasan Varian Singkat (Small · Tidak Pedas) + Subtotal Harga */}
                   <div className="flex items-center justify-between gap-2">
                     <p
                       className="text-[11px] text-muted-foreground truncate flex-1"
@@ -7561,11 +7356,10 @@ function PosPage({
           )}
         </div>
 
-        {/* ZONA BAWAH (shrink-0 p-2.5 border-t bg-card) — SELALU MENEMPEL DI BAWAH LAYAR */}
+        {/* Footer Smart Cart Menempel di Bawah: Subtotal / % Diskon / PB1 / Total + Tahan + Bayar */}
         <div className="shrink-0 p-2.5 border-t border-border/70 bg-card space-y-2">
-          {/* Popover Diskon Ringkas */}
           {activeCartPopover === "discount" && (
-            <div className="rounded-xl border border-border bg-secondary/40 p-2 space-y-1.5 animate-in fade-in duration-150">
+            <div className="rounded-lg border border-border bg-secondary/40 p-2 space-y-1.5 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-bold text-muted-foreground">Diskon Kasir</span>
                 <div className="flex items-center rounded-md border border-border overflow-hidden p-0.5 bg-background">
@@ -7609,7 +7403,7 @@ function PosPage({
                       setDiscountValue(Math.min(100, sanitized));
                     }
                   }}
-                  className="w-full h-7 rounded-lg border border-border bg-background px-2 text-xs font-bold font-mono focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full h-7 rounded-md border border-border bg-background px-2 text-xs font-bold font-mono focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 {discountValue > 0 && (
                   <button
@@ -7624,7 +7418,6 @@ function PosPage({
             </div>
           )}
 
-          {/* Ringkasan Tipis 1–2 Baris: Subtotal + % Diskon + PB1 10% + Total Tebal */}
           <div className="space-y-1 text-xs">
             <div className="flex items-center justify-between gap-1 text-[11px] text-muted-foreground">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -7673,14 +7466,13 @@ function PosPage({
             </div>
           </div>
 
-          {/* Tombol Aksi Utama Selalu Terlihat: Tahan (Kiri) + Bayar • Rp ... (h-10 font-bold flex-1, Kanan) */}
           <div className="flex items-center gap-1.5">
             <Button
               type="button"
               variant="outline"
               disabled={cart.length === 0}
               onClick={handleHoldOrder}
-              className="h-10 px-2.5 rounded-xl flex items-center justify-center gap-1 border-dashed border-border bg-muted text-foreground/80 hover:bg-secondary shrink-0 font-bold text-xs cursor-pointer"
+              className="h-10 px-2.5 rounded-lg flex items-center justify-center gap-1 border-dashed border-border bg-muted text-foreground/80 hover:bg-secondary shrink-0 font-bold text-xs cursor-pointer active:scale-95 transition-transform duration-100"
               title="Simpan sementara antrean pesanan ini (Hold)"
             >
               <Clock className="size-3.5 shrink-0" />
@@ -7708,10 +7500,11 @@ function PosPage({
                   );
                   return;
                 }
+                playPosSound("pay");
                 setActiveCartPopover(null);
-                setIsPaymentModalOpen(true);
+                setIsCustomerStepModalOpen(true);
               }}
-              className="h-10 flex-1 rounded-xl text-xs sm:text-sm shadow-brand font-bold whitespace-nowrap gap-1 active:scale-[0.99]"
+              className="h-10 flex-1 rounded-lg text-xs sm:text-sm shadow-brand font-bold whitespace-nowrap gap-1 active:scale-95 transition-transform duration-100"
             >
               <span>Bayar • {formatRupiah(total)}</span>
               <ChevronRight className="size-4 shrink-0" />
@@ -7720,14 +7513,438 @@ function PosPage({
         </div>
       </aside>
 
-      {/* MODAL PEMBAYARAN FOKUS + NUMPAD SENTUH BESAR (ALA TOMORO / SQUARE) */}
+      {/* ======================================================================== */}
+      {/* LANGKAH 2 — POPUP DATA PESANAN & PELANGGAN (createPortal Solid Card)     */}
+      {/* ======================================================================== */}
+      {isCustomerStepModalOpen &&
+        cart.length > 0 &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
+            <div className="relative z-[9999] flex max-h-[94dvh] w-full max-w-md flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 p-4 shadow-2xl space-y-3.5 overflow-y-auto">
+              {/* Header Langkah 2 */}
+              <div className="flex items-center justify-between border-b border-border pb-2.5">
+                <div>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                    Langkah 2 dari 3
+                  </span>
+                  <h3 className="text-base font-black text-foreground">
+                    Data Pesanan & Pelanggan
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsCustomerStepModalOpen(false)}
+                  aria-label="Tutup popup pelanggan"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              {/* Tab Umum (Default) | Member */}
+              <div className="grid grid-cols-2 gap-1.5 rounded-xl bg-muted/60 p-1">
+                <button
+                  type="button"
+                  onClick={() => {
+                    playPosSound("option");
+                    setCustomerMode("public");
+                    setSelectedCustomerId("");
+                  }}
+                  className={cn(
+                    "h-9 rounded-lg text-xs font-black transition-all cursor-pointer active:scale-95",
+                    customerMode !== "member"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Umum
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    playPosSound("option");
+                    setCustomerMode("member");
+                  }}
+                  className={cn(
+                    "h-9 rounded-lg text-xs font-black transition-all cursor-pointer active:scale-95",
+                    customerMode === "member"
+                      ? "bg-primary text-primary-foreground shadow-xs"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  Member
+                </button>
+              </div>
+
+              {/* Tipe Pesanan: Take Away (default hijau), Dine In, Delivery + GoFood/GrabFood/ShopeeFood (disabled abu tua) */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-muted-foreground block">
+                  Tipe Pesanan
+                </label>
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: "take_away", label: "Take Away" },
+                      { id: "dine_in", label: "Dine In" },
+                      { id: "delivery", label: "Delivery" },
+                    ] as Array<{ id: PosOrderType; label: string }>
+                  ).map((tItem) => (
+                    <button
+                      key={tItem.id}
+                      type="button"
+                      onClick={() => {
+                        playPosSound("option");
+                        setOrderType(tItem.id);
+                      }}
+                      className={cn(
+                        "h-9 min-w-0 rounded-lg text-xs font-bold transition-all border flex items-center justify-center cursor-pointer text-center truncate px-2 active:scale-95",
+                        orderType === tItem.id
+                          ? "bg-primary text-primary-foreground border-primary shadow-xs"
+                          : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
+                      )}
+                    >
+                      {tItem.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-3 gap-1">
+                  {(
+                    [
+                      { id: "gofood", label: "GoFood" },
+                      { id: "grabfood", label: "GrabFood" },
+                      { id: "shopeefood", label: "ShopeeFood" },
+                    ] as Array<{ id: PosOrderType; label: string }>
+                  ).map((ojol) => (
+                    <button
+                      key={ojol.id}
+                      type="button"
+                      disabled
+                      title={`${ojol.label} segera hadir`}
+                      className="h-8 min-w-0 rounded-lg text-[11px] font-bold border flex items-center justify-center text-center truncate px-1.5 bg-slate-200 text-slate-500 border-slate-300 dark:bg-slate-800 dark:text-slate-500 cursor-not-allowed opacity-75"
+                    >
+                      {ojol.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Input Pelanggan sesuai Tab Umum vs Member */}
+              {customerMode !== "member" ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-bold text-foreground block mb-1">
+                      Nama Pelanggan / Antrean
+                    </label>
+                    <input
+                      type="text"
+                      aria-label="Nama Pelanggan / Antrean"
+                      title="Nama Pelanggan / Antrean (Otomatis Daftar Member Cepat CRM)"
+                      placeholder="Contoh: Budi / Antrean 12"
+                      value={customerQueueName}
+                      onChange={(e) => setCustomerQueueName(e.target.value)}
+                      className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-bold text-foreground block mb-1">
+                      No. WA (Opsional)
+                    </label>
+                    <input
+                      type="tel"
+                      aria-label="No. Telepon / WA (Opsional)"
+                      placeholder="0812xxxx (Kirim Struk WA)"
+                      value={newCustomerPhone}
+                      onChange={(e) => setNewCustomerPhone(e.target.value)}
+                      className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={memberSearchQuery}
+                      onChange={(e) => setMemberSearchQuery(e.target.value)}
+                      placeholder="Cari nama atau no. HP member..."
+                      aria-label="Cari Member Terdaftar"
+                      className="w-full h-9 rounded-lg border border-border bg-background pl-8 pr-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                  </div>
+
+                  <select
+                    aria-label="Pilih Member Terdaftar"
+                    value={selectedCustomerId}
+                    onChange={(e) => {
+                      const nextId = e.target.value;
+                      setSelectedCustomerId(nextId);
+                      if (nextId) {
+                        const found = snapshot.customers.find((c) => c.id === nextId);
+                        if (found) {
+                          setCustomerQueueName(found.name);
+                          setNewCustomerPhone(found.phone || "");
+                        }
+                      }
+                    }}
+                    className="w-full h-9 rounded-lg border border-border bg-secondary/70 px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
+                  >
+                    <option value="">
+                      Pilih Member Terdaftar ({filteredMemberCustomers.length})
+                    </option>
+                    {filteredMemberCustomers.map((c) => {
+                      const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
+                      return (
+                        <option key={c.id} value={c.id}>
+                          {c.name} ({pts} Poin · {c.visits}x)
+                        </option>
+                      );
+                    })}
+                  </select>
+
+                  {selectedCustomerId && (
+                    <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs">
+                      <span className="font-black text-primary truncate">
+                        {snapshot.customers.find((c) => c.id === selectedCustomerId)?.name ||
+                          "Member Aktif"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedCustomerId("");
+                          setCustomerQueueName("");
+                          setNewCustomerPhone("");
+                        }}
+                        aria-label="Lepas member"
+                        className="flex size-5 shrink-0 items-center justify-center rounded bg-background/80 text-muted-foreground hover:text-destructive cursor-pointer"
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tombol Utama Lanjut ke Pembayaran */}
+              <div className="pt-1 border-t border-border/60">
+                <Button
+                  type="button"
+                  variant="hero"
+                  onClick={() => {
+                    playPosSound("pay");
+                    setIsCustomerStepModalOpen(false);
+                    setIsPaymentModalOpen(true);
+                  }}
+                  className="w-full h-11 rounded-xl text-sm font-black shadow-brand gap-1.5 active:scale-95 transition-transform duration-100"
+                >
+                  <span>Lanjut ke Pembayaran • {formatRupiah(total)}</span>
+                  <ChevronRight className="size-4 shrink-0" />
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* ======================================================================== */}
+      {/* MODAL INPUT CEPAT ORDER WHATSAPP (/pos Toolbar)                          */}
+      {/* ======================================================================== */}
+      {isWaOrderModalOpen &&
+        typeof document !== "undefined" &&
+        createPortal(
+          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
+            <div className="relative z-[9999] flex max-h-[92dvh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 p-4 shadow-2xl space-y-3 overflow-hidden">
+              <div className="flex items-center justify-between border-b border-border pb-2.5 shrink-0">
+                <div className="flex items-center gap-2">
+                  <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-600/15 text-emerald-600">
+                    <MessageSquare className="size-4" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-foreground">
+                      Input Cepat Order WhatsApp
+                    </h3>
+                    <p className="text-[11px] text-muted-foreground">
+                      Tempel chat WA pelanggan atau pilih menu cepat ke Smart Cart
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsWaOrderModalOpen(false)}
+                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5">
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="text"
+                    value={waCustomerName}
+                    onChange={(e) => setWaCustomerName(e.target.value)}
+                    placeholder="Nama Pelanggan WA"
+                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold"
+                  />
+                  <input
+                    type="tel"
+                    value={waCustomerPhone}
+                    onChange={(e) => setWaCustomerPhone(e.target.value)}
+                    placeholder="No. WA (cth: 0812xxxx)"
+                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-medium"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-muted-foreground">
+                      Tempel Chat Pesanan / Catatan WA
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleParseWaChatText}
+                      className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
+                    >
+                      Deteksi Menu dari Teks
+                    </button>
+                  </div>
+                  <textarea
+                    rows={2}
+                    value={waRawNotes}
+                    onChange={(e) => setWaRawNotes(e.target.value)}
+                    placeholder="Tempel chat WA di sini (cth: 2 Original, 1 Beef Patty, tanpa pedas)..."
+                    className="w-full rounded-lg border border-border bg-background p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
+                    <input
+                      type="text"
+                      value={waMenuSearch}
+                      onChange={(e) => setWaMenuSearch(e.target.value)}
+                      placeholder="Cari & pilih cepat menu untuk Order WA..."
+                      className="h-8 w-full rounded-lg border border-border bg-muted/40 pl-8 pr-2.5 text-xs"
+                    />
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
+                    {displayedProducts
+                      .filter(
+                        (p) =>
+                          !waMenuSearch.trim() ||
+                          p.name.toLowerCase().includes(waMenuSearch.trim().toLowerCase()),
+                      )
+                      .map((p) => {
+                        const q = waSelectedQty[p.id] || 0;
+                        const pr =
+                          p.promo_price && p.promo_price < p.price ? p.promo_price : p.price;
+                        return (
+                          <div
+                            key={p.id}
+                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs bg-card hover:bg-secondary/30"
+                          >
+                            <div className="min-w-0 flex-1">
+                              <p className="font-bold text-foreground truncate">{p.name}</p>
+                              <p className="text-[11px] text-primary font-semibold">
+                                {formatRupiah(pr)}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {q > 0 && (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setWaSelectedQty((prev) => ({
+                                        ...prev,
+                                        [p.id]: Math.max(0, (prev[p.id] || 0) - 1),
+                                      }))
+                                    }
+                                    className="flex h-6 w-6 items-center justify-center rounded border border-border bg-background cursor-pointer"
+                                  >
+                                    <Minus className="size-3" />
+                                  </button>
+                                  <span className="w-5 text-center font-black">{q}</span>
+                                </>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  playPosSound("tap");
+                                  setWaSelectedQty((prev) => ({
+                                    ...prev,
+                                    [p.id]: (prev[p.id] || 0) + 1,
+                                  }));
+                                }}
+                                className="flex h-6 px-2 items-center justify-center rounded bg-primary text-primary-foreground font-bold text-[11px] cursor-pointer active:scale-95"
+                              >
+                                + Tambah
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              </div>
+
+              <div className="shrink-0 pt-2 border-t border-border flex items-center justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setIsWaOrderModalOpen(false)}
+                  className="rounded-lg text-xs font-bold"
+                >
+                  Batal
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  onClick={handleConfirmWaOrderToCart}
+                  className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold gap-1.5"
+                >
+                  <ShoppingCart className="size-3.5" />
+                  <span>Masukkan ke Smart Cart</span>
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* ======================================================================== */}
+      {/* LANGKAH 3 — MODAL METODE PEMBAYARAN + NUMPAD SENTUH BESAR                */}
+      {/* ======================================================================== */}
       {isPaymentModalOpen && cart.length > 0 && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-4 backdrop-blur-sm animate-in fade-in">
-          <div className="relative flex max-h-[94vh] w-full max-w-lg flex-col rounded-[2rem] border border-border bg-card shadow-float overflow-hidden">
+          <div className="relative flex max-h-[94vh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 shadow-float overflow-hidden">
             {/* Header Modal Pembayaran */}
-            <div className="flex items-center justify-between border-b border-border px-5 py-4 bg-muted/25">
+            <div className="flex items-center justify-between border-b border-border px-5 py-3.5 bg-muted/25">
               <div>
-                <h3 className="text-lg font-black text-foreground">Pembayaran Pesanan</h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsPaymentModalOpen(false);
+                      setIsCustomerStepModalOpen(true);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                  >
+                    <ArrowLeft className="size-3" />
+                    <span>Ubah Data</span>
+                  </button>
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
+                    Langkah 3 dari 3
+                  </span>
+                </div>
+                <h3 className="text-base sm:text-lg font-black text-foreground mt-0.5">
+                  Pembayaran Pesanan
+                </h3>
                 <p className="text-xs text-muted-foreground">
                   {totalCartItemCount} item • {activeChannelMeta.label} • {activeCustomerLabel}
                 </p>
@@ -10572,13 +10789,23 @@ function OrdersPage({
   };
 
   return (
-    <div className="space-y-6 w-full max-w-none">
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
+    <div className={cn(isPosOrders ? "space-y-3 pb-6" : "space-y-6", "w-full max-w-none")}>
+      <div
+        className={cn(
+          "flex flex-col md:flex-row md:items-center md:justify-between border border-border bg-card/82 shadow-soft backdrop-blur-2xl",
+          isPosOrders ? "gap-2.5 rounded-2xl px-4 py-3" : "gap-4 rounded-[2rem] p-6",
+        )}
+      >
         <div>
-          <h1 className="text-3xl font-black tracking-normal">
+          <h1
+            className={cn(
+              "font-black tracking-normal",
+              isPosOrders ? "text-lg sm:text-xl" : "text-3xl",
+            )}
+          >
             {t("orders.title", "Orders & Transaksi")}
           </h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
             {t(
               "orders.subtitle",
               "Riwayat lengkap transaksi seluruh cabang outlet, status pembayaran, kasir, dan data CRM.",
@@ -10716,36 +10943,66 @@ function OrdersPage({
       </div>
 
       {/* Summary Chips */}
-      <div className="grid gap-3 grid-cols-2 md:grid-cols-3">
-        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
+      <div className="grid gap-2.5 grid-cols-2 md:grid-cols-3">
+        <div
+          className={cn(
+            "bg-card rounded-2xl border border-border/60 shadow-sm",
+            isPosOrders ? "p-3" : "p-4",
+          )}
+        >
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.total_orders_filtered", "Total Order Terfilter")}
           </p>
           {isLoading && localOrders.length === 0 ? (
             <div className="h-7 w-28 rounded-lg bg-muted animate-pulse mt-1" />
           ) : (
-            <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+            <p
+              className={cn(
+                "font-bold text-foreground tabular-nums mt-1",
+                isPosOrders ? "text-base sm:text-lg" : "text-xl",
+              )}
+            >
               {filteredOrders.length} Transaksi
             </p>
           )}
         </div>
-        <div className="bg-card rounded-2xl border border-border/60 shadow-sm p-4">
+        <div
+          className={cn(
+            "bg-card rounded-2xl border border-border/60 shadow-sm",
+            isPosOrders ? "p-3" : "p-4",
+          )}
+        >
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.revenue_filtered", "Omzet Bersih Terfilter")}
           </p>
           {isLoading && localOrders.length === 0 ? (
             <div className="h-7 w-32 rounded-lg bg-muted animate-pulse mt-1" />
           ) : (
-            <p className="text-xl font-bold text-foreground tabular-nums mt-1">
+            <p
+              className={cn(
+                "font-bold text-foreground tabular-nums mt-1",
+                isPosOrders ? "text-base sm:text-lg" : "text-xl",
+              )}
+            >
               {formatRupiah(filteredTotalRevenue)}
             </p>
           )}
         </div>
-        <div className="col-span-2 md:col-span-1 bg-card rounded-2xl border border-border/60 shadow-sm p-4">
+        <div
+          className={cn(
+            "col-span-2 md:col-span-1 bg-card rounded-2xl border border-border/60 shadow-sm",
+            isPosOrders ? "p-3" : "p-4",
+          )}
+        >
           <p className="text-xs text-muted-foreground font-semibold">
             {t("orders.outlet_status", "Status Outlet")}
           </p>
-          <p className="text-xl font-bold text-foreground mt-1">
+          <p
+            className={cn(
+              "font-bold text-foreground mt-1",
+              isPosOrders ? "text-base sm:text-lg" : "text-xl",
+            )}
+          >
             {selectedOutletFilter === "all"
               ? t("orders.all_connected", "Semua Cabang Terhubung")
               : dbOutlets.find((o) => o.id === selectedOutletFilter)?.name || "Aktif"}
@@ -10754,7 +11011,12 @@ function OrdersPage({
       </div>
 
       {/* Order List */}
-      <div className="rounded-[1.75rem] border border-border bg-card p-4 shadow-soft">
+      <div
+        className={cn(
+          "border border-border bg-card shadow-soft",
+          isPosOrders ? "rounded-2xl p-3" : "rounded-[1.75rem] p-4",
+        )}
+      >
         {isLoading && localOrders.length === 0 ? (
           <div className="p-6 space-y-3">
             <div className="flex items-center justify-center gap-2 text-xs font-semibold text-muted-foreground pb-1">
@@ -11395,145 +11657,75 @@ function ProfilePage({
   snapshot: Snapshot;
   onRefresh?: () => Promise<void>;
 }) {
-  const [uiScale, setUiScale] = useState<UiScale>(() => getStoredUiScale());
-
-  useEffect(() => {
-    const syncScale = (e: Event) => {
-      const detail = (e as CustomEvent<UiScale>).detail;
-      setUiScale(detail || getStoredUiScale());
-    };
-    window.addEventListener("ui-scale-changed", syncScale);
-    return () => window.removeEventListener("ui-scale-changed", syncScale);
-  }, []);
+  const activeOutletName =
+    snapshot.outlets?.find((o) => o.id === snapshot.assignedOutletId)?.name ||
+    snapshot.outlets?.[0]?.name ||
+    snapshot.businessName ||
+    "Kantor Pusat (HQ)";
 
   return (
-    <div className="space-y-6 w-full max-w-none">
-      <PageTitle
-        title="Profil Akun"
-        subtitle="Kelola informasi akun pengguna, skala layar, dan identitas bisnis."
+    <div className="space-y-5 w-full max-w-none" data-feature="Ukuran Tampilan Menu">
+      <UnifiedProfileTabs
+        displayName={profile.displayName}
+        email={profile.email}
+        role={snapshot.role || "owner"}
+        outletName={activeOutletName}
+        extraAccountSlot={
+          <div className="space-y-5">
+            {/* Simulasi Role untuk Pengujian RBAC (Hanya tampil pada mode development) */}
+            {import.meta.env.DEV && (
+              <section className="rounded-2xl border border-border bg-card p-4 shadow-xs">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                  Simulasi Role Pengguna (Audit & Validasi RBAC):
+                </p>
+                <div className="mt-2.5 flex flex-wrap gap-2.5">
+                  {[
+                    {
+                      id: "owner",
+                      label: "Owner HQ",
+                      desc: "Akses penuh seluruh cabang, menu & pengaturan",
+                    },
+                    {
+                      id: "manager",
+                      label: "Manager Outlet",
+                      desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
+                    },
+                    {
+                      id: "cashier",
+                      label: "Kasir POS",
+                      desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
+                    },
+                  ].map((r) => {
+                    const isActive = (snapshot.role || "owner").toLowerCase() === r.id;
+                    return (
+                      <button
+                        key={r.id}
+                        type="button"
+                        onClick={async () => {
+                          localStorage.setItem("kebabschoicepos_simulated_role", r.id);
+                          toast.success(`Role diubah menjadi ${r.label}`);
+                          if (onRefresh) await onRefresh();
+                        }}
+                        className={cn(
+                          "flex flex-col items-start rounded-2xl border p-3 text-left transition-all cursor-pointer",
+                          isActive
+                            ? "border-primary bg-primary text-primary-foreground font-bold shadow-brand ring-1 ring-primary"
+                            : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
+                        )}
+                      >
+                        <span className="text-xs font-black">{r.label}</span>
+                        <span className="text-xs opacity-80 mt-0.5">{r.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            <BusinessSettingsCard onRefresh={onRefresh} />
+          </div>
+        }
       />
-      <section className="rounded-2xl border bg-card p-6 shadow-soft">
-        <h2 className="text-xl font-black">Profil Pengguna</h2>
-        <div className="mt-4 flex items-center gap-4">
-          <div className="flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-xl font-black text-primary">
-            {profile.displayName ? profile.displayName.charAt(0).toUpperCase() : "U"}
-          </div>
-          <div className="space-y-1">
-            <p className="text-base font-bold">{profile.displayName}</p>
-            <p className="text-sm text-muted-foreground">{profile.email}</p>
-            <p className="text-xs font-semibold uppercase tracking-wider text-primary">
-              Role Aktif: {snapshot.role || "Owner"}
-            </p>
-          </div>
-        </div>
-
-        {/* Ukuran Tampilan Layar Global (80% / 85% / 90% / 100%) */}
-        <div className="mt-6 border-t border-border pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <div>
-              <p className="text-sm font-black text-foreground">
-                Ukuran Tampilan Layar (80% – 100%)
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Default otomatis 85% pada layar tablet (680px–1180px) dan 100% di desktop besar.
-              </p>
-            </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-xl text-xs font-bold gap-1.5"
-              onClick={() => window.dispatchEvent(new CustomEvent("open-theme-modal"))}
-            >
-              <Palette className="size-3.5" />
-              <span>Kustomisasi Tema</span>
-            </Button>
-          </div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 max-w-xl">
-            {UI_SCALE_OPTIONS.map((opt) => {
-              const active = uiScale === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  onClick={() => {
-                    setUiScale(opt.value);
-                    saveUiScale(opt.value);
-                    toast.success(`Ukuran tampilan diubah ke ${opt.label}`);
-                  }}
-                  className={cn(
-                    "flex flex-col items-center justify-center gap-0.5 rounded-xl border py-2.5 px-3 text-xs font-bold transition-all cursor-pointer",
-                    active
-                      ? "border-primary bg-primary text-primary-foreground shadow-brand ring-1 ring-primary"
-                      : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
-                  )}
-                >
-                  <span className="text-sm font-black">{opt.label}</span>
-                  <span
-                    className={cn(
-                      "text-xs font-medium",
-                      active ? "text-primary-foreground/85" : "text-muted-foreground",
-                    )}
-                  >
-                    {opt.desc}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Simulasi Role untuk Pengujian RBAC (Hanya tampil pada mode development) */}
-        {import.meta.env.DEV && (
-          <div className="mt-6 border-t border-border pt-4">
-            <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-              Simulasi Role Pengguna (Audit & Validasi RBAC):
-            </p>
-            <div className="mt-2.5 flex flex-wrap gap-2.5">
-              {[
-                {
-                  id: "owner",
-                  label: "Owner HQ",
-                  desc: "Akses penuh seluruh cabang, menu & pengaturan",
-                },
-                {
-                  id: "manager",
-                  label: "Manager Outlet",
-                  desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
-                },
-                {
-                  id: "cashier",
-                  label: "Kasir POS",
-                  desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
-                },
-              ].map((r) => {
-                const isActive = (snapshot.role || "owner").toLowerCase() === r.id;
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={async () => {
-                      localStorage.setItem("kebabschoicepos_simulated_role", r.id);
-                      toast.success(`Role diubah menjadi ${r.label}`);
-                      if (onRefresh) await onRefresh();
-                    }}
-                    className={cn(
-                      "flex flex-col items-start rounded-2xl border p-3 text-left transition-all",
-                      isActive
-                        ? "border-primary bg-primary text-primary-foreground font-bold shadow-brand ring-1 ring-primary"
-                        : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
-                    )}
-                  >
-                    <span className="text-xs font-black">{r.label}</span>
-                    <span className="text-xs opacity-80 mt-0.5">{r.desc}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-      </section>
-      <BusinessSettingsCard onRefresh={onRefresh} />
     </div>
   );
 }
@@ -11880,33 +12072,132 @@ function BranchPosSwitchModal({
   );
 }
 
-export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
-  const navigate = useNavigate();
-  const { i18n } = useTranslation();
-  const [snapshot, setSnapshot] = useState<Snapshot>(() => {
-    if (typeof window !== "undefined") {
-      try {
-        const raw = localStorage.getItem("kebabschoicepos_business_identity");
-        if (raw) {
-          const cached = JSON.parse(raw);
-          return {
+const STORAGE_SWR_SNAPSHOT_KEY = "kebabschoicepos_swr_snapshot_v1";
+const STORAGE_SWR_PROFILE_KEY = "kebabschoicepos_swr_profile_v1";
+
+let cachedMemorySnapshot: Snapshot | null = null;
+let cachedMemoryProfile: UserProfile | null = null;
+let cachedMemoryUserId: string | null = null;
+
+function readSwrSnapshot(): { snapshot: Snapshot; hasCache: boolean } {
+  if (cachedMemorySnapshot && cachedMemorySnapshot.businessId) {
+    return { snapshot: cachedMemorySnapshot, hasCache: true };
+  }
+  if (typeof window !== "undefined") {
+    try {
+      const rawSwr = localStorage.getItem(STORAGE_SWR_SNAPSHOT_KEY);
+      if (rawSwr) {
+        const parsed = JSON.parse(rawSwr);
+        if (parsed && parsed.snapshot) {
+          const restored: Snapshot = {
+            ...emptySnapshot,
+            ...parsed.snapshot,
+          };
+          cachedMemorySnapshot = restored;
+          cachedMemoryUserId = parsed.userId || null;
+          return { snapshot: restored, hasCache: Boolean(restored.businessId) };
+        }
+      }
+    } catch {}
+
+    try {
+      const rawIdentity = localStorage.getItem("kebabschoicepos_business_identity");
+      const savedRole = localStorage.getItem("kebabschoicepos_user_role");
+      if (rawIdentity) {
+        const cached = JSON.parse(rawIdentity);
+        return {
+          snapshot: {
             ...emptySnapshot,
             businessId: cached.businessId || null,
             businessName: cached.businessName || "",
             logo: cached.logo || null,
             city: cached.city || "",
+            role: savedRole || emptySnapshot.role,
+          },
+          hasCache: false,
+        };
+      }
+    } catch {}
+  }
+  return { snapshot: emptySnapshot, hasCache: false };
+}
+
+function readSwrProfile(): UserProfile {
+  if (cachedMemoryProfile) return cachedMemoryProfile;
+  if (typeof window !== "undefined") {
+    try {
+      const raw = localStorage.getItem(STORAGE_SWR_PROFILE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed?.email) {
+          const prof: UserProfile = {
+            email: String(parsed.email),
+            displayName: String(parsed.displayName || "Admin"),
           };
+          cachedMemoryProfile = prof;
+          return prof;
         }
-      } catch {}
-    }
-    return emptySnapshot;
-  });
-  const [profile, setProfile] = useState<UserProfile>({
-    email: "admin@kitapos.id",
-    displayName: "Admin",
-  });
-  const [loading, setLoading] = useState(true);
-  const [isSnapshotLoading, setIsSnapshotLoading] = useState(true);
+      }
+    } catch {}
+  }
+  return { email: "admin@kitapos.id", displayName: "Admin" };
+}
+
+function writeSwrSnapshot(userId: string, nextSnapshot: Snapshot, nextProfile: UserProfile) {
+  cachedMemoryUserId = userId;
+  cachedMemorySnapshot = nextSnapshot;
+  cachedMemoryProfile = nextProfile;
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.setItem(STORAGE_SWR_PROFILE_KEY, JSON.stringify(nextProfile));
+  } catch {}
+  try {
+    localStorage.setItem(
+      STORAGE_SWR_SNAPSHOT_KEY,
+      JSON.stringify({ userId, updatedAt: Date.now(), snapshot: nextSnapshot }),
+    );
+  } catch {
+    // Fallback if QuotaExceededError due to embedded base64 product thumbnails
+    try {
+      const slimSnapshot: Snapshot = {
+        ...nextSnapshot,
+        products: (nextSnapshot.products || []).map((p) => ({
+          ...p,
+          image_url:
+            typeof p.image_url === "string" && p.image_url.startsWith("data:")
+              ? null
+              : p.image_url,
+        })),
+        orders: (nextSnapshot.orders || []).slice(0, 150),
+        orderItems: (nextSnapshot.orderItems || []).slice(0, 300),
+      };
+      localStorage.setItem(
+        STORAGE_SWR_SNAPSHOT_KEY,
+        JSON.stringify({ userId, updatedAt: Date.now(), snapshot: slimSnapshot }),
+      );
+    } catch {}
+  }
+}
+
+function clearSwrSnapshot() {
+  cachedMemoryUserId = null;
+  cachedMemorySnapshot = null;
+  cachedMemoryProfile = null;
+  if (typeof window !== "undefined") {
+    try {
+      localStorage.removeItem(STORAGE_SWR_SNAPSHOT_KEY);
+      localStorage.removeItem(STORAGE_SWR_PROFILE_KEY);
+    } catch {}
+  }
+}
+
+export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
+  const navigate = useNavigate();
+  const { i18n } = useTranslation();
+  const initialSwr = useMemo(() => readSwrSnapshot(), []);
+  const [snapshot, setSnapshot] = useState<Snapshot>(() => initialSwr.snapshot);
+  const [profile, setProfile] = useState<UserProfile>(() => readSwrProfile());
+  const [isSnapshotLoading, setIsSnapshotLoading] = useState<boolean>(() => !initialSwr.hasCache);
   const [, setLangTick] = useState(0);
   const [themeModalOpen, setThemeModalOpen] = useState(false);
   const openThemeModal = () => {
@@ -12174,8 +12465,13 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     try {
       const authUser = await resolveAuthenticatedUser();
       if (!authUser) {
+        clearSwrSnapshot();
         await navigate({ to: "/auth", replace: true });
         return;
+      }
+
+      if (cachedMemoryUserId && cachedMemoryUserId !== authUser.id) {
+        clearSwrSnapshot();
       }
 
       const userEmail = authUser.email ?? "admin@kitapos.id";
@@ -12186,8 +12482,10 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       const nextProfile: UserProfile = { email: userEmail, displayName: nameFromMetadata };
       setProfile(nextProfile);
       const nextSnapshot = await loadSnapshot(authUser.id, nextProfile);
-      setProfile({ ...nextProfile });
+      const committedProfile = { ...nextProfile };
+      setProfile(committedProfile);
       setSnapshot(nextSnapshot);
+      writeSwrSnapshot(authUser.id, nextSnapshot, committedProfile);
       if (typeof window !== "undefined" && nextSnapshot?.businessId) {
         window.dispatchEvent(
           new CustomEvent("app:snapshot-ready", {
@@ -12254,20 +12552,10 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   }, []);
 
   useEffect(() => {
-    const safetyTimer = setTimeout(() => {
-      setLoading(false);
-    }, 1500);
-
-    refresh()
-      .catch((error) => {
-        console.warn("[Dashboard] Initial refresh warning:", error);
-      })
-      .finally(() => {
-        clearTimeout(safetyTimer);
-        setLoading(false);
-      });
-
-    return () => clearTimeout(safetyTimer);
+    // Stale-while-revalidate: render cached snapshot immediately (0ms) and refresh silently in background
+    refresh().catch((error) => {
+      console.warn("[Dashboard] Background revalidate warning:", error);
+    });
   }, []);
 
   useEffect(() => {
@@ -12389,6 +12677,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
   }, [snapshot.role, snapshot.businessId, snapshot.assignedOutletId]);
 
   async function handleSignOut() {
+    clearSwrSnapshot();
     await supabase.auth.signOut();
     await navigate({ to: "/", replace: true });
     window.location.href = "/";
@@ -12657,17 +12946,6 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     return <DashboardPage snapshot={snapshot} userName={profile.displayName} />;
   }, [page, snapshot, profile, activeCashierName, appManagerPermissions, isSnapshotLoading]);
 
-  if (loading) {
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground">
-        <div className="rounded-[2rem] border border-border bg-card/86 p-8 text-center shadow-float backdrop-blur-2xl">
-          <Loader2 className="mx-auto size-7 animate-spin text-primary" />
-          <p className="mt-4 font-bold">Menyiapkan command center KebabsChoicePOS...</p>
-        </div>
-      </main>
-    );
-  }
-
   return (
     <main
       className={cn(
@@ -12676,6 +12954,17 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       )}
     >
       <div className="fixed inset-0 -z-10 bg-background" />
+      {isPosMode && isSidebarCollapsed && (
+        <button
+          type="button"
+          onClick={handleToggleSidebar}
+          title="Buka Sidebar Navigasi POS"
+          aria-label="Buka Sidebar"
+          className="fixed top-2.5 left-2.5 z-40 hidden min-[680px]:flex h-9 w-9 items-center justify-center rounded-xl border border-border bg-card text-primary shadow-sm hover:bg-secondary transition-colors cursor-pointer"
+        >
+          <PanelLeftOpen className="size-4.5" />
+        </button>
+      )}
       <Header
         snapshot={snapshot}
         profile={profile}
@@ -12715,8 +13004,11 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
             "min-w-0 flex-1 w-full min-h-[calc(100vh-5rem)] bg-muted/30 transition-all duration-300",
             page === "pos"
               ? "px-2.5 py-2.5 pb-36 min-[680px]:h-full min-[680px]:min-h-0 min-[680px]:overflow-hidden min-[680px]:p-2"
-              : "px-4 py-6 pb-28 lg:px-8 lg:pb-8",
-            isSidebarCollapsed && page !== "pos" && "lg:px-6",
+              : isPosMode
+                ? "px-3 py-3 pb-24 min-[680px]:px-3.5 min-[680px]:py-3 min-[680px]:pb-6"
+                : "px-4 py-6 pb-28 lg:px-8 lg:pb-8",
+            isPosMode && isSidebarCollapsed && "min-[680px]:pl-14",
+            !isPosMode && isSidebarCollapsed && "lg:px-6",
           )}
         >
           {content}

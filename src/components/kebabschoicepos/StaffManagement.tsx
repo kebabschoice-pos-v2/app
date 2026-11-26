@@ -47,6 +47,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
+import {
+  extractFaceDescriptorFromDataUrl,
+  saveCachedFaceDescriptor,
+} from "@/lib/face-biometrics";
 import { resolveAuthenticatedUser } from "@/integrations/supabase/auth-guard";
 import {
   getManagerPermissions,
@@ -1482,12 +1486,24 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
     if (!faceModalStaff || !faceCapturedPhoto) return;
     try {
       setSavingFace(true);
+      const extracted = await extractFaceDescriptorFromDataUrl(faceCapturedPhoto);
+      if (!extracted) {
+        toast.error("Wajah tidak terdeteksi jelas pada foto. Pastikan wajah menghadap kamera dengan cahaya cukup lalu ambil ulang.");
+        return;
+      }
+      saveCachedFaceDescriptor(faceModalStaff.user_id, faceModalStaff.name, extracted.descriptor);
       await updateHRStaffProfile(faceModalStaff.user_id, {
+        full_name: faceModalStaff.name,
         avatar_url: faceCapturedPhoto,
+        face_descriptor: extracted.descriptor,
       });
-      toast.success(`Foto biometrik ${faceModalStaff.name} berhasil disimpan!`);
+      toast.success(`Wajah biometrik ${faceModalStaff.name} berhasil didaftarkan!`);
       if (editingProfile && editingProfile.user_id === faceModalStaff.user_id) {
-        setEditingProfile({ ...editingProfile, avatar_url: faceCapturedPhoto });
+        setEditingProfile({
+          ...editingProfile,
+          avatar_url: faceCapturedPhoto,
+          face_descriptor: extracted.descriptor,
+        });
       }
       stopFaceCamera();
       setFaceModalStaff(null);
@@ -1495,7 +1511,7 @@ export function StaffManagement({ snapshot }: { snapshot?: any } = {}) {
       setFaceCapturedPhoto(null);
       await loadData();
     } catch (err) {
-      toast.error("Gagal menyimpan foto biometrik");
+      toast.error("Gagal menyimpan wajah biometrik");
     } finally {
       setSavingFace(false);
     }

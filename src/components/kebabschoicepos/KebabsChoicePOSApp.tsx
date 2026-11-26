@@ -2125,14 +2125,15 @@ function Sidebar({
                 typeof navigator !== "undefined" &&
                 /Android|iPhone|iPad/i.test(navigator.userAgent);
               if (isMobileDevice) {
-                const opened = window.open(
-                  "https://api.whatsapp.com/send",
-                  "_blank",
-                  "noopener,noreferrer",
-                );
-                if (!opened) {
-                  window.location.href = "whatsapp://send";
-                }
+                // Skema native langsung: tanpa tab perantara api.whatsapp.com
+                // (mencegah reload POS saat kembali dari WhatsApp).
+                const a = document.createElement("a");
+                a.href = "whatsapp://";
+                a.rel = "noopener noreferrer";
+                a.style.display = "none";
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
               } else {
                 window.open("https://web.whatsapp.com/", "_blank", "noopener,noreferrer");
               }
@@ -11741,8 +11742,13 @@ function BusinessSettingsCard({ onRefresh }: { onRefresh?: () => void | Promise<
     loadBusinessSettings();
   }, []);
 
+  const editingRef = useRef(false);
+  editingRef.current = editing || saving;
+
   useEffect(() => {
     const handleFocus = () => {
+      // Jangan timpa form yang sedang diedit saat kembali dari aplikasi lain.
+      if (editingRef.current) return;
       loadBusinessSettings();
     };
 

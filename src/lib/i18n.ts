@@ -55,6 +55,8 @@ export const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     "rail.attendance_title": "Absensi & Jadwal Shift",
     "rail.profile_title": "Profil Kasir & Pengaturan Akun",
     "rail.hq_title": "Kembali ke Dashboard HQ (1-Klik)",
+    "rail.whatsapp": "WhatsApp",
+    "rail.whatsapp_title": "Buka WhatsApp (Tab Baru)",
 
     // Header & Common
     "header.back_to_hq": "Kembali ke HQ",
@@ -337,6 +339,8 @@ export const DICTIONARY: Record<AppLanguage, Record<string, string>> = {
     "rail.attendance_title": "Attendance & Shift Schedule",
     "rail.profile_title": "Cashier Profile & Account Settings",
     "rail.hq_title": "Back to HQ Dashboard (1-Click)",
+    "rail.whatsapp": "WhatsApp",
+    "rail.whatsapp_title": "Open WhatsApp (New Tab)",
 
     // Header & Common
     "header.back_to_hq": "Back to HQ",

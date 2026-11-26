@@ -86,6 +86,7 @@ import {
   LayoutGrid,
   List,
   MessageSquare,
+  MessageCircle,
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -2113,6 +2114,35 @@ function Sidebar({
 
         {/* Bottom Utility Stack: Profil + Owner-only 1-Click HQ */}
         <div className="flex w-full flex-col items-center gap-1 border-t border-border/60 pt-1.5">
+          {/* Pintasan Cepat WhatsApp: app WA di Android/iOS, WhatsApp Web di desktop (tab baru, POS tetap terbuka) */}
+          <button
+            type="button"
+            title={t("rail.whatsapp_title", "Buka WhatsApp (Tab Baru)")}
+            aria-label="Buka WhatsApp"
+            onClick={() => {
+              playPosSound("tap");
+              const isMobileDevice =
+                typeof navigator !== "undefined" &&
+                /Android|iPhone|iPad/i.test(navigator.userAgent);
+              if (isMobileDevice) {
+                const opened = window.open(
+                  "https://api.whatsapp.com/send",
+                  "_blank",
+                  "noopener,noreferrer",
+                );
+                if (!opened) {
+                  window.location.href = "whatsapp://send";
+                }
+              } else {
+                window.open("https://web.whatsapp.com/", "_blank", "noopener,noreferrer");
+              }
+            }}
+            className="flex w-full min-h-[42px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] sm:text-[11px] font-bold text-muted-foreground hover:bg-emerald-600/10 hover:text-emerald-700 dark:hover:text-emerald-400 cursor-pointer active:scale-95 transition-transform duration-100"
+          >
+            <MessageCircle className="size-4 sm:size-5 shrink-0" />
+            <span className="leading-none">{t("rail.whatsapp", "WhatsApp")}</span>
+          </button>
+
           <Link
             to="/pos/profile"
             title={t("rail.profile_title", "Profil Kasir & Pengaturan Akun")}

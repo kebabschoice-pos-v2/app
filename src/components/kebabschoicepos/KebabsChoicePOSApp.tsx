@@ -2121,19 +2121,15 @@ function Sidebar({
             aria-label="Buka WhatsApp"
             onClick={() => {
               playPosSound("tap");
-              const isMobileDevice =
-                typeof navigator !== "undefined" &&
-                /Android|iPhone|iPad/i.test(navigator.userAgent);
-              if (isMobileDevice) {
-                // Skema native langsung: tanpa tab perantara api.whatsapp.com
-                // (mencegah reload POS saat kembali dari WhatsApp).
-                const a = document.createElement("a");
-                a.href = "whatsapp://";
-                a.rel = "noopener noreferrer";
-                a.style.display = "none";
-                document.body.appendChild(a);
-                a.click();
-                a.remove();
+              // Chrome tablet Android sering memakai UA desktop (X11; Linux x86_64),
+              // jadi deteksi juga lewat layar sentuh / pointer coarse.
+              const isTouchOrMobile =
+                /Android|iPhone|iPad|Mobile|Tablet/i.test(navigator.userAgent) ||
+                navigator.maxTouchPoints > 0 ||
+                !!window.matchMedia?.("(pointer: coarse)")?.matches;
+              if (isTouchOrMobile) {
+                // Skema native langsung, tanpa web.whatsapp.com & tanpa tab baru.
+                window.location.href = "whatsapp://";
               } else {
                 window.open("https://web.whatsapp.com/", "_blank", "noopener,noreferrer");
               }

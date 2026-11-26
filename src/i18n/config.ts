@@ -75,6 +75,9 @@ export async function setAppLanguage(languageCode: string, userId?: string | nul
       document.documentElement.dir = ["ar", "fa"].includes(languageCode) ? "rtl" : "ltr";
       document.documentElement.lang = languageCode;
       window.dispatchEvent(
+        new CustomEvent("language:changed", { detail: { language: languageCode } }),
+      );
+      window.dispatchEvent(
         new CustomEvent("languagechange", { detail: { language: languageCode } }),
       );
     }

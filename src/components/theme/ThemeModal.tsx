@@ -12,6 +12,7 @@ import {
   saveTheme,
   saveUiScale,
 } from "@/lib/theme";
+import { useTranslation } from "@/lib/i18n";
 import { toast } from "sonner";
 
 interface ThemeModalProps {
@@ -21,6 +22,7 @@ interface ThemeModalProps {
 }
 
 export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModalProps) {
+  const { t, isEnglish } = useTranslation();
   const [appearance, setAppearance] = useState<ThemeAppearance>(() => getStoredTheme().appearance);
   const [color, setColor] = useState<ThemeColor>(() => getStoredTheme().color);
   const [uiScale, setUiScale] = useState<UiScale>(() => getStoredUiScale());
@@ -49,20 +51,28 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
     setAppearance(app);
     saveTheme(app, color);
     toast.success(
-      `Tampilan diubah ke ${app === "light" ? "Light Mode" : app === "dark" ? "Dark Mode" : "System Mode"}`,
+      isEnglish
+        ? `Appearance set to ${app === "light" ? "Light Mode" : app === "dark" ? "Dark Mode" : "System Mode"}`
+        : `Tampilan diubah ke ${app === "light" ? "Light Mode" : app === "dark" ? "Dark Mode" : "System Mode"}`,
     );
   };
 
   const handleSelectColor = (col: ThemeColor) => {
     setColor(col);
     saveTheme(appearance, col);
-    toast.success(`Warna tema diubah ke ${THEME_COLOR_CONFIG[col].label}`);
+    toast.success(
+      isEnglish
+        ? `Accent color set to ${THEME_COLOR_CONFIG[col].label}`
+        : `Warna tema diubah ke ${THEME_COLOR_CONFIG[col].label}`,
+    );
   };
 
   const handleSelectScale = (scale: UiScale) => {
     setUiScale(scale);
     saveUiScale(scale);
-    toast.success(`Ukuran tampilan diubah ke ${scale}%`);
+    toast.success(
+      isEnglish ? `Display scale set to ${scale}%` : `Ukuran tampilan diubah ke ${scale}%`,
+    );
   };
 
   const controlsContent = (
@@ -71,7 +81,7 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
         {/* Appearance Switcher */}
         <div>
           <label className="text-xs font-black uppercase tracking-wider text-muted-foreground block mb-2.5">
-            Mode Tampilan (Appearance)
+            {t("theme.appearance_label", "Mode Tampilan (Appearance)")}
           </label>
           <div className="grid grid-cols-3 gap-2.5">
             {[
@@ -103,7 +113,7 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
         {/* Color Switcher */}
         <div>
           <label className="text-xs font-black uppercase tracking-wider text-muted-foreground block mb-2.5">
-            Warna Utama & Aksen (Brand Color)
+            {t("theme.brand_color_label", "Warna Utama & Aksen (Brand Color)")}
           </label>
           <div className="grid grid-cols-2 gap-2.5">
             {(Object.keys(THEME_COLOR_CONFIG) as ThemeColor[]).map((key) => {
@@ -140,10 +150,10 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
           <div className="flex items-center justify-between mb-2">
             <label className="text-xs font-black uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
               <Monitor className="size-3.5" />
-              <span>Ukuran Tampilan (UI Scale)</span>
+              <span>{t("profile.ui_scale_title", "Ukuran Tampilan (UI Scale)")}</span>
             </label>
             <span className="text-[11px] font-semibold text-muted-foreground">
-              Default Tablet: 85%
+              {t("profile.ui_scale_auto", "Default Tablet: 85%")}
             </span>
           </div>
           <div className="grid grid-cols-4 gap-2">
@@ -186,10 +196,13 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
           </div>
           <div>
             <h2 className="text-base font-black tracking-normal text-foreground">
-              Kustomisasi Tema Warna & Mode Tampilan
+              {t("theme.inline_title", "Kustomisasi Tema Warna & Mode Tampilan")}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Pilih mode terang/gelap dan warna utama antarmuka aplikasi secara langsung.
+              {t(
+                "theme.inline_desc",
+                "Pilih mode terang/gelap dan warna utama antarmuka aplikasi secara langsung.",
+              )}
             </p>
           </div>
         </div>
@@ -207,9 +220,11 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
               <Palette className="size-4" />
             </div>
             <div>
-              <h2 className="text-lg font-black tracking-normal">Kustomisasi Tema UI</h2>
+              <h2 className="text-lg font-black tracking-normal">
+                {t("theme.modal_title", "Kustomisasi Tema UI")}
+              </h2>
               <p className="text-xs text-muted-foreground">
-                Pilih mode tampilan & warna aksen aplikasi
+                {t("theme.modal_desc", "Pilih mode tampilan & warna aksen aplikasi")}
               </p>
             </div>
           </div>
@@ -222,7 +237,7 @@ export function ThemeModal({ isOpen = true, onClose, inline = false }: ThemeModa
 
         <div className="mt-6 flex justify-end">
           <Button onClick={onClose} className="rounded-xl px-5 font-bold">
-            Selesai
+            {t("theme.done", "Selesai")}
           </Button>
         </div>
       </div>

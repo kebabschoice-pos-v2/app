@@ -3880,6 +3880,7 @@ test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), c
     "Take Away",
     "Dine In",
     "Delivery",
+    "WhatsApp",
     "GoFood",
     "GrabFood",
     "ShopeeFood",
@@ -3894,7 +3895,7 @@ test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), c
   }
 
   // 3. Step 2 — Customer & Order Type Popup via createPortal(..., document.body) with solid white card after shift check
-  const step2End = posAppCode.indexOf("MODAL INPUT CEPAT ORDER WHATSAPP");
+  const step2End = posAppCode.indexOf("LANGKAH 3 — MODAL METODE PEMBAYARAN");
   const step2Modal = posAppCode.slice(smartCartEnd, step2End);
   assert.ok(
     smartCartAside.includes('if (activeShift?.status !== "open")') &&
@@ -3905,9 +3906,11 @@ test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), c
       step2Modal.includes("document.body") &&
       step2Modal.includes("Umum") &&
       step2Modal.includes("Member") &&
+      step2Modal.includes("grid-cols-2 sm:grid-cols-4 gap-1.5") &&
       step2Modal.includes('{ id: "take_away", label: "Take Away" }') &&
       step2Modal.includes('{ id: "dine_in", label: "Dine In" }') &&
       step2Modal.includes('{ id: "delivery", label: "Delivery" }') &&
+      step2Modal.includes('{ id: "whatsapp", label: "WhatsApp" }') &&
       step2Modal.includes('{ id: "gofood", label: "GoFood" }') &&
       step2Modal.includes('{ id: "grabfood", label: "GrabFood" }') &&
       step2Modal.includes('{ id: "shopeefood", label: "ShopeeFood" }') &&
@@ -3916,7 +3919,7 @@ test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), c
       step2Modal.includes("No. WA (Opsional)") &&
       step2Modal.includes("Lanjut ke Pembayaran • {formatRupiah(total)}") &&
       step2Modal.includes("setIsPaymentModalOpen(true)"),
-    "Step 2 Customer & Order Type popup must render via createPortal(..., document.body) with solid card, Umum|Member tabs, Take Away default green + disabled Ojol, customer inputs, and Lanjut ke Pembayaran CTA",
+    "Step 2 Customer & Order Type popup must render via createPortal(..., document.body) with solid card, Umum|Member tabs, 4 active channels (Take Away default green, Dine In, Delivery, WhatsApp) + disabled Ojol, customer inputs, and Lanjut ke Pembayaran CTA",
   );
 
   // 4. Step 3 — Payment Method Popup (Tunai / QRIS / EDC)
@@ -3968,7 +3971,7 @@ test("Enforces compact proportional menu cards (p-2.5, rounded-lg/rounded-md), c
 
 // --- TEST 116: Bagian 3/3 — Biometric Face Attendance Without PIN (2-Col Compact Camera), Simple Shift Layout & Free WhatsApp Integration ---
 console.log("\n▶ 116. BAGIAN 3/3: BIOMETRIC FACE ATTENDANCE WITHOUT PIN, SIMPLE SHIFT LAYOUT & FREE WHATSAPP INTEGRATION");
-test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0.50, first-time enrollment & /staff re-enroll), 2-column compact camera (/pos/attendance-in), streamlined /pos/shift-cash layout, and 1-click Kirim Struk WA + Order WA modal", () => {
+test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0.50, first-time enrollment & /staff re-enroll), 2-column compact camera (/pos/attendance-in), streamlined /pos/shift-cash layout, 1-click Kirim Struk WA + WhatsApp channel in Step 2, 7-item Profile menu list & real-time ID/EN i18n", () => {
   const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
   const faceBioCode = read("src/lib/face-biometrics.ts");
   const attendanceCode = read("src/components/kebabschoicepos/AttendancePage.tsx");
@@ -4033,7 +4036,11 @@ test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0
     "PosShiftCashPage must render centered max-w-lg mx-auto card with collapsible schedule when closed, and 4 KPI cards + 2-column Cash In/Out/Close vs Shift History when active",
   );
 
-  // 3. Free WhatsApp Integration (wa.me URL with & without phone, Kirim Struk WA in ReceiptModal & /pos/orders, Order WA button in /pos toolbar + modal)
+  // 3. Free WhatsApp Integration (Kirim Struk WA in ReceiptModal & /pos/orders, WhatsApp channel in Step 2 popup without Order WA toolbar clutter), 7-item Profile Settings Menu List & Real-Time i18n (ID & EN)
+  const profileTabsCode = read("src/components/kebabschoicepos/UnifiedProfileTabs.tsx");
+  const i18nLibCode = read("src/lib/i18n.ts");
+  const langSettingsCode = read("src/pages/account/LanguageSettingsPage.tsx");
+
   assert.ok(
     waReceiptCode.includes("https://wa.me/${normalizedPhone}?text=${encodeURIComponent(receiptText)}") &&
       waReceiptCode.includes("https://wa.me/?text=${encodeURIComponent(receiptText)}"),
@@ -4052,11 +4059,42 @@ test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0
       receiptModalSlice.includes("openWhatsAppReceipt") &&
       ordersPageSlice.includes("Kirim Struk WA") &&
       ordersPageSlice.includes("handleSendOrderWhatsApp") &&
-      posAppCode.includes('aria-label="Order WA"') &&
-      posAppCode.includes("<span>Order WA</span>") &&
-      posAppCode.includes("isWaOrderModalOpen") &&
-      posAppCode.includes("handleConfirmWaOrderToCart"),
-    "ReceiptModal and OrdersPage (/pos/orders) must include Kirim Struk WA, and /pos toolbar must include Order WA button + modal feeding Smart Cart",
+      !posAppCode.includes('aria-label="Order WA"') &&
+      !posAppCode.includes("isWaOrderModalOpen") &&
+      posAppCode.includes('| "whatsapp"') &&
+      posAppCode.includes('{ id: "whatsapp", label: "WhatsApp" }'),
+    "ReceiptModal and OrdersPage (/pos/orders) must preserve Kirim Struk WA, /pos toolbar must remove Order WA button, and Step 2 popup must support WhatsApp channel",
+  );
+
+  // 4. Clean 7-Item Settings Menu List in UnifiedProfileTabs (/profile & /pos/profile) with ← Kembali back button
+  assert.ok(
+    !profileTabsCode.includes('role="tablist"') &&
+      profileTabsCode.includes("activeSection === null") &&
+      profileTabsCode.includes("← Kembali") &&
+      profileTabsCode.includes("Tampilan & Perangkat Kasir") &&
+      profileTabsCode.includes("Printer Thermal & Struk") &&
+      profileTabsCode.includes("Tema Warna & Mode") &&
+      profileTabsCode.includes("Bahasa Aplikasi") &&
+      profileTabsCode.includes("Keamanan & Password") &&
+      profileTabsCode.includes("Riwayat Login") &&
+      profileTabsCode.includes("Keluar Akun (Logout)"),
+    "UnifiedProfileTabs must replace combined tabs with a clean 7-item Settings Menu List and ← Kembali detail panels",
+  );
+
+  // 5. Real-time i18n (src/lib/i18n.ts) with ID & EN only in LanguageSettingsPage
+  assert.ok(
+    i18nLibCode.includes("kebabschoicepos_language") &&
+      i18nLibCode.includes("language:changed") &&
+      i18nLibCode.includes("export function useTranslation()") &&
+      i18nLibCode.includes('"rail.cashier": "Cashier"') &&
+      i18nLibCode.includes('"pos.search_menu": "Search menu..."') &&
+      i18nLibCode.includes('"cart.empty_title": "Cart is empty"') &&
+      i18nLibCode.includes('"pos.complete_and_print": "Complete & Print Receipt"') &&
+      langSettingsCode.includes("SUPPORTED_LANGUAGES") &&
+      !langSettingsCode.includes("Japanese") &&
+      !langSettingsCode.includes("German") &&
+      !langSettingsCode.includes("Arabic"),
+    "src/lib/i18n.ts must provide real-time useTranslation() via kebabschoicepos_language + language:changed event and LanguageSettingsPage must only offer Bahasa Indonesia (ID) & English (EN)",
   );
 });
 

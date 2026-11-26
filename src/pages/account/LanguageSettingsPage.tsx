@@ -1,233 +1,141 @@
-import { useState, useMemo, useEffect } from "react";
-import { Globe2, Search, Check, Sparkles } from "lucide-react";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { useEffect, useState } from "react";
+import { Check, Globe2 } from "lucide-react";
 import { toast } from "sonner";
-import { setAppLanguage } from "@/i18n/config";
+import { cn } from "@/lib/utils";
+import {
+  SUPPORTED_LANGUAGES,
+  useTranslation,
+  type AppLanguage,
+  type SupportedLanguageOption,
+} from "@/lib/i18n";
 import { supabase } from "@/integrations/supabase/client";
 
-interface LanguageOption {
-  code: string;
-  name: string;
-  nativeName: string;
-  flag: string;
-  region: "asia" | "europe" | "middle_east";
-}
-
-const LANGUAGES: LanguageOption[] = [
-  // ASIA
-  { code: "id", name: "Indonesian", nativeName: "Bahasa Indonesia", flag: "🇮🇩", region: "asia" },
-  { code: "en", name: "English (US)", nativeName: "English", flag: "🇺🇸", region: "asia" },
-  { code: "ja", name: "Japanese", nativeName: "日本語", flag: "🇯🇵", region: "asia" },
-  { code: "zh", name: "Chinese Simplified", nativeName: "简体中文", flag: "🇨🇳", region: "asia" },
-  {
-    code: "zh-TW",
-    name: "Chinese Traditional",
-    nativeName: "繁體中文",
-    flag: "🇹🇼",
-    region: "asia",
-  },
-  { code: "ko", name: "Korean", nativeName: "한국어", flag: "🇰🇷", region: "asia" },
-  { code: "th", name: "Thai", nativeName: "ไทย", flag: "🇹🇭", region: "asia" },
-  { code: "vi", name: "Vietnamese", nativeName: "Tiếng Việt", flag: "🇻🇳", region: "asia" },
-  { code: "ms", name: "Malay", nativeName: "Bahasa Melayu", flag: "🇲🇾", region: "asia" },
-  { code: "fil", name: "Filipino", nativeName: "Tagalog", flag: "🇵🇭", region: "asia" },
-  { code: "hi", name: "Hindi", nativeName: "हिन्दी", flag: "🇮🇳", region: "asia" },
-
-  // EUROPE
-  { code: "de", name: "German", nativeName: "Deutsch", flag: "🇩🇪", region: "europe" },
-  { code: "fr", name: "French", nativeName: "Français", flag: "🇫🇷", region: "europe" },
-  { code: "es", name: "Spanish", nativeName: "Español", flag: "🇪🇸", region: "europe" },
-  { code: "it", name: "Italian", nativeName: "Italiano", flag: "🇮🇹", region: "europe" },
-  { code: "pt", name: "Portuguese", nativeName: "Português", flag: "🇵🇹", region: "europe" },
-  { code: "nl", name: "Dutch", nativeName: "Nederlands", flag: "🇳🇱", region: "europe" },
-  { code: "ru", name: "Russian", nativeName: "Русский", flag: "🇷🇺", region: "europe" },
-  { code: "pl", name: "Polish", nativeName: "Polski", flag: "🇵🇱", region: "europe" },
-  { code: "tr", name: "Turkish", nativeName: "Türkçe", flag: "🇹🇷", region: "europe" },
-
-  // MIDDLE EAST
-  { code: "ar", name: "Arabic", nativeName: "العربية", flag: "🇸🇦", region: "middle_east" },
-  { code: "fa", name: "Persian", nativeName: "فارسی", flag: "🇮🇷", region: "middle_east" },
-];
-
-export function LanguageSettingsPage() {
-  const [currentLang, setCurrentLang] = useState<string>("id");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [selectedRegion, setSelectedRegion] = useState<string>("all");
+export function LanguageSettingsPage({ compact = false }: { compact?: boolean }) {
+  const { language, setLanguage, t } = useTranslation();
   const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("kebabschoicepos_language");
-      if (saved) setCurrentLang(saved);
-    }
-
     supabase.auth.getUser().then(({ data }) => {
       if (data.user) {
         setUserId(data.user.id);
-        supabase
-          .from("profiles")
-          .select("language")
-          .eq("user_id", data.user.id)
-          .maybeSingle()
-          .then(({ data: profileData }) => {
-            if (profileData?.language) {
-              setCurrentLang(profileData.language);
-            }
-          });
       }
     });
   }, []);
 
-  const filteredLanguages = useMemo(() => {
-    return LANGUAGES.filter((lang) => {
-      const matchRegion = selectedRegion === "all" || lang.region === selectedRegion;
-      const matchSearch =
-        lang.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        lang.nativeName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        lang.code.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchRegion && matchSearch;
-    });
-  }, [searchQuery, selectedRegion]);
+  const activeLanguageObj: SupportedLanguageOption =
+    SUPPORTED_LANGUAGES.find((item) => item.code === language) ?? SUPPORTED_LANGUAGES[0]!;
 
-  const activeLanguageObj = useMemo<LanguageOption>(() => {
-    return LANGUAGES.find((l) => l.code === currentLang) || (LANGUAGES[0] as LanguageOption);
-  }, [currentLang]);
-
-  const handleSelectLanguage = async (lang: LanguageOption) => {
-    setCurrentLang(lang.code);
-    await setAppLanguage(lang.code, userId);
-    toast.success(`Bahasa diubah ke ${lang.nativeName} (${lang.name})`, {
-      description: "Preferensi disimpan di profil akun & browser lokal",
+  const handleSelectLanguage = async (opt: SupportedLanguageOption) => {
+    await setLanguage(opt.code as AppLanguage, userId);
+    toast.success(`${t("language.toast_changed", "Bahasa aplikasi diubah ke")} ${opt.nativeName} (${opt.iso})`, {
+      description: t("language.toast_desc", "Seluruh tampilan diperbarui secara real-time."),
     });
   };
 
   return (
-    <div className="space-y-6 w-full max-w-none">
-      {/* Header Banner */}
-      <div className="rounded-[2rem] border border-border bg-card/82 p-6 shadow-soft backdrop-blur-2xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5">
-              <div className="flex size-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                <Globe2 className="size-5" />
-              </div>
-              <h1 className="text-3xl font-black tracking-normal">Pengaturan Bahasa</h1>
+    <div className="space-y-4 w-full max-w-none">
+      {!compact && (
+        <div className="rounded-2xl border border-border bg-card p-5 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Globe2 className="size-5" />
             </div>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Pilih bahasa tampilan sistem KebabsChoicePOS yang paling sesuai untuk operasional
-              bisnis harian Anda.
-            </p>
+            <div>
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight text-foreground">
+                {t("language.title", "Bahasa Aplikasi")}
+              </h1>
+              <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
+                {t(
+                  "language.subtitle",
+                  "Pilih bahasa tampilan KebabsChoicePOS. Seluruh menu Kasir & Profil langsung berganti secara real-time tanpa muat ulang.",
+                )}
+              </p>
+            </div>
           </div>
-          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-600 self-start">
-            {LANGUAGES.length} Bahasa Tersedia
+          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 self-start sm:self-center whitespace-nowrap">
+            {t("language.supported_badge", "2 Bahasa Aktif")}
           </span>
         </div>
-      </div>
+      )}
 
-      {/* Active Language Highlight Card */}
-      <div className="rounded-2xl border-2 border-primary/30 bg-primary/5 p-5 shadow-soft flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="text-4xl">{activeLanguageObj.flag}</div>
-          <div>
-            <p className="text-xs font-bold text-muted-foreground uppercase">
-              Bahasa Aktif Saat Ini
+      {/* Bahasa Aktif Saat Ini */}
+      <div className="rounded-2xl border border-primary/30 bg-primary/5 p-4 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-primary text-primary-foreground font-black text-sm tracking-wider">
+            {activeLanguageObj.iso}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+              {t("language.active_language", "Bahasa Aktif Saat Ini")}
             </p>
-            <h2 className="text-xl font-black text-foreground">
+            <h2 className="text-base sm:text-lg font-black text-foreground truncate">
               {activeLanguageObj.nativeName}{" "}
-              <span className="text-sm font-normal text-muted-foreground">
-                ({activeLanguageObj.name})
+              <span className="text-xs font-semibold text-muted-foreground">
+                ({activeLanguageObj.iso})
               </span>
             </h2>
-            <p className="text-xs text-primary font-semibold mt-0.5">
-              Kode ISO: {activeLanguageObj.code.toUpperCase()}
-            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 text-primary font-bold text-xs bg-primary/10 px-3 py-1.5 rounded-full">
-          <Check className="size-4" />
-          <span>Digunakan</span>
-        </div>
+        <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/15 px-3 py-1 text-xs font-bold text-primary shrink-0">
+          <Check className="size-3.5" />
+          <span>{t("language.in_use", "Digunakan")}</span>
+        </span>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="rounded-2xl border bg-card p-5 shadow-soft space-y-4">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            {[
-              { id: "all", label: "Semua Wilayah" },
-              { id: "asia", label: "Asia" },
-              { id: "europe", label: "Eropa" },
-              { id: "middle_east", label: "Timur Tengah" },
-            ].map((reg) => (
-              <Button
-                key={reg.id}
-                type="button"
-                variant={selectedRegion === reg.id ? "default" : "outline"}
-                size="sm"
-                className="rounded-xl text-xs font-bold"
-                onClick={() => setSelectedRegion(reg.id)}
-              >
-                {reg.label}
-              </Button>
-            ))}
-          </div>
+      {/* Pilihan 2 Bahasa Resmi yang Didukung Penuh */}
+      <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
+        <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          {t("language.choose_label", "Pilih Bahasa Tampilan")}
+        </p>
 
-          <div className="w-full sm:w-72">
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                placeholder="Cari nama bahasa..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9 rounded-xl text-xs"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Language Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 pt-2">
-          {filteredLanguages.map((lang) => {
-            const isSelected = lang.code === currentLang;
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {SUPPORTED_LANGUAGES.map((opt) => {
+            const isSelected = opt.code === language;
             return (
               <button
-                key={lang.code}
+                key={opt.code}
                 type="button"
-                onClick={() => handleSelectLanguage(lang)}
-                className={`flex items-center justify-between p-3.5 rounded-2xl border text-left transition-all ${
+                onClick={() => handleSelectLanguage(opt)}
+                className={cn(
+                  "flex items-center justify-between gap-3 rounded-xl border p-4 text-left transition-all cursor-pointer active:scale-[0.99]",
                   isSelected
-                    ? "border-primary bg-primary/10 ring-1 ring-primary shadow-soft"
-                    : "border-border bg-background hover:bg-secondary/60 text-foreground"
-                }`}
+                    ? "border-primary bg-primary/10 ring-1 ring-primary shadow-xs"
+                    : "border-border bg-background hover:bg-secondary/60 text-foreground",
+                )}
               >
                 <div className="flex items-center gap-3 min-w-0 flex-1">
-                  <span className="text-2xl shrink-0">{lang.flag}</span>
+                  <div
+                    className={cn(
+                      "flex size-10 shrink-0 items-center justify-center rounded-xl font-black text-xs tracking-wider border",
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-secondary text-foreground border-border",
+                    )}
+                  >
+                    {opt.iso}
+                  </div>
                   <div className="min-w-0 flex-1">
                     <p
-                      lang={lang.code}
-                      style={{
-                        fontFamily:
-                          lang.code === "th"
-                            ? '"Noto Sans Thai", "Leelawadee UI", "Thonburi", system-ui, sans-serif'
-                            : lang.code === "hi"
-                              ? '"Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", system-ui, sans-serif'
-                              : undefined,
-                      }}
-                      className={`text-sm leading-normal min-h-[1.35rem] truncate ${isSelected ? "font-black text-primary" : "font-bold text-foreground"}`}
+                      className={cn(
+                        "text-sm truncate",
+                        isSelected ? "font-black text-primary" : "font-bold text-foreground",
+                      )}
                     >
-                      {lang.nativeName}
+                      {opt.nativeName} ({opt.iso})
                     </p>
-                    <p className="text-xs text-muted-foreground truncate mt-0.5">{lang.name}</p>
+                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                      {language === "en" ? opt.descriptionEn : opt.descriptionId}
+                    </p>
                   </div>
                 </div>
 
                 <div
-                  className={`size-6 rounded-full flex items-center justify-center shrink-0 border ml-2 ${
+                  className={cn(
+                    "size-6 rounded-full flex items-center justify-center shrink-0 border",
                     isSelected
                       ? "bg-primary border-primary text-primary-foreground"
-                      : "border-border"
-                  }`}
+                      : "border-border bg-background",
+                  )}
                 >
                   {isSelected && <Check className="size-3.5" />}
                 </div>

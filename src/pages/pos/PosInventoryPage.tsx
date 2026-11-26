@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useTranslation } from "@/lib/i18n";
 import {
   Boxes,
   Search,
@@ -54,6 +55,7 @@ interface StockRequest {
 const STORAGE_STOCK_REQUESTS = "kebabschoicepos_outlet_stock_requests";
 
 export function PosInventoryPage() {
+  const { t } = useTranslation();
   const [items, setItems] = useState<OutletInventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [outletName, setOutletName] = useState(() => {
@@ -271,12 +273,12 @@ export function PosInventoryPage() {
           </div>
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-black tracking-tight text-foreground truncate">
-              Inventory & Stok Outlet (POS)
+              {t("pos_inv.page_title", "Inventory & Stok Outlet (POS)")}
             </h1>
             <p className="text-xs text-muted-foreground flex items-center gap-1.5 truncate">
               <Store className="size-3.5 text-primary shrink-0" />
               <span>
-                Cabang: <span className="font-bold text-foreground">{outletName}</span> · Monitoring sisa stok real-time
+                {t("shift.branch_label", "Cabang")}: <span className="font-bold text-foreground">{outletName}</span> · {t("pos_inv.monitoring_sub", "Monitoring sisa stok real-time")}
               </span>
             </p>
           </div>
@@ -290,7 +292,7 @@ export function PosInventoryPage() {
             className="h-8 rounded-xl font-bold gap-1.5 text-xs"
           >
             <RefreshCw className={`size-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh Stok
+            {t("pos_inv.refresh_btn", "Refresh Stok")}
           </Button>
 
           <Button
@@ -299,7 +301,7 @@ export function PosInventoryPage() {
             className="h-8 rounded-xl font-bold gap-1.5 text-xs shadow-brand"
           >
             <ArrowRightLeft className="size-3.5" />
-            Minta Stok ke HQ
+            {t("pos_inv.request_hq_btn", "Minta Stok ke HQ")}
           </Button>
         </div>
       </div>
@@ -349,7 +351,7 @@ export function PosInventoryPage() {
           <Input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari bahan / kemasan / saus..."
+            placeholder={t("pos_inv.search_placeholder", "Cari bahan / kemasan / saus...")}
             className="h-9 pl-9 rounded-xl text-xs"
           />
         </div>
@@ -366,7 +368,7 @@ export function PosInventoryPage() {
                   : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
               }`}
             >
-              {cat === "all" ? "Semua Kategori" : cat}
+              {cat === "all" ? t("pos_inv.all_categories", "Semua Kategori") : cat}
             </button>
           ))}
         </div>
@@ -377,10 +379,10 @@ export function PosInventoryPage() {
         <div className="flex items-center justify-between">
           <h2 className="font-black text-sm sm:text-base text-foreground flex items-center gap-2">
             <Layers className="size-4.5 text-primary" />
-            Daftar Persediaan Bahan di Outlet
+            {t("pos_inv.table_title", "Daftar Persediaan Bahan di Outlet")}
           </h2>
           <span className="text-xs text-muted-foreground font-semibold">
-            {filteredItems.length} bahan terdata
+            {filteredItems.length} {t("pos_inv.items_recorded", "bahan terdata")}
           </span>
         </div>
 
@@ -400,7 +402,9 @@ export function PosInventoryPage() {
         ) : filteredItems.length === 0 ? (
           <div className="py-12 text-center text-muted-foreground">
             <Boxes className="size-12 mx-auto mb-3 opacity-30 text-primary" />
-            <p className="font-bold text-sm text-foreground">Tidak Ada Data Bahan Baku</p>
+            <p className="font-bold text-sm text-foreground">
+              {t("pos_inv.empty_title", "Tidak Ada Data Bahan Baku")}
+            </p>
             <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
               {searchQuery || selectedCategory !== "all"
                 ? "Tidak ada bahan baku yang cocok dengan pencarian atau filter kategori."
@@ -412,12 +416,12 @@ export function PosInventoryPage() {
             <table className="w-full text-left text-xs">
               <thead className="border-b border-border text-muted-foreground uppercase text-[10px] tracking-wider">
                 <tr>
-                  <th className="py-3 font-bold">Nama Bahan / Item</th>
-                  <th className="py-3 font-bold">Kategori</th>
-                  <th className="py-3 font-bold text-right">Sisa Stok</th>
-                  <th className="py-3 font-bold text-right">Batas Minimum</th>
-                  <th className="py-3 font-bold text-center">Status</th>
-                  <th className="py-3 font-bold text-right">Aksi</th>
+                  <th className="py-3 font-bold">{t("pos_inv.col_item", "Nama Bahan / Item")}</th>
+                  <th className="py-3 font-bold">{t("pos_inv.col_category", "Kategori")}</th>
+                  <th className="py-3 font-bold text-right">{t("pos_inv.col_stock", "Sisa Stok")}</th>
+                  <th className="py-3 font-bold text-right">{t("pos_inv.col_min", "Batas Minimum")}</th>
+                  <th className="py-3 font-bold text-center">{t("pos_inv.col_status", "Status")}</th>
+                  <th className="py-3 font-bold text-right">{t("pos_inv.col_action", "Aksi")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">

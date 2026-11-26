@@ -89,7 +89,7 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "@/lib/i18n";
 import {
   Area,
   AreaChart,
@@ -1417,11 +1417,11 @@ function Header({
   onOpenCashierSwitchModal?: () => void;
   onOpenBranchPosSwitchModal?: () => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t, language, i18n } = useTranslation();
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isHQ = ["owner", "admin", "manager"].includes(normalizedRole);
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
-  const currentLang = (i18n.language || "id").slice(0, 2).toUpperCase();
+  const currentLang = (language || i18n.language || "id").slice(0, 2).toUpperCase();
   const [, setHeaderOutletTick] = useState(0);
 
   useEffect(() => {
@@ -1669,7 +1669,11 @@ function Header({
                   className="rounded-xl flex items-center gap-2.5 text-xs font-semibold py-2 cursor-pointer"
                 >
                   {isTabletFocusMode ? <Minimize2 className="size-4 text-primary" /> : <Maximize2 className="size-4 text-primary" />}
-                  <span>{isTabletFocusMode ? "Keluar Fullscreen" : "Layar Penuh (Tablet)"}</span>
+                  <span>
+                    {isTabletFocusMode
+                      ? t("header.fullscreen_exit", "Keluar Fullscreen")
+                      : t("header.fullscreen_enter", "Layar Penuh (Tablet)")}
+                  </span>
                 </DropdownMenuItem>
               )}
 
@@ -1679,7 +1683,7 @@ function Header({
                   className="rounded-xl flex items-center gap-2.5 text-xs font-semibold py-2 cursor-pointer"
                 >
                   <Palette className="size-4 text-primary" />
-                  <span>Kustomisasi Tema UI</span>
+                  <span>{t("header.theme_customize", "Kustomisasi Tema UI")}</span>
                 </DropdownMenuItem>
               )}
 
@@ -1690,7 +1694,7 @@ function Header({
                 >
                   <div className="flex items-center gap-2.5">
                     <Globe2 className="size-4 text-primary" />
-                    <span>Bahasa Sistem</span>
+                    <span>{t("header.system_language", "Bahasa Sistem")}</span>
                   </div>
                   <span className="font-extrabold text-[10px] bg-secondary px-1.5 py-0.5 rounded">{currentLang}</span>
                 </Link>
@@ -1702,7 +1706,7 @@ function Header({
                   className="rounded-xl flex items-center gap-2.5 text-xs font-semibold py-2 cursor-pointer"
                 >
                   <UserRound className="size-4 text-primary" />
-                  <span>Pengaturan Profil</span>
+                  <span>{t("header.profile_settings", "Pengaturan Profil")}</span>
                 </Link>
               </DropdownMenuItem>
 
@@ -2010,41 +2014,48 @@ function Sidebar({
         key: "pos",
         to: "/pos",
         label: "Kasir",
+        displayLabel: t("rail.cashier", "Kasir"),
         icon: ShoppingCart,
         isActive: active === "pos",
-        title: "Layar Kasir POS",
+        title: t("rail.cashier_title", "Layar Kasir POS"),
       },
       {
         key: "pos-orders",
         to: "/pos/orders",
         label: "Pesanan",
+        displayLabel: t("rail.orders", "Pesanan"),
         icon: ReceiptText,
         isActive: active === "pos-orders" || active === "pos-receipt",
-        title: "Riwayat Pesanan, Void & Cetak Struk",
+        title: t("rail.orders_title", "Riwayat Pesanan, Void & Cetak Struk"),
       },
       {
         key: "pos-shift-cash",
         to: "/pos/shift-cash",
         label: "Shift",
+        displayLabel: t("rail.shift", "Shift"),
         icon: WalletCards,
         isActive: active === "pos-shift-cash",
-        title: hasActiveShift ? "Shift Aktif — Kelola Kas Laci" : "Shift Tutup — Buka Shift Kasir",
+        title: hasActiveShift
+          ? t("rail.shift_open_title", "Shift Aktif — Kelola Kas Laci")
+          : t("rail.shift_closed_title", "Shift Tutup — Buka Shift Kasir"),
       },
       {
         key: "pos-inventory",
         to: "/pos/inventory",
         label: "Stok",
+        displayLabel: t("rail.stock", "Stok"),
         icon: Boxes,
         isActive: active === "pos-inventory",
-        title: "Cek Stok Cabang",
+        title: t("rail.stock_title", "Cek Stok Cabang"),
       },
       {
         key: "pos-attendance",
         to: "/pos/attendance",
         label: "Absen",
+        displayLabel: t("rail.attendance", "Absen"),
         icon: UserCheck,
         isActive: isPosAttendance,
-        title: "Absensi & Jadwal Shift",
+        title: t("rail.attendance_title", "Absensi & Jadwal Shift"),
       },
     ];
 
@@ -2094,7 +2105,7 @@ function Sidebar({
                 )}
               >
                 <IconComp className="size-4 sm:size-5 shrink-0" />
-                <span className="leading-none">{item.label}</span>
+                <span className="leading-none">{item.displayLabel}</span>
               </Link>
             );
           })}
@@ -2104,7 +2115,7 @@ function Sidebar({
         <div className="flex w-full flex-col items-center gap-1 border-t border-border/60 pt-1.5">
           <Link
             to="/pos/profile"
-            title="Profil Kasir & Pengaturan Akun"
+            title={t("rail.profile_title", "Profil Kasir & Pengaturan Akun")}
             className={cn(
               "flex w-full min-h-[42px] flex-col items-center justify-center gap-0.5 rounded-xl px-1 py-1 text-[10px] sm:text-[11px] font-bold transition-all active:scale-95",
               active === "pos-profile"
@@ -2113,17 +2124,17 @@ function Sidebar({
             )}
           >
             <UserRound className="size-4 sm:size-5 shrink-0" />
-            <span className="leading-none">Profil</span>
+            <span className="leading-none">{t("rail.profile", "Profil")}</span>
           </Link>
 
           {isOwner && (
             <Link
               to="/dashboard"
-              title="Kembali ke Dashboard HQ (1-Klik)"
+              title={t("rail.hq_title", "Kembali ke Dashboard HQ (1-Klik)")}
               className="flex w-full min-h-[42px] flex-col items-center justify-center gap-0.5 rounded-xl border border-border bg-muted px-1 py-1 text-[10px] sm:text-[11px] font-bold text-foreground hover:bg-secondary transition-all active:scale-95"
             >
               <Building2 className="size-4 sm:size-5 shrink-0" />
-              <span className="leading-none">HQ</span>
+              <span className="leading-none">{t("rail.hq", "HQ")}</span>
             </Link>
           )}
         </div>
@@ -2500,16 +2511,16 @@ function MobileNav({ active, role }: { active: NavKey; role?: string }) {
 
   const items = isPosMode
     ? [
-        { key: "pos" as NavKey, label: "POS Kasir", href: "/pos", icon: ShoppingCart },
-        { key: "pos-orders" as NavKey, label: "Order", href: "/pos/orders", icon: ReceiptText },
+        { key: "pos" as NavKey, label: t("rail.cashier", "Kasir"), href: "/pos", icon: ShoppingCart },
+        { key: "pos-orders" as NavKey, label: t("rail.orders", "Pesanan"), href: "/pos/orders", icon: ReceiptText },
         {
           key: "pos-shift-cash" as NavKey,
-          label: "Shift",
+          label: t("rail.shift", "Shift"),
           href: "/pos/shift-cash",
           icon: WalletCards,
         },
-        { key: "pos-inventory" as NavKey, label: "Stok", href: "/pos/inventory", icon: Boxes },
-        { key: "pos-profile" as NavKey, label: "Profil", href: "/pos/profile", icon: UserRound },
+        { key: "pos-inventory" as NavKey, label: t("rail.stock", "Stok"), href: "/pos/inventory", icon: Boxes },
+        { key: "pos-profile" as NavKey, label: t("rail.profile", "Profil"), href: "/pos/profile", icon: UserRound },
       ]
     : [
         { key: "dashboard" as NavKey, label: "Dashboard", href: "/dashboard", icon: Home },
@@ -3104,6 +3115,7 @@ function ReceiptModal({
   businessName?: string;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [waPhoneInput, setWaPhoneInput] = useState(data?.customerPhone || "");
   useEffect(() => {
     setWaPhoneInput(data?.customerPhone || "");
@@ -3294,7 +3306,7 @@ function ReceiptModal({
             className="rounded-xl text-xs font-bold px-3"
             onClick={onClose}
           >
-            Tutup
+            {t("common.close", "Tutup")}
           </Button>
           <Button
             type="button"
@@ -3333,7 +3345,7 @@ function ReceiptModal({
             }}
           >
             <Send className="size-3.5" />
-            Kirim Struk WA
+            {t("pos.send_wa_receipt", "Kirim Struk WA")}
           </Button>
           <Button
             type="button"
@@ -3380,7 +3392,7 @@ function ReceiptModal({
             }}
           >
             <Printer className="size-3.5" />
-            Cetak Struk
+            {t("pos.print_receipt", "Cetak Struk")}
           </Button>
         </div>
       </div>
@@ -3530,6 +3542,7 @@ export type PosOrderType =
   | "dine_in"
   | "take_away"
   | "delivery"
+  | "whatsapp"
   | "gofood"
   | "grabfood"
   | "shopeefood";
@@ -4053,7 +4066,7 @@ function PosPage({
   isSidebarCollapsed?: boolean;
   onToggleSidebar?: () => void;
 }) {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const navigate = useNavigate();
   const normalizedRole = (snapshot.role || "").toLowerCase();
   const isOwner = ["owner", "admin", "hq"].includes(normalizedRole);
@@ -4508,14 +4521,6 @@ function PosPage({
   const [isCustomerStepModalOpen, setIsCustomerStepModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isSubmittingCheckout, setIsSubmittingCheckout] = useState(false);
-
-  // WhatsApp Quick Order Modal State
-  const [isWaOrderModalOpen, setIsWaOrderModalOpen] = useState(false);
-  const [waCustomerName, setWaCustomerName] = useState("");
-  const [waCustomerPhone, setWaCustomerPhone] = useState("");
-  const [waRawNotes, setWaRawNotes] = useState("");
-  const [waMenuSearch, setWaMenuSearch] = useState("");
-  const [waSelectedQty, setWaSelectedQty] = useState<Record<string, number>>({});
 
   const productCategories = useMemo(() => {
     const cats = new Set<string>();
@@ -6711,6 +6716,12 @@ function PosPage({
       dotClass: "bg-foreground/60",
       badgeClass: "bg-muted text-foreground border-border",
     },
+    whatsapp: {
+      label: "WhatsApp",
+      dotClass: "bg-emerald-500",
+      badgeClass: "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/25",
+      activeClass: "bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600",
+    },
     gofood: {
       label: "GoFood",
       dotClass: "bg-emerald-500",
@@ -6733,14 +6744,14 @@ function PosPage({
   const activeChannelMeta = channelMetaMap[orderType] || channelMetaMap.take_away;
   const activeCustomerLabel =
     customerMode === "member" && selectedCustomerId
-      ? snapshot.customers.find((c) => c.id === selectedCustomerId)?.name || "Member"
+      ? snapshot.customers.find((c) => c.id === selectedCustomerId)?.name || t("pos.member", "Member")
       : customerMode === "new" && newCustomerName.trim()
         ? newCustomerName.trim()
         : customerMode === "member"
-          ? "Pilih Member"
+          ? t("pos.select_member", "Pilih Member")
           : customerMode === "new"
-            ? "Pelanggan Baru"
-            : "Umum";
+            ? t("pos.guest", "Umum")
+            : t("pos.guest", "Umum");
   const isPosBrowserOnline =
     browserOnline && (typeof window === "undefined" || window.navigator.onLine !== false);
 
@@ -6754,112 +6765,11 @@ function PosPage({
     );
   }, [snapshot.customers, memberSearchQuery]);
 
-  const handleParseWaChatText = () => {
-    if (!waRawNotes.trim()) {
-      toast.info("Tempel teks chat WhatsApp pelanggan terlebih dahulu");
-      return;
-    }
-    const lines = waRawNotes.split(/\r?\n/);
-    const nextQty = { ...waSelectedQty };
-    let matchedCount = 0;
-
-    for (const rawLine of lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-      if (!waCustomerName.trim()) {
-        const nameMatch = line.match(/^(?:nama|atas\s*nama|a\.n\.?)\s*[:=-]\s*(.+)$/i);
-        if (nameMatch?.[1]?.trim()) {
-          setWaCustomerName(nameMatch[1].trim());
-        }
-      }
-      if (!waCustomerPhone) {
-        const phoneMatch = line.match(/(?:\+?62|08)\d{7,12}/);
-        if (phoneMatch) {
-          setWaCustomerPhone(phoneMatch[0]);
-        }
-      }
-      const lower = line.toLowerCase();
-      for (const prod of displayedProducts) {
-        const pName = String(prod.name || "").trim().toLowerCase();
-        if (pName && pName.length >= 3 && lower.includes(pName)) {
-          const qtyMatch =
-            line.match(/(\d+)\s*(?:x|pcs|porsi|bh|buah)?/i) ||
-            line.match(/(?:x|qty)\s*(\d+)/i);
-          const qty = qtyMatch ? Math.max(1, Math.min(50, parseInt(qtyMatch[1] || "1", 10))) : 1;
-          nextQty[prod.id] = (nextQty[prod.id] || 0) + qty;
-          matchedCount += qty;
-          break;
-        }
-      }
-    }
-
-    if (matchedCount > 0) {
-      setWaSelectedQty(nextQty);
-      playPosSound("option");
-      toast.success(`${matchedCount} porsi menu berhasil dikenali dari teks WA`);
-    } else {
-      toast.info("Pilih menu cepat di daftar bawah untuk dimasukkan ke keranjang");
-    }
-  };
-
-  const handleConfirmWaOrderToCart = () => {
-    const selectedEntries = Object.entries(waSelectedQty).filter(([, q]) => q > 0);
-    if (selectedEntries.length === 0) {
-      toast.error("Pilih minimal 1 menu pesanan WA terlebih dahulu");
-      return;
-    }
-
-    const addedItems: CartItem[] = [];
-    for (const [prodId, qty] of selectedEntries) {
-      const product = displayedProducts.find((p) => p.id === prodId);
-      if (!product) continue;
-      const effectivePrice =
-        product.promo_price && product.promo_price < product.price
-          ? product.promo_price
-          : product.price;
-      addedItems.push({
-        ...product,
-        cart_item_id: `${product.id}-wa-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-        quantity: qty,
-        base_price: product.price,
-        unit_price: effectivePrice,
-        price: effectivePrice,
-        selected_variant: null,
-        selected_variant_groups: [],
-        selected_modifiers: [],
-        selected_addons: [],
-        notes: waRawNotes.trim() ? waRawNotes.trim().slice(0, 120) : undefined,
-      });
-    }
-
-    if (addedItems.length === 0) return;
-
-    setCart((prev) => [...prev, ...addedItems]);
-    setCustomerMode("public");
-    setSelectedCustomerId("");
-    setOrderType("take_away");
-    if (waCustomerName.trim()) {
-      setCustomerQueueName(waCustomerName.trim());
-    }
-    if (waCustomerPhone.trim()) {
-      setNewCustomerPhone(waCustomerPhone.trim());
-    }
-
-    playPosSound("success");
-    toast.success(`Order WA (${addedItems.length} menu) masuk ke Smart Cart!`);
-    setWaCustomerName("");
-    setWaCustomerPhone("");
-    setWaSelectedQty({});
-    setWaRawNotes("");
-    setWaMenuSearch("");
-    setIsWaOrderModalOpen(false);
-  };
-
   return (
     <div className="flex flex-col min-[680px]:flex-row min-[680px]:h-full min-[680px]:overflow-hidden gap-2">
       {/* TENGAH: TOOLBAR BERSIH + KATEGORI + KATALOG MENU KOTAK PROPORSIONAL */}
       <section className="flex-1 min-w-0 w-full flex flex-col min-[680px]:h-full min-[680px]:overflow-hidden gap-1.5">
-        {/* Toolbar Atas Bersih (Tanpa Tombol Terpotong): Status Online + Cabang/Shift + Cari Menu Lebar + Order WA */}
+        {/* Toolbar Atas Bersih: Status Online + Cabang/Shift + Cari Menu Lebar */}
         <div className="shrink-0 h-11 px-2.5 flex items-center gap-2 rounded-lg border border-border/60 bg-card shadow-xs">
           {/* Badge Status Online Ringkas */}
           {isPosBrowserOnline ? (
@@ -6870,7 +6780,9 @@ function PosPage({
               <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block shrink-0" />
               <span>
                 {networkStatus.pendingCount > 0
-                  ? `Online (${networkStatus.pendingCount} antrean)`
+                  ? language === "en"
+                    ? `Online (${networkStatus.pendingCount} queued)`
+                    : `Online (${networkStatus.pendingCount} antrean)`
                   : "Online"}
               </span>
             </span>
@@ -6882,7 +6794,9 @@ function PosPage({
               <span className="w-2 h-2 rounded-full bg-rose-500 inline-block shrink-0" />
               <span>
                 {networkStatus.pendingCount > 0
-                  ? `Offline (${networkStatus.pendingCount} antrean)`
+                  ? language === "en"
+                    ? `Offline (${networkStatus.pendingCount} queued)`
+                    : `Offline (${networkStatus.pendingCount} antrean)`
                   : "Offline"}
               </span>
             </span>
@@ -6907,7 +6821,7 @@ function PosPage({
             <span className="truncate">
               {activeOutlets.find((o) => o.id === selectedOutletId)?.name ||
                 activeOutlets[0]?.name ||
-                "Cabang"}
+                t("pos.branch_fallback", "Cabang")}
               {!isOwner && <span className="sr-only">Cabang Aktif: Terkunci</span>}
             </span>
             <span className="text-muted-foreground">•</span>
@@ -6919,7 +6833,9 @@ function PosPage({
                   : "text-rose-600 dark:text-rose-400",
               )}
             >
-              {activeShift?.status === "open" ? "Shift Aktif" : "Shift Tutup"}
+              {activeShift?.status === "open"
+                ? t("pos.shift_open", "Shift Aktif")
+                : t("pos.shift_closed", "Shift Tutup")}
             </span>
           </Link>
 
@@ -6930,7 +6846,7 @@ function PosPage({
               type="text"
               value={menuSearch}
               onChange={(e) => setMenuSearch(e.target.value)}
-              placeholder="Cari menu..."
+              placeholder={t("pos.search_menu", "Cari menu...")}
               aria-label="Cari menu kasir"
               className="h-8 w-full rounded-md border border-border bg-muted/40 pl-8 pr-7 text-xs font-medium text-foreground placeholder:text-muted-foreground focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 transition-all"
             />
@@ -6945,21 +6861,6 @@ function PosPage({
               </button>
             )}
           </div>
-
-          {/* Tombol Order WA 1-Klik di Toolbar /pos */}
-          <button
-            type="button"
-            onClick={() => {
-              playPosSound("tap");
-              setIsWaOrderModalOpen(true);
-            }}
-            aria-label="Order WA"
-            title="Input / Paste Cepat Pesanan dari Chat WhatsApp"
-            className="inline-flex h-8 items-center gap-1.5 px-2.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold whitespace-nowrap shrink-0 cursor-pointer active:scale-95 transition-all shadow-xs"
-          >
-            <MessageSquare className="size-3.5 shrink-0" />
-            <span>Order WA</span>
-          </button>
         </div>
 
         {/* Category Filter Pills Horizontal */}
@@ -6977,7 +6878,7 @@ function PosPage({
                 : "bg-card text-muted-foreground border-border hover:text-foreground hover:bg-secondary",
             )}
           >
-            Semua ({displayedProducts.length})
+            {t("pos.all", "Semua")} ({displayedProducts.length})
           </button>
           {productCategories.map((cat) => (
             <button
@@ -7084,7 +6985,7 @@ function PosPage({
                           </p>
                           {hasVariantsOrMods && (
                             <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary shrink-0">
-                              Varian
+                              {t("pos.variants", "Varian")}
                             </span>
                           )}
                         </div>
@@ -7092,7 +6993,7 @@ function PosPage({
 
                       <div className="flex items-center gap-2 shrink-0">
                         <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap hidden sm:inline">
-                          Stok {product.stock}
+                          {t("pos.stock_short", "Stok")} {product.stock}
                         </span>
                         <span
                           className={cn(
@@ -7203,7 +7104,7 @@ function PosPage({
                       </div>
                       {hasVariantsOrMods ? (
                         <span className="rounded-md bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary whitespace-nowrap shrink-0">
-                          Varian
+                          {t("pos.variants", "Varian")}
                         </span>
                       ) : (
                         <span className="text-[10px] font-medium text-muted-foreground whitespace-nowrap shrink-0">
@@ -7229,11 +7130,11 @@ function PosPage({
           <div className="flex items-center gap-2 min-w-0">
             <ShoppingCart className="size-4 shrink-0" />
             <span className="text-xs font-black truncate">
-              Keranjang ({totalCartItemCount} item) • {formatRupiah(total)}
+              {t("pos.mobile_cart", "Keranjang")} ({totalCartItemCount} item) • {formatRupiah(total)}
             </span>
           </div>
           <span className="inline-flex items-center gap-1 text-xs font-black whitespace-nowrap shrink-0">
-            <span>Bayar ➔</span>
+            <span>{t("cart.pay", "Bayar")} ➔</span>
           </span>
         </button>
       </div>
@@ -7276,7 +7177,11 @@ function PosPage({
               title="Lihat pesanan tertahan (Hold)"
             >
               <Clock className="size-3 shrink-0" />
-              <span>Tertahan ({heldOrders.length})</span>
+              {language === "en" ? (
+                <span>Held ({heldOrders.length})</span>
+              ) : (
+                <span>Tertahan ({heldOrders.length})</span>
+              )}
             </button>
             <button
               type="button"
@@ -7312,9 +7217,14 @@ function PosPage({
           {cart.length === 0 ? (
             <div className="flex h-full flex-col items-center justify-center rounded-lg border border-dashed border-border/80 bg-muted/20 p-5 text-center">
               <ShoppingCart className="size-8 text-muted-foreground/40 mb-2" />
-              <p className="text-xs font-bold text-foreground">Keranjang masih kosong</p>
+              <p className="text-xs font-bold text-foreground">
+                {t("cart.empty_title", "Keranjang kosong")}
+              </p>
               <p className="mt-0.5 text-[11px] text-muted-foreground max-w-[210px]">
-                Ketuk kartu menu di kiri untuk langsung menambah pesanan pelanggan.
+                {t(
+                  "cart.empty_subtitle",
+                  "Ketuk kartu menu di kiri untuk langsung menambah pesanan pelanggan.",
+                )}
               </p>
             </div>
           ) : (
@@ -7411,7 +7321,9 @@ function PosPage({
           {activeCartPopover === "discount" && (
             <div className="rounded-lg border border-border bg-secondary/40 p-2 space-y-1.5 animate-in fade-in duration-150">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-bold text-muted-foreground">Diskon Kasir</span>
+                <span className="text-[11px] font-bold text-muted-foreground">
+                  {t("cart.cashier_discount", "Diskon Kasir")}
+                </span>
                 <div className="flex items-center rounded-md border border-border overflow-hidden p-0.5 bg-background">
                   <button
                     type="button"
@@ -7494,7 +7406,7 @@ function PosPage({
                       ? discountType === "percent"
                         ? `-${discountValue}%`
                         : `-${formatRupiah(discountAmount)}`
-                      : "Diskon"}
+                      : t("cart.discount", "Diskon")}
                   </span>
                 </button>
               </div>
@@ -7526,7 +7438,7 @@ function PosPage({
               title="Simpan sementara antrean pesanan ini (Hold)"
             >
               <Clock className="size-3.5 shrink-0" />
-              <span>Tahan</span>
+              {language === "en" ? <span>{t("cart.hold", "Hold")}</span> : <span>Tahan</span>}
             </Button>
 
             <Button
@@ -7556,7 +7468,13 @@ function PosPage({
               }}
               className="h-10 flex-1 rounded-md text-xs sm:text-sm shadow-brand font-bold whitespace-nowrap gap-1 active:scale-95 transition-transform duration-100"
             >
-              <span>Bayar • {formatRupiah(total)}</span>
+              {language === "en" ? (
+                <span>
+                  {t("cart.pay", "Pay")} • {formatRupiah(total)}
+                </span>
+              ) : (
+                <span>Bayar • {formatRupiah(total)}</span>
+              )}
               <ChevronRight className="size-4 shrink-0" />
             </Button>
           </div>
@@ -7576,10 +7494,10 @@ function PosPage({
               <div className="flex items-center justify-between border-b border-border pb-2.5">
                 <div>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                    Langkah 2 dari 3
+                    {t("pos.step2_badge", "Langkah 2 dari 3")}
                   </span>
                   <h3 className="text-base font-black text-foreground">
-                    Data Pesanan & Pelanggan
+                    {t("pos.step2_title", "Data Pesanan & Pelanggan")}
                   </h3>
                 </div>
                 <button
@@ -7608,7 +7526,7 @@ function PosPage({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  Umum
+                  {t("pos.guest", "Umum")}
                 </button>
                 <button
                   type="button"
@@ -7623,7 +7541,7 @@ function PosPage({
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  Member
+                  {t("pos.member", "Member")}
                 </button>
               </div>
 
@@ -7636,7 +7554,7 @@ function PosPage({
                       type="text"
                       value={memberSearchQuery}
                       onChange={(e) => setMemberSearchQuery(e.target.value)}
-                      placeholder="Cari nama atau no. HP member..."
+                      placeholder={t("pos.search_member", "Cari nama atau no. HP member...")}
                       aria-label="Cari Member Terdaftar"
                       className="w-full h-9 rounded-lg border border-border bg-background pl-8 pr-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                     />
@@ -7660,7 +7578,7 @@ function PosPage({
                     className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-bold text-foreground focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer truncate"
                   >
                     <option value="">
-                      Pilih Member Terdaftar ({filteredMemberCustomers.length})
+                      {t("pos.select_member", "Pilih Member Terdaftar")} ({filteredMemberCustomers.length})
                     </option>
                     {filteredMemberCustomers.map((c) => {
                       const pts = c.points ?? Math.floor((c.total_spend || 0) / 10000);
@@ -7676,7 +7594,7 @@ function PosPage({
                     <div className="flex items-center justify-between gap-2 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-xs">
                       <span className="font-black text-primary truncate">
                         {snapshot.customers.find((c) => c.id === selectedCustomerId)?.name ||
-                          "Member Aktif"}
+                          t("pos.active_member", "Member Aktif")}
                       </span>
                       <button
                         type="button"
@@ -7696,17 +7614,18 @@ function PosPage({
                 </div>
               )}
 
-              {/* Tipe Pesanan: Take Away (default hijau), Dine In, Delivery + GoFood/GrabFood/ShopeeFood (disabled abu-abu tua) */}
+              {/* Tipe Pesanan Aktif (4 tombol sejajar: Take Away default hijau, Dine In, Delivery, WhatsApp) + 3 Ojol disabled */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground block">
-                  Tipe Pesanan
+                  {t("pos.order_type", "Tipe Pesanan")}
                 </label>
-                <div className="grid grid-cols-3 gap-1">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
                   {(
                     [
                       { id: "take_away", label: "Take Away" },
                       { id: "dine_in", label: "Dine In" },
                       { id: "delivery", label: "Delivery" },
+                      { id: "whatsapp", label: "WhatsApp" },
                     ] as Array<{ id: PosOrderType; label: string }>
                   ).map((tItem) => (
                     <button
@@ -7719,7 +7638,7 @@ function PosPage({
                       className={cn(
                         "h-9 min-w-0 rounded-lg text-xs font-bold border flex items-center justify-center cursor-pointer text-center truncate px-2 active:scale-95 transition-transform duration-100",
                         orderType === tItem.id
-                          ? tItem.id === "take_away"
+                          ? tItem.id === "take_away" || tItem.id === "whatsapp"
                             ? "bg-emerald-600 text-white border-emerald-600 shadow-xs"
                             : "bg-primary text-primary-foreground border-primary shadow-xs"
                           : "bg-secondary/60 border-border text-muted-foreground hover:bg-secondary hover:text-foreground",
@@ -7742,7 +7661,7 @@ function PosPage({
                       key={ojol.id}
                       type="button"
                       disabled
-                      title={`${ojol.label} segera hadir`}
+                      title={`${ojol.label} ${t("pos.coming_soon", "segera hadir")}`}
                       className="h-8 min-w-0 rounded-lg text-[11px] font-bold border flex items-center justify-center text-center truncate px-1.5 bg-slate-700 text-slate-300 border-slate-600 dark:bg-slate-800 dark:text-slate-400 dark:border-slate-700 cursor-not-allowed opacity-85"
                     >
                       {ojol.label}
@@ -7755,13 +7674,13 @@ function PosPage({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <div>
                   <label className="text-xs font-bold text-foreground block mb-1">
-                    Nama Pelanggan / Antrean
+                    {t("pos.customer_name", "Nama Pelanggan")}
                   </label>
                   <input
                     type="text"
                     aria-label="Nama Pelanggan / Antrean"
                     title="Nama Pelanggan / Antrean (Otomatis Daftar Member Cepat CRM)"
-                    placeholder="Contoh: Budi / Antrean 12"
+                    placeholder={t("pos.customer_name_placeholder", "Contoh: Budi / Antrean 12")}
                     value={customerQueueName}
                     onChange={(e) => setCustomerQueueName(e.target.value)}
                     className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -7769,12 +7688,12 @@ function PosPage({
                 </div>
                 <div>
                   <label className="text-xs font-bold text-foreground block mb-1">
-                    No. WA (Opsional)
+                    {t("pos.wa_optional", "No. WA (Opsional)")}
                   </label>
                   <input
                     type="tel"
                     aria-label="No. WA (Opsional)"
-                    placeholder="0812xxxx (Kirim Struk WA)"
+                    placeholder={t("pos.wa_placeholder", "0812xxxx (Kirim Struk WA)")}
                     value={newCustomerPhone}
                     onChange={(e) => setNewCustomerPhone(e.target.value)}
                     className="w-full h-9 rounded-lg border border-border bg-background px-2.5 text-xs font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
@@ -7794,177 +7713,14 @@ function PosPage({
                   }}
                   className="w-full h-11 rounded-xl text-sm font-black shadow-brand gap-1.5 active:scale-95 transition-transform duration-100"
                 >
-                  <span>Lanjut ke Pembayaran • {formatRupiah(total)}</span>
+                  {language === "en" ? (
+                    <span>
+                      {t("pos.continue_to_payment", "Continue to Payment")} • {formatRupiah(total)}
+                    </span>
+                  ) : (
+                    <span>Lanjut ke Pembayaran • {formatRupiah(total)}</span>
+                  )}
                   <ChevronRight className="size-4 shrink-0" />
-                </Button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
-
-      {/* ======================================================================== */}
-      {/* MODAL INPUT CEPAT ORDER WHATSAPP (/pos Toolbar)                          */}
-      {/* ======================================================================== */}
-      {isWaOrderModalOpen &&
-        typeof document !== "undefined" &&
-        createPortal(
-          <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
-            <div className="relative z-[9999] flex max-h-[92dvh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 p-4 shadow-2xl space-y-3 overflow-hidden">
-              <div className="flex items-center justify-between border-b border-border pb-2.5 shrink-0">
-                <div className="flex items-center gap-2">
-                  <div className="flex size-8 items-center justify-center rounded-lg bg-emerald-600/15 text-emerald-600">
-                    <MessageSquare className="size-4" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-black text-foreground">
-                      Input Cepat Order WhatsApp
-                    </h3>
-                    <p className="text-[11px] text-muted-foreground">
-                      Tempel chat WA pelanggan atau pilih menu cepat ke Smart Cart
-                    </p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setIsWaOrderModalOpen(false)}
-                  className="flex h-7 w-7 items-center justify-center rounded-lg bg-secondary text-muted-foreground hover:text-foreground cursor-pointer"
-                >
-                  <X className="size-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto space-y-2.5 pr-0.5">
-                <div className="grid grid-cols-2 gap-2">
-                  <input
-                    type="text"
-                    value={waCustomerName}
-                    onChange={(e) => setWaCustomerName(e.target.value)}
-                    placeholder="Nama Pelanggan WA"
-                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-semibold"
-                  />
-                  <input
-                    type="tel"
-                    value={waCustomerPhone}
-                    onChange={(e) => setWaCustomerPhone(e.target.value)}
-                    placeholder="No. WA (cth: 0812xxxx)"
-                    className="h-8 rounded-lg border border-border bg-background px-2.5 text-xs font-medium"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-bold text-muted-foreground">
-                      Tempel Chat Pesanan / Catatan WA
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleParseWaChatText}
-                      className="text-[11px] font-bold text-primary hover:underline cursor-pointer"
-                    >
-                      Deteksi Menu dari Teks
-                    </button>
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={waRawNotes}
-                    onChange={(e) => setWaRawNotes(e.target.value)}
-                    placeholder="Tempel chat WA di sini (cth: 2 Original, 1 Beef Patty, tanpa pedas)..."
-                    className="w-full rounded-lg border border-border bg-background p-2 text-xs resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-                    <input
-                      type="text"
-                      value={waMenuSearch}
-                      onChange={(e) => setWaMenuSearch(e.target.value)}
-                      placeholder="Cari & pilih cepat menu untuk Order WA..."
-                      className="h-8 w-full rounded-lg border border-border bg-muted/40 pl-8 pr-2.5 text-xs"
-                    />
-                  </div>
-
-                  <div className="max-h-48 overflow-y-auto rounded-lg border border-border divide-y divide-border/60">
-                    {displayedProducts
-                      .filter(
-                        (p) =>
-                          !waMenuSearch.trim() ||
-                          p.name.toLowerCase().includes(waMenuSearch.trim().toLowerCase()),
-                      )
-                      .map((p) => {
-                        const q = waSelectedQty[p.id] || 0;
-                        const pr =
-                          p.promo_price && p.promo_price < p.price ? p.promo_price : p.price;
-                        return (
-                          <div
-                            key={p.id}
-                            className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-xs bg-card hover:bg-secondary/30"
-                          >
-                            <div className="min-w-0 flex-1">
-                              <p className="font-bold text-foreground truncate">{p.name}</p>
-                              <p className="text-[11px] text-primary font-semibold">
-                                {formatRupiah(pr)}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-1.5 shrink-0">
-                              {q > 0 && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setWaSelectedQty((prev) => ({
-                                        ...prev,
-                                        [p.id]: Math.max(0, (prev[p.id] || 0) - 1),
-                                      }))
-                                    }
-                                    className="flex h-6 w-6 items-center justify-center rounded border border-border bg-background cursor-pointer"
-                                  >
-                                    <Minus className="size-3" />
-                                  </button>
-                                  <span className="w-5 text-center font-black">{q}</span>
-                                </>
-                              )}
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  playPosSound("tap");
-                                  setWaSelectedQty((prev) => ({
-                                    ...prev,
-                                    [p.id]: (prev[p.id] || 0) + 1,
-                                  }));
-                                }}
-                                className="flex h-6 px-2 items-center justify-center rounded bg-primary text-primary-foreground font-bold text-[11px] cursor-pointer active:scale-95"
-                              >
-                                + Tambah
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                  </div>
-                </div>
-              </div>
-
-              <div className="shrink-0 pt-2 border-t border-border flex items-center justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsWaOrderModalOpen(false)}
-                  className="rounded-lg text-xs font-bold"
-                >
-                  Batal
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  onClick={handleConfirmWaOrderToCart}
-                  className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold gap-1.5"
-                >
-                  <ShoppingCart className="size-3.5" />
-                  <span>Masukkan ke Smart Cart</span>
                 </Button>
               </div>
             </div>
@@ -7991,14 +7747,14 @@ function PosPage({
                     className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-[11px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
                   >
                     <ArrowLeft className="size-3" />
-                    <span>Ubah Data</span>
+                    <span>{t("pos.edit_details", "Ubah Data")}</span>
                   </button>
                   <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                    Langkah 3 dari 3
+                    {t("pos.step3_badge", "Langkah 3 dari 3")}
                   </span>
                 </div>
                 <h3 className="text-base sm:text-lg font-black text-foreground mt-0.5">
-                  Pembayaran Pesanan
+                  {t("pos.payment_title", "Pembayaran Pesanan")}
                 </h3>
                 <p className="text-xs text-muted-foreground">
                   {totalCartItemCount} item • {activeChannelMeta.label} • {activeCustomerLabel}
@@ -8020,7 +7776,7 @@ function PosPage({
               <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                    Total Tagihan
+                    {t("cart.total_bill", "Total Tagihan")}
                   </span>
                   <span className="text-2xl sm:text-3xl font-black font-mono text-primary whitespace-nowrap">
                     {formatRupiah(total)}
@@ -8028,10 +7784,12 @@ function PosPage({
                 </div>
                 {(discountAmount > 0 || serviceChargeAmount > 0 || taxAmount > 0) && (
                   <div className="pt-2 border-t border-border/60 flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                    <span>Subtotal: {formatRupiah(subtotal)}</span>
+                    <span>
+                      {t("cart.subtotal", "Subtotal")}: {formatRupiah(subtotal)}
+                    </span>
                     {discountAmount > 0 && (
                       <span className="text-rose-600 dark:text-rose-400 font-semibold">
-                        Diskon: -{formatRupiah(discountAmount)}
+                        {t("cart.discount", "Diskon")}: -{formatRupiah(discountAmount)}
                       </span>
                     )}
                     {serviceChargeAmount > 0 && (
@@ -8059,13 +7817,13 @@ function PosPage({
                 </p>
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                   {[
-                    ["cash", "Tunai", DollarSign, paymentSettings.cashEnabled],
-                    ["qris", "QRIS", QrCode, paymentSettings.qrisEnabled],
-                    ["ewallet", "Transfer", WalletCards, paymentSettings.transferEnabled],
-                    ["card", "EDC", CreditCard, paymentSettings.cardEnabled],
+                    ["cash", "Tunai", DollarSign, paymentSettings.cashEnabled, t("pos.cash", "Tunai")],
+                    ["qris", "QRIS", QrCode, paymentSettings.qrisEnabled, "QRIS"],
+                    ["ewallet", "Transfer", WalletCards, paymentSettings.transferEnabled, t("pos.transfer", "Transfer")],
+                    ["card", "EDC", CreditCard, paymentSettings.cardEnabled, "EDC"],
                   ]
                     .filter((item) => item[3] !== false)
-                    .map(([key, label, Icon]: any) => (
+                    .map(([key, label, Icon, , displayLabel]: any) => (
                       <Button
                         key={String(key)}
                         type="button"
@@ -8080,7 +7838,7 @@ function PosPage({
                         }}
                       >
                         <Icon className="size-4 shrink-0" />
-                        <span>{String(label)}</span>
+                        <span>{String(displayLabel || label)}</span>
                       </Button>
                     ))}
                 </div>
@@ -8121,7 +7879,7 @@ function PosPage({
                         className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-rose-500 cursor-pointer"
                         title="Reset ke Uang Pas"
                       >
-                        Pas
+                        {t("pos.exact_short", "Pas")}
                       </button>
                     )}
                   </div>
@@ -8129,7 +7887,7 @@ function PosPage({
                   {/* Tombol Preset Cepat */}
                   <div className="grid grid-cols-4 gap-1.5">
                     {[
-                      { label: "Uang Pas", val: total },
+                      { label: t("pos.exact_cash", "Uang Pas"), val: total },
                       { label: "20.000", val: 20000 },
                       { label: "50.000", val: 50000 },
                       { label: "100.000", val: 100000 },
@@ -8222,7 +7980,7 @@ function PosPage({
                     {cashTendered > 0 && cashTendered < total ? (
                       <>
                         <span className="text-sm font-bold text-rose-700 dark:text-rose-400">
-                          Kurang Bayar
+                          {t("pos.short_cash", "Kurang Bayar")}
                         </span>
                         <span className="text-xl font-black font-mono text-rose-600 dark:text-rose-400">
                           -{formatRupiah(total - cashTendered)}
@@ -8231,7 +7989,7 @@ function PosPage({
                     ) : (
                       <>
                         <span className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-                          Kembalian
+                          {t("pos.change", "Kembalian")}
                         </span>
                         <span className="text-xl font-black font-mono text-emerald-600 dark:text-emerald-400">
                           {formatRupiah(Math.max(0, (cashTendered || total) - total))}
@@ -8344,17 +8102,23 @@ function PosPage({
                 {isSubmittingCheckout ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    <span>Memproses...</span>
+                    <span>{t("pos.processing", "Memproses...")}</span>
                   </>
                 ) : paymentMethod === "qris" ? (
                   <>
                     <QrCode className="size-4 shrink-0" />
-                    <span>Tampilkan QRIS • {formatRupiah(total)}</span>
+                    <span>
+                      {t("pos.show_qris", "Tampilkan QRIS")} • {formatRupiah(total)}
+                    </span>
                   </>
                 ) : (
                   <>
                     <Printer className="size-4 shrink-0" />
-                    <span>Selesaikan &amp; Cetak Struk</span>
+                    {language === "en" ? (
+                      <span>{t("pos.complete_and_print", "Complete & Print Receipt")}</span>
+                    ) : (
+                      <span>Selesaikan &amp; Cetak Struk</span>
+                    )}
                   </>
                 )}
               </Button>
@@ -8714,7 +8478,7 @@ function PosPage({
                   className="flex-1 h-10 px-4 rounded-xl text-xs sm:text-sm font-bold shadow-brand gap-1.5 whitespace-nowrap active:scale-95 transition-transform duration-100"
                   onClick={handleConfirmAddToCart}
                 >
-                  <span>Tambah ke Keranjang</span>
+                  <span>{t("pos.add_to_cart", "Tambah ke Keranjang")}</span>
                   <span>•</span>
                   <span>{formatRupiah(calculatedItemTotal)}</span>
                 </Button>
@@ -11028,7 +10792,7 @@ function OrdersPage({
                   : "bg-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              Semua
+              {t("orders.period_all", "Semua")}
             </button>
             <button
               type="button"
@@ -11042,7 +10806,7 @@ function OrdersPage({
                   : "bg-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              Hari Ini
+              {t("orders.period_today", "Hari Ini")}
             </button>
             <button
               type="button"
@@ -11056,7 +10820,7 @@ function OrdersPage({
                   : "bg-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              7 Hari
+              {t("orders.period_7days", "7 Hari")}
             </button>
             <button
               type="button"
@@ -11070,7 +10834,7 @@ function OrdersPage({
                   : "bg-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              Bulan Ini
+              {t("orders.period_month", "Bulan Ini")}
             </button>
           </div>
 
@@ -11119,7 +10883,7 @@ function OrdersPage({
                 isPosOrders ? "text-base sm:text-lg" : "text-xl",
               )}
             >
-              {filteredOrders.length} Transaksi
+              {filteredOrders.length} {t("orders.transactions_unit", "Transaksi")}
             </p>
           )}
         </div>
@@ -11306,7 +11070,7 @@ function OrdersPage({
                         }}
                       >
                         <Send className="size-3.5" />
-                        Kirim Struk WA
+                        {t("pos.send_wa_receipt", "Kirim Struk WA")}
                       </Button>
                       <Button
                         type="button"
@@ -11334,7 +11098,7 @@ function OrdersPage({
                         }}
                       >
                         <FileText className="size-3.5" />
-                        Detail
+                        {t("orders.detail_btn", "Detail")}
                       </Button>
                     </div>
                   </div>
@@ -11847,10 +11611,12 @@ function ProfilePage({
   profile,
   snapshot,
   onRefresh,
+  onSignOut,
 }: {
   profile: UserProfile;
   snapshot: Snapshot;
   onRefresh?: () => Promise<void>;
+  onSignOut?: () => Promise<void>;
 }) {
   const activeOutletName =
     snapshot.outlets?.find((o) => o.id === snapshot.assignedOutletId)?.name ||
@@ -11865,60 +11631,56 @@ function ProfilePage({
         email={profile.email}
         role={snapshot.role || "owner"}
         outletName={activeOutletName}
+        onSignOut={onSignOut}
         extraAccountSlot={
-          <div className="space-y-5">
-            {/* Simulasi Role untuk Pengujian RBAC (Hanya tampil pada mode development) */}
-            {import.meta.env.DEV && (
-              <section className="rounded-2xl border border-border bg-card p-4 shadow-xs">
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                  Simulasi Role Pengguna (Audit & Validasi RBAC):
-                </p>
-                <div className="mt-2.5 flex flex-wrap gap-2.5">
-                  {[
-                    {
-                      id: "owner",
-                      label: "Owner HQ",
-                      desc: "Akses penuh seluruh cabang, menu & pengaturan",
-                    },
-                    {
-                      id: "manager",
-                      label: "Manager Outlet",
-                      desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
-                    },
-                    {
-                      id: "cashier",
-                      label: "Kasir POS",
-                      desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
-                    },
-                  ].map((r) => {
-                    const isActive = (snapshot.role || "owner").toLowerCase() === r.id;
-                    return (
-                      <button
-                        key={r.id}
-                        type="button"
-                        onClick={async () => {
-                          localStorage.setItem("kebabschoicepos_simulated_role", r.id);
-                          toast.success(`Role diubah menjadi ${r.label}`);
-                          if (onRefresh) await onRefresh();
-                        }}
-                        className={cn(
-                          "flex flex-col items-start rounded-2xl border p-3 text-left transition-all cursor-pointer",
-                          isActive
-                            ? "border-primary bg-primary text-primary-foreground font-bold shadow-brand ring-1 ring-primary"
-                            : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
-                        )}
-                      >
-                        <span className="text-xs font-black">{r.label}</span>
-                        <span className="text-xs opacity-80 mt-0.5">{r.desc}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              </section>
-            )}
-
-            <BusinessSettingsCard onRefresh={onRefresh} />
-          </div>
+          import.meta.env.DEV ? (
+            <section className="rounded-2xl border border-border bg-card p-4 shadow-xs">
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                Simulasi Role Pengguna (Audit & Validasi RBAC):
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-2.5">
+                {[
+                  {
+                    id: "owner",
+                    label: "Owner HQ",
+                    desc: "Akses penuh seluruh cabang, menu & pengaturan",
+                  },
+                  {
+                    id: "manager",
+                    label: "Manager Outlet",
+                    desc: "Akses data outlet & shift, dilarang ubah pengaturan bisnis",
+                  },
+                  {
+                    id: "cashier",
+                    label: "Kasir POS",
+                    desc: "Hanya modul POS kasir, dilarang masuk menu HQ",
+                  },
+                ].map((r) => {
+                  const isActive = (snapshot.role || "owner").toLowerCase() === r.id;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={async () => {
+                        localStorage.setItem("kebabschoicepos_simulated_role", r.id);
+                        toast.success(`Role diubah menjadi ${r.label}`);
+                        if (onRefresh) await onRefresh();
+                      }}
+                      className={cn(
+                        "flex flex-col items-start rounded-2xl border p-3 text-left transition-all cursor-pointer",
+                        isActive
+                          ? "border-primary bg-primary text-primary-foreground font-bold shadow-brand ring-1 ring-primary"
+                          : "border-border bg-secondary/50 text-foreground hover:bg-secondary",
+                      )}
+                    >
+                      <span className="text-xs font-black">{r.label}</span>
+                      <span className="text-xs opacity-80 mt-0.5">{r.desc}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </section>
+          ) : undefined
         }
       />
     </div>
@@ -12701,12 +12463,15 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
 
   // Language reactivity: re-render components on language change immediately
   useEffect(() => {
+    // Language reactivity: re-render components on language change immediately
     const handleLangChange = () => {
       setLangTick((prev) => prev + 1);
     };
+    window.addEventListener("language:changed", handleLangChange);
     window.addEventListener("languagechange", handleLangChange);
     i18n.on("languageChanged", handleLangChange);
     return () => {
+      window.removeEventListener("language:changed", handleLangChange);
       window.removeEventListener("languagechange", handleLangChange);
       i18n.off("languageChanged", handleLangChange);
     };
@@ -13013,7 +12778,14 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       return <PosInventoryPage />;
     }
     if (page === "pos-profile") {
-      return <PosProfilePage />;
+      return (
+        <PosProfilePage
+          displayName={profile.displayName}
+          email={profile.email}
+          role={snapshot.role}
+          onSignOut={handleSignOut}
+        />
+      );
     }
     if (page === "pos-attendance-in") {
       return (
@@ -13100,7 +12872,14 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       return <LanguageSettingsPage />;
     }
     if (page === "profile") {
-      return <ProfilePage profile={profile} snapshot={snapshot} onRefresh={refresh} />;
+      return (
+        <ProfilePage
+          profile={profile}
+          snapshot={snapshot}
+          onRefresh={refresh}
+          onSignOut={handleSignOut}
+        />
+      );
     }
     if (page === "staff") {
       return <StaffManagement snapshot={snapshot} />;

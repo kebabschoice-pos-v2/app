@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
-import { useTranslation } from "react-i18next";
+import { useTranslation } from "@/lib/i18n";
 import {
   Wallet,
   Clock,
@@ -1179,10 +1179,10 @@ export function PosShiftCashPage() {
           </div>
           <div className="min-w-0">
             <h1 className="text-base sm:text-lg font-black tracking-tight text-foreground truncate">
-              Shift & Kas Laci Kasir
+              {t("shift.page_title", "Shift & Kas Laci Kasir")}
             </h1>
             <p className="text-xs text-muted-foreground truncate">
-              Cabang: <strong className="text-foreground">{outletName}</strong> · Buka shift, mutasi kas, & rekonsiliasi.
+              {t("shift.branch_label", "Cabang")}: <strong className="text-foreground">{outletName}</strong> · {t("shift.page_sub", "Buka shift, mutasi kas, & rekonsiliasi.")}
             </p>
           </div>
         </div>
@@ -1193,14 +1193,14 @@ export function PosShiftCashPage() {
               variant="outline"
               className="bg-success-soft text-success border-success/30 px-2.5 py-1 text-xs font-bold"
             >
-              Shift Aktif: {activeShift.cashierName}
+              {t("shift.active_badge", "Shift Aktif")}: {activeShift.cashierName}
             </Badge>
           ) : (
             <Badge
               variant="outline"
               className="bg-destructive/10 text-destructive border-destructive/30 px-2.5 py-1 text-xs font-bold"
             >
-              Shift Tutup
+              {t("shift.closed_badge", "Shift Tutup")}
             </Badge>
           )}
         </div>
@@ -1218,10 +1218,10 @@ export function PosShiftCashPage() {
                 </div>
                 <div>
                   <h2 className="text-base font-black text-foreground leading-tight">
-                    Buka Shift Kasir Baru
+                    {t("shift.open_new_title", "Buka Shift Kasir Baru")}
                   </h2>
                   <p className="text-xs text-muted-foreground">
-                    Pilih kasir, kru pendamping, & modal awal laci kas.
+                    {t("shift.open_new_desc", "Pilih kasir, kru pendamping, & modal awal laci kas.")}
                   </p>
                 </div>
               </div>
@@ -1230,7 +1230,9 @@ export function PosShiftCashPage() {
             {/* Baris Outlet Aktif (Locked ReadOnly) & Nama Kasir */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div>
-                <Label className="text-xs font-bold text-foreground">Outlet Aktif</Label>
+                <Label className="text-xs font-bold text-foreground">
+                  {t("shift.active_outlet", "Outlet Aktif")}
+                </Label>
                 <div className="relative mt-1">
                   <Store className="absolute left-3 top-2.5 size-3.5 text-muted-foreground" />
                   <Input
@@ -1244,7 +1246,9 @@ export function PosShiftCashPage() {
               </div>
 
               <div>
-                <Label className="text-xs font-bold text-foreground">Nama Kasir Bertugas *</Label>
+                <Label className="text-xs font-bold text-foreground">
+                  {t("shift.cashier_on_duty", "Nama Kasir Bertugas *")}
+                </Label>
                 <div className="relative mt-1">
                   <User className="absolute left-3 top-2.5 size-3.5 text-muted-foreground" />
                   <Input
@@ -1368,7 +1372,7 @@ export function PosShiftCashPage() {
                 >
                   <span className="flex items-center gap-1.5">
                     <Calendar className="size-3.5 text-primary" />
-                    <span>Jadwal Tim Cabang Hari Ini</span>
+                    <span>{t("shift.schedule_today", "Jadwal Tim Cabang Hari Ini")}</span>
                   </span>
                   <ChevronDown
                     className={cn(
@@ -1462,7 +1466,7 @@ export function PosShiftCashPage() {
             {/* Modal Awal Cepat */}
             <div>
               <Label className="text-xs font-bold text-foreground">
-                Modal Awal Kasir (Uang Kembalian)
+                {t("shift.opening_float_label", "Modal Awal Kasir (Uang Kembalian)")}
               </Label>
               <div className="relative mt-1">
                 <span className="absolute left-3 top-2 text-xs font-bold text-muted-foreground">
@@ -1501,7 +1505,7 @@ export function PosShiftCashPage() {
               onClick={handleOpenShift}
               className="w-full h-11 rounded-xl font-black text-sm shadow-brand active:scale-95 transition-transform duration-100"
             >
-              Buka Shift Sekarang
+              {t("shift.open_shift_btn", "Buka Shift Sekarang")}
             </Button>
           </div>
         </div>
@@ -1512,7 +1516,7 @@ export function PosShiftCashPage() {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
               <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Modal Awal
+                {t("shift.opening_cash", "Modal Awal")}
               </span>
               <div className="text-lg xl:text-xl font-black text-foreground tabular-nums mt-0.5">
                 {formatRupiah(activeShift.startingCash)}
@@ -1530,7 +1534,7 @@ export function PosShiftCashPage() {
 
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
               <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Penjualan Tunai
+                {t("shift.cash_sales", "Penjualan Tunai")}
               </span>
               <div className="text-lg xl:text-xl font-black text-success tabular-nums mt-0.5">
                 +{formatRupiah(effectiveCashSales)}
@@ -1542,7 +1546,7 @@ export function PosShiftCashPage() {
 
             <div className="rounded-2xl border border-border bg-card p-3.5 shadow-xs">
               <span className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Kas Masuk/Keluar
+                {t("shift.cash_in_out", "Kas Masuk/Keluar")}
               </span>
               <div className="text-sm xl:text-base font-black text-foreground tabular-nums mt-1 flex flex-wrap items-center gap-1.5">
                 <span className="text-success">+{formatRupiah(totalCashIn)}</span>
@@ -1556,7 +1560,7 @@ export function PosShiftCashPage() {
 
             <div className="rounded-2xl border border-primary/30 bg-primary/5 p-3.5 shadow-xs">
               <span className="text-[11px] font-bold text-primary uppercase tracking-wider">
-                Ekspektasi Kas
+                {t("shift.expected_cash", "Ekspektasi Kas")}
               </span>
               <div className="text-lg xl:text-xl font-black text-primary tabular-nums mt-0.5">
                 {formatRupiah(expectedEndingCash)}
@@ -1572,7 +1576,7 @@ export function PosShiftCashPage() {
               <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
                 <h3 className="font-black text-sm text-foreground flex items-center gap-2">
                   <Calculator className="size-4 text-primary" />
-                  Aksi Kas Laci (+ Kas Masuk / - Kas Keluar)
+                  {t("shift.drawer_actions_title", "Aksi Kas Laci (+ Kas Masuk / - Kas Keluar)")}
                 </h3>
 
                 <form onSubmit={handleAddMovement} className="space-y-2.5">
@@ -1587,7 +1591,7 @@ export function PosShiftCashPage() {
                       }`}
                     >
                       <ArrowDownLeft className="size-3.5" />
-                      + Kas Masuk
+                      {t("shift.cash_in_btn", "+ Kas Masuk")}
                     </button>
                     <button
                       type="button"
@@ -1599,13 +1603,15 @@ export function PosShiftCashPage() {
                       }`}
                     >
                       <ArrowUpRight className="size-3.5" />
-                      - Kas Keluar
+                      {t("shift.cash_out_btn", "- Kas Keluar")}
                     </button>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
-                      <Label className="text-xs font-bold text-foreground">Nominal (Rp)</Label>
+                      <Label className="text-xs font-bold text-foreground">
+                        {t("shift.amount_label", "Nominal (Rp)")}
+                      </Label>
                       <Input
                         type="text"
                         inputMode="numeric"
@@ -1616,7 +1622,9 @@ export function PosShiftCashPage() {
                       />
                     </div>
                     <div>
-                      <Label className="text-xs font-bold text-foreground">Keterangan</Label>
+                      <Label className="text-xs font-bold text-foreground">
+                        {t("shift.notes_label", "Keterangan")}
+                      </Label>
                       <Input
                         value={movementNotes}
                         onChange={(e) => setMovementNotes(e.target.value)}
@@ -1630,7 +1638,7 @@ export function PosShiftCashPage() {
 
                   <Button type="submit" size="sm" className="w-full h-9 rounded-xl text-xs font-bold">
                     <Plus className="size-3.5 mr-1" />
-                    Simpan Mutasi Kas
+                    {t("shift.save_movement_btn", "Simpan Mutasi Kas")}
                   </Button>
                 </form>
 
@@ -1663,9 +1671,11 @@ export function PosShiftCashPage() {
               {/* Kartu Tutup Shift */}
               <div className="rounded-2xl border border-border bg-card p-4 shadow-xs flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <h4 className="font-black text-sm text-foreground">Tutup Shift & Rekonsiliasi</h4>
+                  <h4 className="font-black text-sm text-foreground">
+                    {t("shift.close_reconcile_title", "Tutup Shift & Rekonsiliasi")}
+                  </h4>
                   <p className="text-xs text-muted-foreground">
-                    Hitung uang fisik laci kasir saat pergantian shift.
+                    {t("shift.close_reconcile_desc", "Hitung uang fisik laci kasir saat pergantian shift.")}
                   </p>
                 </div>
                 <Button
@@ -1673,7 +1683,7 @@ export function PosShiftCashPage() {
                   onClick={() => setIsClosingModalOpen(true)}
                   className="h-10 rounded-xl font-bold px-4 text-xs shrink-0 shadow-xs active:scale-95 transition-transform duration-100"
                 >
-                  Tutup Shift
+                  {t("shift.close_shift", "Tutup Shift")}
                 </Button>
               </div>
             </div>
@@ -1683,10 +1693,10 @@ export function PosShiftCashPage() {
               <div className="flex items-center justify-between border-b border-border/70 pb-2">
                 <h3 className="font-black text-sm text-foreground flex items-center gap-2">
                   <FileSpreadsheet className="size-4 text-primary" />
-                  Riwayat Shift
+                  {t("shift.shift_history", "Riwayat Shift")}
                 </h3>
                 <span className="text-xs text-muted-foreground font-semibold">
-                  {shiftHistory.length} shift selesai
+                  {shiftHistory.length} {t("shift.shifts_completed", "shift selesai")}
                 </span>
               </div>
 

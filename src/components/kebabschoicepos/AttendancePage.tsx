@@ -46,6 +46,7 @@ import {
   verifyFaceMatch,
 } from "@/lib/face-biometrics";
 import { playPosSound } from "@/lib/pos-sound";
+import { useTranslation } from "@/lib/i18n";
 
 interface AttendancePageProps {
   initialTab?: "in" | "out" | "history" | "shifts";
@@ -60,6 +61,7 @@ export function AttendancePage({
   profile,
   onRefresh,
 }: AttendancePageProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<"in" | "out" | "history" | "shifts">(initialTab);
   const [staffList, setStaffList] = useState<StaffProfile[]>([]);
   const [shifts, setShifts] = useState<StaffShift[]>([]);
@@ -636,10 +638,12 @@ export function AttendancePage({
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 text-primary font-bold text-[11px] uppercase tracking-wider">
                 <Store className="size-3 shrink-0" />
-                <span className="truncate">{activeOutlet.name} · Biometrik Wajah Asli</span>
+                <span className="truncate">
+                  {activeOutlet.name} · {t("att.biometric_badge", "Biometrik Wajah Asli")}
+                </span>
               </div>
               <h1 className="text-base sm:text-lg font-black tracking-tight truncate">
-                Absensi & Jadwal Shift Karyawan
+                {t("att.page_title", "Absensi & Jadwal Shift Karyawan")}
               </h1>
             </div>
           </div>
@@ -656,7 +660,7 @@ export function AttendancePage({
               }`}
             >
               <Camera className="size-3.5" />
-              <span>Absensi Masuk</span>
+              <span>{t("att.tab_in", "Absensi Masuk")}</span>
             </button>
 
             <button
@@ -669,7 +673,7 @@ export function AttendancePage({
               }`}
             >
               <LogOut className="size-3.5" />
-              <span>Absensi Keluar</span>
+              <span>{t("att.tab_out", "Absensi Keluar")}</span>
             </button>
 
             <button
@@ -682,7 +686,7 @@ export function AttendancePage({
               }`}
             >
               <Clock className="size-3.5" />
-              <span>Riwayat</span>
+              <span>{t("att.tab_history", "Riwayat")}</span>
             </button>
 
             <button
@@ -695,7 +699,7 @@ export function AttendancePage({
               }`}
             >
               <Calendar className="size-3.5" />
-              <span>Jadwal Shift</span>
+              <span>{t("att.tab_shifts", "Jadwal Shift")}</span>
             </button>
           </div>
         </div>
@@ -712,12 +716,14 @@ export function AttendancePage({
               <div className="flex items-center gap-1.5">
                 <ShieldCheck className="size-4 text-primary shrink-0" />
                 <h3 className="font-bold text-xs sm:text-sm">
-                  {tab === "in" ? "Kamera Masuk Kerja" : "Kamera Pulang Shift"}
+                  {tab === "in"
+                    ? t("att.cam_in", "Kamera Masuk Kerja")
+                    : t("att.cam_out", "Kamera Pulang Shift")}
                 </h3>
               </div>
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                 <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                {faceModelsReady ? "128D Siap" : "Memuat AI..."}
+                {faceModelsReady ? t("att.ai_ready", "128D Siap") : t("att.ai_loading", "Memuat AI...")}
               </span>
             </div>
 
@@ -737,7 +743,7 @@ export function AttendancePage({
                     <Camera className="size-5" />
                   </div>
                   <p className="text-xs font-bold text-white/95 leading-snug">
-                    {cameraError || "Kamera Belum Aktif"}
+                    {cameraError || t("att.cam_inactive", "Kamera Belum Aktif")}
                   </p>
                   <Button
                     type="button"
@@ -746,7 +752,7 @@ export function AttendancePage({
                     className="h-7 rounded-lg text-xs font-bold gap-1 shadow-brand"
                   >
                     <Camera className="size-3.5" />
-                    Aktifkan Kamera
+                    {t("att.enable_cam", "Aktifkan Kamera")}
                   </Button>
                 </div>
               )}
@@ -774,14 +780,14 @@ export function AttendancePage({
             </div>
 
             <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
-              <span>Tanpa PIN · Verifikasi Biometrik</span>
+              <span>{t("att.no_pin_biometric", "Tanpa PIN · Verifikasi Biometrik")}</span>
               <button
                 type="button"
                 onClick={startCamera}
                 className="text-primary hover:underline font-bold flex items-center gap-1 cursor-pointer"
               >
                 <RefreshCw className="size-3" />
-                Refresh Kamera
+                {t("att.refresh_cam", "Refresh Kamera")}
               </button>
             </div>
           </div>
@@ -790,9 +796,11 @@ export function AttendancePage({
           <div className="md:col-span-7 rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
             <div className="flex items-center justify-between gap-2 border-b border-border/70 pb-2">
               <div>
-                <h3 className="font-bold text-sm">Pilih Karyawan & Verifikasi Wajah</h3>
+                <h3 className="font-bold text-sm">
+                  {t("att.select_staff_title", "Pilih Karyawan & Verifikasi Wajah")}
+                </h3>
                 <p className="text-[11px] text-muted-foreground">
-                  Cabang aktif: <strong>{activeOutlet.name}</strong> (Toleransi keterlambatan 15 menit)
+                  {t("att.active_branch", "Cabang aktif")}: <strong>{activeOutlet.name}</strong> ({t("att.grace_note", "Toleransi keterlambatan 15 menit")})
                 </p>
               </div>
               {selectedStaffDescriptor && canManageFaceReEnroll && !forceReEnrollMode && (
@@ -801,7 +809,7 @@ export function AttendancePage({
                   onClick={() => setForceReEnrollMode(true)}
                   className="rounded-lg border border-border bg-secondary/70 hover:bg-secondary px-2.5 py-1 text-[11px] font-bold text-foreground cursor-pointer shrink-0"
                 >
-                  Daftar Ulang Wajah
+                  {t("att.reenroll_btn", "Daftar Ulang Wajah")}
                 </button>
               )}
             </div>
@@ -891,14 +899,18 @@ export function AttendancePage({
                           : "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/30",
                       )}
                     >
-                      {selectedStaffDescriptor ? "Wajah Terdaftar" : "Wajah Belum Terdaftar"}
+                      {selectedStaffDescriptor
+                        ? t("att.face_registered", "Wajah Terdaftar")
+                        : t("att.face_unregistered", "Wajah Belum Terdaftar")}
                     </span>
                   </div>
 
                   {/* Ringkasan Kehadiran Hari Ini (Tanpa Data Gaji) */}
                   <div className="border-t border-border/60 pt-2 grid grid-cols-3 gap-2 text-xs">
                     <div>
-                      <span className="text-muted-foreground text-[11px] block">Jam Masuk:</span>
+                      <span className="text-muted-foreground text-[11px] block">
+                        {t("att.check_in_time", "Jam Masuk:")}
+                      </span>
                       <strong className="text-foreground">
                         {inTime
                           ? new Date(inTime).toLocaleTimeString("id-ID", {
@@ -909,7 +921,9 @@ export function AttendancePage({
                       </strong>
                     </div>
                     <div>
-                      <span className="text-muted-foreground text-[11px] block">Jam Keluar:</span>
+                      <span className="text-muted-foreground text-[11px] block">
+                        {t("att.check_out_time", "Jam Keluar:")}
+                      </span>
                       <strong className="text-foreground">
                         {outTime
                           ? new Date(outTime).toLocaleTimeString("id-ID", {
@@ -921,7 +935,7 @@ export function AttendancePage({
                     </div>
                     <div>
                       <span className="text-muted-foreground text-[11px] block">
-                        Status Kehadiran Hari Ini:
+                        {t("att.today_status", "Status Kehadiran Hari Ini:")}
                       </span>
                       <span
                         className={cn(
@@ -935,9 +949,9 @@ export function AttendancePage({
                       >
                         {todayInRecord
                           ? todayInRecord.status === "late"
-                            ? "Terlambat"
-                            : "Tepat Waktu"
-                          : "Belum Absen"}
+                            ? t("att.status_late", "Terlambat")
+                            : t("att.status_on_time", "Tepat Waktu")
+                          : t("att.status_not_yet", "Belum Absen")}
                       </span>
                     </div>
                   </div>
@@ -1026,8 +1040,8 @@ export function AttendancePage({
                     <Camera className="size-4" />
                     <span>
                       {tab === "in"
-                        ? `Verifikasi Wajah & Absen Masuk`
-                        : `Verifikasi Wajah & Absen Pulang`}
+                        ? t("att.verify_in_btn", "Verifikasi Wajah & Absen Masuk")
+                        : t("att.verify_out_btn", "Verifikasi Wajah & Absen Pulang")}
                     </span>
                   </>
                 )}

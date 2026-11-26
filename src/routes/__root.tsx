@@ -191,7 +191,7 @@ function RootComponent() {
     <QueryClientProvider client={queryClient}>
       <I18nextProvider i18n={i18n}>
         <Outlet />
-        <Toaster richColors position="bottom-right" offset={20} style={{ zIndex: 100 }} />
+        <Toaster richColors position="top-center" offset={16} style={{ zIndex: 100 }} />
       </I18nextProvider>
     </QueryClientProvider>
   );

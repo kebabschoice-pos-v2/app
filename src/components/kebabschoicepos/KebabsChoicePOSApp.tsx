@@ -5029,9 +5029,6 @@ function PosPage({
       };
       return [...current, newItem];
     });
-    toast.success(`${product.name} (+1) ditambahkan ke keranjang`, {
-      description: formatRupiah(effectivePrice),
-    });
   };
 
   const isVariantGroupRequired = (
@@ -5209,9 +5206,6 @@ function PosPage({
     playPosSound("tap");
     setCart((current) => [...current, newItem]);
     setCustomizingProduct(null);
-    toast.success(`${customizingProduct.name} ditambahkan ke keranjang`, {
-      description: `${newItem.variant_name ? newItem.variant_name + " • " : ""}${formatRupiah(calculatedItemTotal)}`,
-    });
   };
 
   // Barcode Scanner Handler (Tahap 2B - Keyboard Wedge Mode)
@@ -7273,29 +7267,41 @@ function PosPage({
               const itemKey = item.cart_item_id || item.id;
               const unitPrice = item.unit_price || item.price;
               const optionTokens: string[] = [];
-              if (item.variant_name || item.selected_variant?.name) {
-                optionTokens.push(String(item.variant_name || item.selected_variant?.name));
-              }
-              if (item.selected_variant_groups && item.selected_variant_groups.length > 0) {
-                item.selected_variant_groups.forEach((vg) => {
-                  vg.options.forEach((o) => {
-                    if (!optionTokens.includes(o.name)) {
-                      optionTokens.push(o.name);
+              const seenOptionTokens = new Set<string>();
+              const pushUniqueOptionToken = (raw?: string | null) => {
+                if (!raw) return;
+                String(raw)
+                  .split(/[•·]/)
+                  .map((part) => part.trim())
+                  .filter(Boolean)
+                  .forEach((part) => {
+                    const key = part.toLowerCase();
+                    if (!seenOptionTokens.has(key)) {
+                      seenOptionTokens.add(key);
+                      optionTokens.push(part);
                     }
                   });
+              };
+
+              if (item.selected_variant_groups && item.selected_variant_groups.length > 0) {
+                item.selected_variant_groups.forEach((vg) => {
+                  vg.options.forEach((o) => pushUniqueOptionToken(o.name));
                 });
-              } else if (item.selected_modifiers && item.selected_modifiers.length > 0) {
-                optionTokens.push(...item.selected_modifiers);
+              } else if (item.variant_name || item.selected_variant?.name) {
+                pushUniqueOptionToken(String(item.variant_name || item.selected_variant?.name));
+              }
+              if (item.selected_modifiers && item.selected_modifiers.length > 0) {
+                item.selected_modifiers.forEach((mod) => pushUniqueOptionToken(mod));
               }
               if (item.selected_addons && item.selected_addons.length > 0) {
-                optionTokens.push(...item.selected_addons.map((a) => `+${a.name}`));
+                item.selected_addons.forEach((a) => pushUniqueOptionToken(`+${a.name}`));
               }
               if (item.notes) {
                 optionTokens.push(`"${item.notes}"`);
               }
               const summaryLine =
                 optionTokens.length > 0
-                  ? optionTokens.join(" · ")
+                  ? optionTokens.join(" • ")
                   : `${formatRupiah(unitPrice)} × ${item.quantity}`;
 
               return (
@@ -7531,16 +7537,11 @@ function PosPage({
         createPortal(
           <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
             <div className="relative z-[9999] flex max-h-[94dvh] w-full max-w-md flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 p-4 shadow-2xl space-y-3.5 overflow-y-auto">
-              {/* Header Langkah 2 */}
+              {/* Header Data Pesanan & Pelanggan */}
               <div className="flex items-center justify-between border-b border-border pb-2.5">
-                <div>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                    {t("pos.step2_badge", "Langkah 2 dari 3")}
-                  </span>
-                  <h3 className="text-base font-black text-foreground">
-                    {t("pos.step2_title", "Data Pesanan & Pelanggan")}
-                  </h3>
-                </div>
+                <h3 className="text-base font-black text-foreground">
+                  {t("pos.step2_title", "Data Pesanan & Pelanggan")}
+                </h3>
                 <button
                   type="button"
                   onClick={() => setIsCustomerStepModalOpen(false)}
@@ -7776,7 +7777,7 @@ function PosPage({
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
           <div className="relative z-[9999] flex max-h-[94dvh] w-full max-w-lg flex-col rounded-2xl border border-border bg-white dark:bg-slate-900 shadow-2xl overflow-hidden">
             {/* Header Modal Pembayaran */}
-            <div className="flex items-center justify-between border-b border-border px-5 py-3.5 bg-muted/25">
+            <div className="flex items-center justify-between border-b border-border px-4 py-3 bg-muted/25">
               <div>
                 <div className="flex items-center gap-2">
                   <button
@@ -7790,9 +7791,6 @@ function PosPage({
                     <ArrowLeft className="size-3" />
                     <span>{t("pos.edit_details", "Ubah Data")}</span>
                   </button>
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-primary">
-                    {t("pos.step3_badge", "Langkah 3 dari 3")}
-                  </span>
                 </div>
                 <h3 className="text-base sm:text-lg font-black text-foreground mt-0.5">
                   {t("pos.payment_title", "Pembayaran Pesanan")}
@@ -7812,7 +7810,7 @@ function PosPage({
             </div>
 
             {/* Body Modal Pembayaran */}
-            <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3">
               {/* Total Tagihan Besar */}
               <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 space-y-2">
                 <div className="flex items-center justify-between gap-3">
@@ -7985,28 +7983,6 @@ function PosPage({
                     >
                       Reset
                     </Button>
-                  </div>
-
-                  {/* Numpad Angka Sentuh Besar (1-9, 000, 0, ⌫) */}
-                  <div className="grid grid-cols-3 gap-2 pt-1" aria-label="Numpad Tunai Kasir">
-                    {["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "backspace"].map(
-                      (key) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleNumpadPress(key)}
-                          aria-label={key === "backspace" ? "Hapus digit" : key}
-                          className={cn(
-                            "min-h-[48px] rounded-2xl border border-border text-lg font-black transition-all active:scale-95 cursor-pointer select-none flex items-center justify-center",
-                            key === "backspace"
-                              ? "bg-rose-500/10 text-rose-600 dark:text-rose-400 border-rose-500/20 hover:bg-rose-500/20"
-                              : "bg-secondary/60 text-foreground hover:bg-secondary",
-                          )}
-                        >
-                          {key === "backspace" ? <Delete className="w-5 h-5" /> : key}
-                        </button>
-                      ),
-                    )}
                   </div>
 
                   {/* Kembalian / Kurang Bayar Besar & Jelas */}

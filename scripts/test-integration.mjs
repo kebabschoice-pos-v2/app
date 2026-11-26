@@ -3437,17 +3437,17 @@ test("Enforces slim w-20 POS 1-click icon rail, unified top bar with search & gr
     "POS catalog must use soft gray canvas, circular brand-accent cart quantity badge on cards, and min-h-[40px] touch buttons",
   );
 
-  // 4. Compact 3-zone Smart Cart + pinned Bayar CTA + Dedicated Payment Modal with Touch Numpad (1-9, 000, 0, ⌫)
+  // 4. Compact 3-zone Smart Cart + pinned Bayar CTA + Dedicated 1-Screen Payment Modal (native numeric input + quick cash presets, no on-screen numpad)
   assert.ok(
     posAppCode.includes("activeCartPopover") &&
       posAppCode.includes("Tertahan ({heldOrders.length})") &&
       posAppCode.includes("min-h-[48px]") &&
       posAppCode.includes("Bayar • {formatRupiah(total)}") &&
       posAppCode.includes("isPaymentModalOpen && cart.length > 0") &&
-      posAppCode.includes('aria-label="Numpad Tunai Kasir"') &&
-      posAppCode.includes('["1", "2", "3", "4", "5", "6", "7", "8", "9", "000", "0", "backspace"]') &&
+      posAppCode.includes('aria-label="Nominal Uang Tunai Diterima"') &&
+      !posAppCode.includes('aria-label="Numpad Tunai Kasir"') &&
       posAppCode.includes("Selesaikan &amp; Cetak Struk"),
-    "POS cart must provide compact 3-zone controls, pinned Bayar button, and a dedicated Payment Modal with touch numpad and Selesaikan & Cetak Struk CTA",
+    "POS cart must provide compact 3-zone controls, pinned Bayar button, and a dedicated 1-screen Payment Modal with numeric cash input and Selesaikan & Cetak Struk CTA",
   );
 });
 
@@ -3830,7 +3830,7 @@ test("Enforces mandatory open shift before checkout, offline BOM/product/shift s
 
   // 5. Tablet touch ergonomics & solid portal Void/Refund authorization modal
   assert.ok(
-    posAppCode.includes('<Delete className="w-5 h-5" />') &&
+    posAppCode.includes('inputMode="numeric"') &&
       posAppCode.includes("min-h-[38px] min-w-[38px]") &&
       posAppCode.includes(
         'fixed inset-0 z-[9998] flex items-center justify-center bg-black/60',
@@ -3838,7 +3838,7 @@ test("Enforces mandatory open shift before checkout, offline BOM/product/shift s
       posAppCode.includes(
         'relative z-[9999] w-full max-w-md rounded-[2rem] border border-border bg-white dark:bg-slate-900',
       ),
-    "Numpad backspace must render <Delete className='w-5 h-5' />, Smart Cart & quick cash buttons must use min-h-[38px] min-w-[38px], and Void/Refund modal must render via createPortal with solid z-[9999] panel",
+    "Payment cash input must use inputMode='numeric', Smart Cart & quick cash buttons must use min-h-[38px] min-w-[38px], and Void/Refund modal must render via createPortal with solid z-[9999] panel",
   );
 });
 

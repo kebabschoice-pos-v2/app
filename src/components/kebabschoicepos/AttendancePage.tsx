@@ -28,6 +28,7 @@ import {
   getHRStaffProfiles,
   updateHRStaffProfile,
   getRosterSchedule,
+  getTodayOutletRoster,
   formatLocalDateWIB,
   type StaffAttendance,
   type StaffShift,
@@ -67,6 +68,11 @@ export function AttendancePage({
   const [shifts, setShifts] = useState<StaffShift[]>([]);
   const [attendances, setAttendances] = useState<StaffAttendance[]>([]);
   const [rosterSchedule, setRosterSchedule] = useState<MonthlyRosterSchedule | null>(null);
+  const [todayRoster, setTodayRoster] = useState<{
+    morningStaff: string[];
+    nightStaff: string[];
+    offOrLeaveStaff: { name: string; status: "OFF" | "SAKIT" | "IZIN"; note?: string }[];
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   const [resolvedOutletState, setResolvedOutletState] = useState<{ id: string; name: string } | null>(() => {
     if (typeof window !== "undefined") {
@@ -217,7 +223,7 @@ export function AttendancePage({
         }
       } catch {}
 
-      const [profiles, rawStaffList, shiftList, attList, roster] = await Promise.all([
+      const [profiles, rawStaffList, shiftList, attList, roster, rawTodayRoster] = await Promise.all([
         getHRStaffProfiles(snapshot?.businessId).catch(() => [] as StaffProfile[]),
         getStaffList().catch(() => [] as StaffItem[]),
         getStaffShifts(targetOutletId).catch(() => [] as StaffShift[]),
@@ -225,6 +231,7 @@ export function AttendancePage({
         getRosterSchedule(targetOutletId, now.getMonth() + 1, now.getFullYear()).catch(
           () => null,
         ),
+        getTodayOutletRoster(targetOutletId, now).catch(() => null),
       ]);
 
       // Unify HR profiles + getStaffList() + snapshot.outlets roster (strictly operational branch staff, excluding OWNER)
@@ -318,6 +325,31 @@ export function AttendancePage({
       setShifts(shiftList);
       setAttendances(attList);
       if (roster) setRosterSchedule(roster);
+      if (rawTodayRoster) {
+        const ownerNamesLower = new Set<string>(["iky", "owner", "owner hq"]);
+        for (const p of profiles) {
+          if (isOwnerAccount(p) && p.full_name) {
+            ownerNamesLower.add(p.full_name.trim().toLowerCase());
+          }
+        }
+        for (const st of rawStaffList) {
+          if (isOwnerAccount(st) && st.name) {
+            ownerNamesLower.add(st.name.trim().toLowerCase());
+          }
+        }
+        const isAllowedRosterName = (nm?: string | null) => {
+          const clean = String(nm || "").trim();
+          if (!clean || clean === "-") return false;
+          return !ownerNamesLower.has(clean.toLowerCase());
+        };
+        setTodayRoster({
+          morningStaff: (rawTodayRoster.morningStaff || []).filter(isAllowedRosterName),
+          nightStaff: (rawTodayRoster.nightStaff || []).filter(isAllowedRosterName),
+          offOrLeaveStaff: (rawTodayRoster.offOrLeaveStaff || []).filter((o) =>
+            isAllowedRosterName(o?.name),
+          ),
+        });
+      }
 
       // Preselect active cashier from shift or first available operational branch staff member (never Owner)
       if (mergedProfiles.length > 0) {
@@ -355,11 +387,26 @@ export function AttendancePage({
     loadData();
     const handleShiftsUpdate = () => {
       getStaffShifts(activeOutlet.id).then(setShifts).catch(() => {});
+      getTodayOutletRoster(activeOutlet.id)
+        .then((r) => {
+          if (!r) return;
+          const filterNonOwner = (nm?: string | null) => {
+            const c = String(nm || "").trim().toLowerCase();
+            return Boolean(c) && c !== "-" && c !== "iky" && c !== "owner" && !c.includes("owner hq");
+          };
+          setTodayRoster({
+            morningStaff: (r.morningStaff || []).filter(filterNonOwner),
+            nightStaff: (r.nightStaff || []).filter(filterNonOwner),
+            offOrLeaveStaff: (r.offOrLeaveStaff || []).filter((o) => filterNonOwner(o?.name)),
+          });
+        })
+        .catch(() => {});
     };
     const handleSync = () => {
       loadData();
     };
     window.addEventListener("hr:shifts-updated", handleShiftsUpdate);
+    window.addEventListener("hr:roster-updated", handleShiftsUpdate);
     window.addEventListener("app:snapshot-ready", handleSync);
     window.addEventListener("outlet:changed", handleSync);
     window.addEventListener("outlet:staff-updated", handleSync);
@@ -372,6 +419,7 @@ export function AttendancePage({
     });
     return () => {
       window.removeEventListener("hr:shifts-updated", handleShiftsUpdate);
+      window.removeEventListener("hr:roster-updated", handleShiftsUpdate);
       window.removeEventListener("app:snapshot-ready", handleSync);
       window.removeEventListener("outlet:changed", handleSync);
       window.removeEventListener("outlet:staff-updated", handleSync);
@@ -448,6 +496,42 @@ export function AttendancePage({
     () => staffList.find((s) => s.user_id === selectedStaffId) || null,
     [staffList, selectedStaffId],
   );
+
+  // Jam operasional Shift Pagi & Shift Malam dari master shift / roster cabang
+  const shiftHoursMeta = useMemo(() => {
+    const fmtRange = (start?: string, end?: string, fallback = "") => {
+      const s = String(start || "").slice(0, 5);
+      const e = String(end || "").slice(0, 5);
+      return s && e ? `${s}–${e}` : fallback;
+    };
+    const morningShift = shifts.find((sh) => /pagi|morning|shift\s*1/i.test(String(sh.shift_name || "")));
+    const nightShift = shifts.find((sh) => /malam|sore|siang|night|shift\s*2/i.test(String(sh.shift_name || "")));
+    return {
+      morningHours: fmtRange(morningShift?.start_time, morningShift?.end_time, "07:00–16:00"),
+      nightHours: fmtRange(nightShift?.start_time, nightShift?.end_time, "13:00–22:00"),
+    };
+  }, [shifts]);
+
+  // Helper badge shift hari ini untuk karyawan berdasarkan getTodayOutletRoster
+  const getStaffTodayShiftInfo = (staffName?: string | null): {
+    label: string;
+    tone: "pagi" | "malam" | "off";
+  } | null => {
+    if (!todayRoster || !staffName) return null;
+    const target = staffName.trim().toLowerCase();
+    if (!target) return null;
+    const offEntry = todayRoster.offOrLeaveStaff.find(
+      (o) => o.name.trim().toLowerCase() === target,
+    );
+    if (offEntry) {
+      return { label: offEntry.status || "OFF", tone: "off" };
+    }
+    const inMorning = todayRoster.morningStaff.some((n) => n.trim().toLowerCase() === target);
+    const inNight = todayRoster.nightStaff.some((n) => n.trim().toLowerCase() === target);
+    if (inMorning) return { label: "Pagi", tone: "pagi" };
+    if (inNight) return { label: "Malam", tone: "malam" };
+    return null;
+  };
 
   const selectedStaffDescriptor = useMemo(() => {
     if (!selectedStaffProfile) return null;
@@ -814,6 +898,76 @@ export function AttendancePage({
               )}
             </div>
 
+            {/* Ringkasan Kompak Jadwal Shift Hari Ini (Sumber HR getTodayOutletRoster) */}
+            <div className="rounded-xl border border-border/80 bg-muted/25 px-3 py-2 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-bold text-foreground">
+                  <Calendar className="size-3.5 text-primary shrink-0" />
+                  <span>{t("att.today_roster_title", "Jadwal Shift Hari Ini")}</span>
+                </span>
+                <span className="text-[11px] text-muted-foreground font-medium">
+                  {new Date().toLocaleDateString("id-ID", {
+                    weekday: "short",
+                    day: "2-digit",
+                    month: "short",
+                  })}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 text-xs">
+                <div className="rounded-lg border border-border/60 bg-card px-2.5 py-1.5 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-bold text-primary">
+                        Shift Pagi
+                      </span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        {shiftHoursMeta.morningHours}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs font-semibold text-foreground truncate">
+                      {todayRoster?.morningStaff && todayRoster.morningStaff.length > 0
+                        ? todayRoster.morningStaff.join(", ")
+                        : "Belum dijadwalkan"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="rounded-lg border border-border/60 bg-card px-2.5 py-1.5 flex items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="inline-block rounded bg-secondary px-1.5 py-0.5 text-[10px] font-bold text-foreground/85">
+                        Shift Malam
+                      </span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        {shiftHoursMeta.nightHours}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs font-semibold text-foreground truncate">
+                      {todayRoster?.nightStaff && todayRoster.nightStaff.length > 0
+                        ? todayRoster.nightStaff.join(", ")
+                        : "Belum dijadwalkan"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {todayRoster?.offOrLeaveStaff && todayRoster.offOrLeaveStaff.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-border/50 text-[11px]">
+                  <span className="font-bold text-muted-foreground">Libur / OFF:</span>
+                  {todayRoster.offOrLeaveStaff.map((offItem, idx) => (
+                    <span
+                      key={`${offItem.name}-${idx}`}
+                      className="inline-flex items-center rounded bg-rose-500/10 px-1.5 py-0.5 text-[10px] font-bold text-rose-700 dark:text-rose-300"
+                    >
+                      {offItem.name}
+                      {offItem.status && offItem.status !== "OFF" ? ` (${offItem.status})` : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {/* Quick Staff Selection Pills */}
             <div className="flex flex-wrap gap-1.5">
               {branchStaffProfiles.map((st) => {
@@ -821,6 +975,7 @@ export function AttendancePage({
                 const hasFace =
                   isValidFaceDescriptor(st.face_descriptor) ||
                   Boolean(getCachedFaceDescriptor(st.user_id, st.full_name));
+                const shiftBadge = getStaffTodayShiftInfo(st.full_name);
                 return (
                   <button
                     key={st.user_id}
@@ -847,6 +1002,22 @@ export function AttendancePage({
                       )}
                     />
                     <span>{st.full_name}</span>
+                    {shiftBadge && (
+                      <span
+                        className={cn(
+                          "rounded px-1.5 py-0.5 text-[10px] font-black leading-none",
+                          isSelected
+                            ? "bg-white/20 text-white"
+                            : shiftBadge.tone === "pagi"
+                              ? "bg-primary/10 text-primary"
+                              : shiftBadge.tone === "malam"
+                                ? "bg-muted text-foreground/80"
+                                : "bg-rose-500/15 text-rose-700 dark:text-rose-300",
+                        )}
+                      >
+                        {shiftBadge.label}
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -856,6 +1027,7 @@ export function AttendancePage({
             {(() => {
               const cur = selectedStaffProfile;
               if (!cur) return null;
+              const selectedShiftBadge = getStaffTodayShiftInfo(cur.full_name);
               const todayStr = formatLocalDateWIB();
               const todayInRecord = attendances.find(
                 (a) => a.user_id === selectedStaffId && a.type === "in" && a.date === todayStr,
@@ -882,9 +1054,25 @@ export function AttendancePage({
                         </div>
                       )}
                       <div className="min-w-0">
-                        <h4 className="font-bold text-sm text-foreground truncate">
-                          {cur.full_name}
-                        </h4>
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <h4 className="font-bold text-sm text-foreground truncate">
+                            {cur.full_name}
+                          </h4>
+                          {selectedShiftBadge && (
+                            <span
+                              className={cn(
+                                "inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-bold border leading-none",
+                                selectedShiftBadge.tone === "pagi"
+                                  ? "bg-primary/10 text-primary border-primary/25"
+                                  : selectedShiftBadge.tone === "malam"
+                                    ? "bg-secondary text-foreground/85 border-border"
+                                    : "bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30",
+                              )}
+                            >
+                              {selectedShiftBadge.label}
+                            </span>
+                          )}
+                        </div>
                         <p className="text-xs text-muted-foreground truncate">
                           {cur.job_title} · {cur.employment_status}
                         </p>

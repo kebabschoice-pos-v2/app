@@ -1,21 +1,31 @@
 import { supabase } from "@/integrations/supabase/client";
 import {
+  applyQrisConversionMode,
   computeCrc16Ccitt,
   convertStaticQrisToDynamic,
+  convertStaticQrisWithAmount,
   formatTLV,
+  isTemporaryDynamicQrisPayload,
+  normalizeQrisConversionMode,
   normalizeQrisPayload,
   validateQrisPayload,
+  type QrisConversionMode,
 } from "@/lib/qris-emv";
 
 // EMVCo helpers live in a dependency-free module (shared by POS UI + integration tests).
 export {
+  applyQrisConversionMode,
   computeCrc16Ccitt,
   convertStaticQrisToDynamic,
+  convertStaticQrisWithAmount,
   formatTLV,
+  isTemporaryDynamicQrisPayload,
+  normalizeQrisConversionMode,
   normalizeQrisPayload,
   validateQrisPayload,
   verifyQrisCrc,
   parseEmvTlv,
+  type QrisConversionMode,
 } from "@/lib/qris-emv";
 
 export interface QrisTransaction {
@@ -50,10 +60,12 @@ export interface QrisTransactionResponse {
   /** Tampilan gambar QRIS statis milik toko (jika diunggah Owner) */
   qr_image_url?: string;
   /**
-   * true = payload statis toko sudah dikonversi ke QRIS Dinamis EMVCo (tag 010212 + tag 54 nominal + CRC baru),
-   * sehingga nominal transaksi langsung terisi otomatis di aplikasi pembayaran pelanggan.
+   * true = payload statis toko sudah disisipi tag 54 nominal + CRC16 baru
+   * (`dynamic_010212` atau `static_with_amount`), sehingga nominal langsung terisi saat di-scan.
    */
   auto_amount?: boolean;
+  /** Mode konversi QRIS toko (`dynamic_010212` | `static_with_amount` | `static_raw`) */
+  conversion_mode?: QrisConversionMode;
 }
 
 /**
@@ -71,6 +83,7 @@ export interface StaticQrisSettings {
   payload: string;
   imageUrl: string;
   merchantName: string;
+  conversionMode: QrisConversionMode;
 }
 
 function isProductionRuntime(): boolean {
@@ -110,18 +123,33 @@ export function normalizeNmid(value: unknown): string | null {
 }
 
 /**
- * Merge the top-level `outlets.settings.qris_static_payload` (raw static QRIS text used for
- * automatic-amount dynamic QRIS) into the outlet's payment_settings object.
+ * Merge top-level `outlets.settings` QRIS fields (`qris_static_payload`, `qris_static_image_url`,
+ * `qris_conversion_mode`, `qris_mode`, `nmid`) into the outlet's payment_settings object.
  */
 function resolveOutletPaySettings(settings: any): any | null {
   if (!settings || typeof settings !== "object") return null;
-  const pay = settings.payment_settings && typeof settings.payment_settings === "object"
-    ? settings.payment_settings
-    : null;
+  const pay =
+    settings.payment_settings && typeof settings.payment_settings === "object"
+      ? settings.payment_settings
+      : null;
   const topLevelPayload = normalizeQrisPayload(settings.qris_static_payload);
-  if (!pay && !topLevelPayload) return null;
-  const merged = { ...(pay || {}) };
+  const topLevelImage = String(settings.qris_static_image_url || "").trim();
+  const topLevelConversionMode = settings.qris_conversion_mode;
+  const topLevelMode = settings.qris_mode;
+  const topLevelNmid = settings.nmid;
+
+  if (!pay && !topLevelPayload && !topLevelImage && !topLevelNmid && !topLevelConversionMode) {
+    return null;
+  }
+  const merged: Record<string, any> = { ...(pay || {}) };
   if (topLevelPayload && !merged.qrisStaticPayload) merged.qrisStaticPayload = topLevelPayload;
+  if (topLevelImage && !merged.qrisStaticImageUrl) merged.qrisStaticImageUrl = topLevelImage;
+  if (topLevelConversionMode) {
+    merged.qrisConversionMode = topLevelConversionMode;
+    merged.qris_conversion_mode = topLevelConversionMode;
+  }
+  if (topLevelMode && !merged.qrisMode) merged.qrisMode = topLevelMode;
+  if (topLevelNmid && !merged.qrisNmid) merged.qrisNmid = topLevelNmid;
   return merged;
 }
 
@@ -189,7 +217,6 @@ async function loadOutletPaymentSettings(
 
 export function extractStaticQris(cfg: any): StaticQrisSettings | null {
   if (!cfg) return null;
-  if (String(cfg.qrisMode || "").toLowerCase() === "dynamic") return null;
   if (cfg.qrisStaticEnabled === false) return null;
   const payload = normalizeQrisPayload(
     cfg.qrisStaticPayload ||
@@ -202,15 +229,22 @@ export function extractStaticQris(cfg: any): StaticQrisSettings | null {
     cfg.qrisStaticImageUrl ||
       cfg.staticQrisImageUrl ||
       cfg.static_qris_image_url ||
+      cfg.qris_static_image_url ||
       cfg.qrisImageUrl ||
       cfg.qris_image_url ||
       "",
   ).trim();
   if (!payload && !imageUrl) return null;
+  if (String(cfg.qrisMode || cfg.qris_mode || "").toLowerCase() === "nmid_only") return null;
+  const conversionMode = normalizeQrisConversionMode(
+    cfg.qris_conversion_mode || cfg.qrisConversionMode,
+    "static_with_amount",
+  );
   return {
     payload,
     imageUrl,
     merchantName: String(cfg.qrisMerchantName || cfg.merchantName || "").trim(),
+    conversionMode,
   };
 }
 
@@ -308,19 +342,25 @@ function persistFallbackTx(tx: QrisTransaction): void {
 }
 
 /**
- * Build the per-transaction QRIS payload from the store's static QRIS:
- * static payload (010211) -> dynamic payload (010212 + tag 54 nominal + CRC16-CCITT recalculated).
- * Returns "" when the static payload is missing/invalid so callers fall back to the static image.
+ * Build the per-transaction QRIS payload from the store's static QRIS according to `conversionMode`:
+ * - `dynamic_010212`: `010211` -> `010212` + tag `54` nominal + CRC16-CCITT recalculated
+ * - `static_with_amount`: keep `010211` + tag `54` nominal + CRC16-CCITT recalculated (ShopeePay safe)
+ * - `static_raw`: returns `""` so callers render the untouched static QR image / raw static payload
  */
-export function buildAutoAmountQrisPayload(staticPayload: string, amount: number): string {
+export function buildAutoAmountQrisPayload(
+  staticPayload: string,
+  amount: number,
+  conversionMode: QrisConversionMode = "dynamic_010212",
+): string {
+  if (conversionMode === "static_raw") return "";
   const clean = normalizeQrisPayload(staticPayload);
   if (!clean || !(Number(amount) > 0)) return "";
   const check = validateQrisPayload(clean);
   if (!check.ok) return "";
   try {
-    return convertStaticQrisToDynamic(clean, amount);
+    return applyQrisConversionMode(clean, amount, conversionMode);
   } catch (err) {
-    console.warn("[QRIS] Gagal konversi QRIS statis ke dinamis:", err);
+    console.warn("[QRIS] Gagal konversi QRIS nominal otomatis:", err);
     return "";
   }
 }
@@ -420,12 +460,39 @@ export async function generateDynamicQris(params: {
   const merchantName = configuredMerchantName || params.merchantName || "KEBABS CHOICE";
 
   // Official static QRIS of the store (uploaded/configured by the Owner for this outlet).
-  // When present it is shown as-is — no fabricated NMID, no generated payload.
+  // Respects outlets.settings.qris_conversion_mode (static_with_amount | static_raw | dynamic_010212).
   const staticQris = extractStaticQris(outletSettings) || extractStaticQris(localSettings);
   if (staticQris) {
-    // When the Owner saved the static QRIS text payload, convert it to an EMVCo dynamic QRIS
-    // (010212 + tag 54 nominal + recalculated CRC) so the amount is pre-filled on scan.
-    const autoAmountPayload = buildAutoAmountQrisPayload(staticQris.payload, params.amount);
+    const conversionMode = normalizeQrisConversionMode(
+      outletSettings?.qris_conversion_mode ??
+        outletSettings?.qrisConversionMode ??
+        localSettings?.qris_conversion_mode ??
+        localSettings?.qrisConversionMode ??
+        staticQris.conversionMode,
+      "static_with_amount",
+    );
+
+    if (conversionMode === "static_raw") {
+      return {
+        external_reference_id: `QRIS-STATIC-${timestamp}-${randomSuffix}`,
+        qris_payload: staticQris.payload,
+        amount: params.amount,
+        order_number: params.orderNumber,
+        status: "PENDING",
+        expires_at: expiresAt,
+        merchant_name: staticQris.merchantName || merchantName,
+        mode: "static",
+        conversion_mode: "static_raw",
+        auto_amount: false,
+        qr_image_url: staticQris.imageUrl || undefined,
+      };
+    }
+
+    const autoAmountPayload = buildAutoAmountQrisPayload(
+      staticQris.payload,
+      params.amount,
+      conversionMode,
+    );
     return {
       external_reference_id: `QRIS-STATIC-${timestamp}-${randomSuffix}`,
       qris_payload: autoAmountPayload || staticQris.payload,
@@ -435,6 +502,7 @@ export async function generateDynamicQris(params: {
       expires_at: expiresAt,
       merchant_name: staticQris.merchantName || merchantName,
       mode: "static",
+      conversion_mode: conversionMode,
       auto_amount: Boolean(autoAmountPayload),
       qr_image_url: autoAmountPayload ? undefined : staticQris.imageUrl || undefined,
     };

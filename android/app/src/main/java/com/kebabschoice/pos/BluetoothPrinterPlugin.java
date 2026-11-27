@@ -45,19 +45,20 @@ import java.util.concurrent.Executors;
  * Kompatibel dengan printer thermal kasir Bluetooth Classic 58mm/80mm:
  * Eppos, Panda, RPP02N, VSC, Blueprint, Iware, MTP-II, MTP-3, Xprinter, dll.
  */
-@CapacitorPlugin(
-    name = "BluetoothPrinter",
-    permissions = {
-        @Permission(
-            alias = "bluetoothAndroid12",
-            strings = {
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_SCAN
-            }
-        )
-    }
-)
+@CapacitorPlugin(name = "BluetoothPrinter", permissions = {
+    @Permission(
+        alias = "bluetoothAndroid12",
+        strings = {
+            Manifest.permission.BLUETOOTH_CONNECT,
+            Manifest.permission.BLUETOOTH_SCAN
+        }
+    )
+})
 public class BluetoothPrinterPlugin extends Plugin {
+
+    public BluetoothPrinterPlugin() {
+        super();
+    }
 
     /** Standard Serial Port Profile (SPP) UUID */
     public static final UUID SPP_UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB");

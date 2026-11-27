@@ -11,6 +11,33 @@ export interface EmvTlv {
 }
 
 /**
+ * Store QRIS generation / conversion mode:
+ * - `dynamic_010212`: Convert static `010211` -> dynamic `010212` + tag `54` amount + new CRC16
+ * - `static_with_amount`: Keep static `010211` + inject tag `54` amount + new CRC16 (ShopeePay compatible)
+ * - `static_raw`: Original static QRIS image / payload untouched (100% compatible across all e-wallets & banks)
+ */
+export type QrisConversionMode = "dynamic_010212" | "static_with_amount" | "static_raw";
+
+export function normalizeQrisConversionMode(
+  value: unknown,
+  fallback: QrisConversionMode = "static_with_amount",
+): QrisConversionMode {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "dynamic_010212" || raw === "static_with_amount" || raw === "static_raw") {
+    return raw;
+  }
+  return fallback;
+}
+
+/**
+ * True when a merchant pasted/decoded a temporary single-order Dynamic QR (`000201010212...`)
+ * generated from a merchant app (typically expires within ~20 minutes).
+ */
+export function isTemporaryDynamicQrisPayload(raw: string | null | undefined): boolean {
+  return normalizeQrisPayload(raw).startsWith("000201010212");
+}
+
+/**
  * CRC16-CCITT (False) checksum required by EMVCo / QRIS.
  * Polynomial 0x1021, initial value 0xFFFF, no reflection, no final XOR.
  * Returns 4 uppercase hex characters.
@@ -133,7 +160,11 @@ export function validateQrisPayload(raw: string | null | undefined): QrisPayload
  *
  * Example: Rp 9.000 -> `...54049000` + `5802ID...6304XXXX`
  */
-export function convertStaticQrisToDynamic(staticPayload: string, amount: number): string {
+function rebuildQrisWithAmount(
+  staticPayload: string,
+  amount: number,
+  targetPoi: "11" | "12",
+): string {
   const payload = normalizeQrisPayload(staticPayload);
   const rounded = Math.round(Number(amount) || 0);
   if (!payload) throw new Error("Payload QRIS statis kosong.");
@@ -159,10 +190,10 @@ export function convertStaticQrisToDynamic(staticPayload: string, amount: number
       if (el.tag === "00") {
         rebuilt.push(formatTLV(el.tag, el.value));
         if (!hasPoiTag) {
-          rebuilt.push(formatTLV("01", "12"));
+          rebuilt.push(formatTLV("01", targetPoi));
         }
       } else if (el.tag === "01") {
-        rebuilt.push(formatTLV("01", "12"));
+        rebuilt.push(formatTLV("01", targetPoi));
       } else {
         rebuilt.push(formatTLV(el.tag, el.value));
       }
@@ -174,7 +205,11 @@ export function convertStaticQrisToDynamic(staticPayload: string, amount: number
 
   // Fallback string path for slightly malformed payloads
   let body = payload.replace(/6304[0-9A-Fa-f]{4}$/, "");
-  body = body.replace("010211", "010212");
+  if (targetPoi === "12") {
+    body = body.replace("010211", "010212");
+  } else {
+    body = body.replace("010212", "010211");
+  }
   body = body.replace(/54(\d{2})(\d+?)(?=5802ID)/, (match, lenStr: string, digits: string) =>
     digits.length === Number(lenStr) ? "" : match,
   );
@@ -182,4 +217,37 @@ export function convertStaticQrisToDynamic(staticPayload: string, amount: number
   if (countryIdx < 0) throw new Error("Tag 5802ID tidak ditemukan pada payload QRIS statis.");
   body = `${body.slice(0, countryIdx)}${amountTlv}${body.slice(countryIdx)}6304`;
   return `${body}${computeCrc16Ccitt(body)}`;
+}
+
+export function convertStaticQrisToDynamic(staticPayload: string, amount: number): string {
+  return rebuildQrisWithAmount(staticPayload, amount, "12");
+}
+
+/**
+ * ShopeePay-compatible static QRIS with amount (`static_with_amount`):
+ * Keeps Point of Initiation Method `010211` (Static) so acquirer servers never reject it as
+ * an expired dynamic order, while injecting tag `54` (transaction amount) before `5802ID`
+ * and recalculating `6304` CRC16-CCITT.
+ */
+export function convertStaticQrisWithAmount(staticPayload: string, amount: number): string {
+  return rebuildQrisWithAmount(staticPayload, amount, "11");
+}
+
+/**
+ * Apply the configured store QRIS conversion mode (`dynamic_010212`, `static_with_amount`, or `static_raw`).
+ */
+export function applyQrisConversionMode(
+  staticPayload: string,
+  amount: number,
+  mode: QrisConversionMode,
+): string {
+  const clean = normalizeQrisPayload(staticPayload);
+  if (!clean) return "";
+  if (mode === "static_raw") {
+    return clean;
+  }
+  if (mode === "static_with_amount") {
+    return convertStaticQrisWithAmount(clean, amount);
+  }
+  return convertStaticQrisToDynamic(clean, amount);
 }

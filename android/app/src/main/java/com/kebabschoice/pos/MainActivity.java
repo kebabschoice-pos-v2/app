@@ -36,7 +36,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
-        // Plugin native custom harus didaftarkan sebelum super.onCreate()
+        // WAJIB di Capacitor Android: semua registerPlugin(...) harus dipanggil SEBELUM super.onCreate(savedInstanceState)
         registerPlugin(WhatsAppLauncherPlugin.class);
         registerPlugin(BluetoothPrinterPlugin.class);
 

@@ -89,19 +89,45 @@ export function isNativeCapacitorPlatform(): boolean {
   return Boolean((window as any).Capacitor?.isNativePlatform?.());
 }
 
-const RegisteredBluetoothPrinter =
-  registerPlugin<BluetoothPrinterPluginInterface>("BluetoothPrinter");
+let cachedRegisteredBluetoothPrinter: BluetoothPrinterPluginInterface | null = null;
 
 export function getNativeBluetoothPrinterPlugin(): BluetoothPrinterPluginInterface {
   if (typeof window !== "undefined") {
-    const directPlugin = (window as any).Capacitor?.Plugins?.BluetoothPrinter as
+    const cap = (window as any).Capacitor;
+    const directPlugin = cap?.Plugins?.BluetoothPrinter as
       | BluetoothPrinterPluginInterface
       | undefined;
-    if (directPlugin) {
+    if (
+      directPlugin &&
+      typeof directPlugin.ensureBluetoothEnabled === "function" &&
+      typeof directPlugin.listPairedPrinters === "function" &&
+      typeof directPlugin.printBase64 === "function"
+    ) {
       return directPlugin;
     }
+
+    // Jika jembatan native Capacitor menyediakan nativePromise + PluginHeaders, panggil langsung
+    if (
+      typeof cap?.nativePromise === "function" &&
+      Array.isArray(cap?.PluginHeaders) &&
+      cap.PluginHeaders.some((h: any) => h?.name === "BluetoothPrinter")
+    ) {
+      return {
+        ensureBluetoothEnabled: () =>
+          cap.nativePromise("BluetoothPrinter", "ensureBluetoothEnabled", {}),
+        listPairedPrinters: () =>
+          cap.nativePromise("BluetoothPrinter", "listPairedPrinters", {}),
+        printBase64: (options: { address: string; base64: string }) =>
+          cap.nativePromise("BluetoothPrinter", "printBase64", options),
+      };
+    }
   }
-  return RegisteredBluetoothPrinter;
+
+  if (!cachedRegisteredBluetoothPrinter) {
+    cachedRegisteredBluetoothPrinter =
+      registerPlugin<BluetoothPrinterPluginInterface>("BluetoothPrinter");
+  }
+  return cachedRegisteredBluetoothPrinter;
 }
 
 export const NATIVE_BT_PRINTER_STORAGE_KEY = "kebabschoicepos_native_bt_printer";
@@ -274,9 +300,19 @@ export async function discoverPairedBluetoothPrinters(): Promise<PairedBluetooth
     return [];
   }
   const BluetoothPrinter = getNativeBluetoothPrinterPlugin();
-  await BluetoothPrinter.ensureBluetoothEnabled();
-  const result = await BluetoothPrinter.listPairedPrinters();
-  return Array.isArray(result?.devices) ? result.devices : [];
+  try {
+    await BluetoothPrinter.ensureBluetoothEnabled();
+    const result = await BluetoothPrinter.listPairedPrinters();
+    return Array.isArray(result?.devices) ? result.devices : [];
+  } catch (err: any) {
+    const msg = String(err?.message || err || "");
+    if (/not implemented on android/i.test(msg)) {
+      throw new Error(
+        "APK di tablet ini masih versi lama (belum memuat plugin BluetoothPrinter). Unduh & install ulang file APK terbaru dari GitHub Actions.",
+      );
+    }
+    throw err;
+  }
 }
 
 /**

@@ -166,6 +166,8 @@ import {
   logStaticQrisConfirmation,
   subscribeQrisStatus,
   normalizeNmid,
+  normalizeQrisConversionMode,
+  type QrisConversionMode,
   type QrisTransactionResponse,
 } from "@/services/qris.service";
 import { normalizeOrderOutletId } from "@/lib/bom-analytics";
@@ -4457,6 +4459,7 @@ function PosPage({
     qrisStaticImageUrl: string;
     /** Raw static QRIS text (outlets.settings.qris_static_payload) -> dynamic QRIS with auto amount */
     qrisStaticPayload: string;
+    qrisConversionMode: QrisConversionMode;
   }>({
     cashEnabled: true,
     qrisEnabled: true,
@@ -4465,6 +4468,7 @@ function PosPage({
     qrisNmid: "",
     qrisStaticImageUrl: "",
     qrisStaticPayload: "",
+    qrisConversionMode: "static_with_amount",
   });
 
   useEffect(() => {
@@ -4479,7 +4483,8 @@ function PosPage({
           transferEnabled: parsed.transferEnabled ?? false,
           qrisNmid: normalizeNmid(parsed.qrisNmid ?? parsed.qris_nmid ?? parsed.nmid) || "",
           qrisStaticImageUrl: String(
-            parsed.qrisStaticImageUrl ||
+            parsed.qris_static_image_url ||
+              parsed.qrisStaticImageUrl ||
               parsed.staticQrisImageUrl ||
               parsed.static_qris_image_url ||
               parsed.qrisImageUrl ||
@@ -4487,7 +4492,11 @@ function PosPage({
               "",
           ).trim(),
           qrisStaticPayload: normalizeQrisPayload(
-            parsed.qrisStaticPayload || parsed.qris_static_payload || "",
+            parsed.qris_static_payload || parsed.qrisStaticPayload || "",
+          ),
+          qrisConversionMode: normalizeQrisConversionMode(
+            parsed.qris_conversion_mode || parsed.qrisConversionMode,
+            "static_with_amount",
           ),
         });
       }
@@ -4681,10 +4690,13 @@ function PosPage({
       : qrisModalData.qr_image_url || qrisGeneratedQrSrc
     : "";
 
-  // Static QRIS text payload configured by the Owner -> POS shows auto-amount dynamic QRIS
+  // Static QRIS text payload configured by the Owner -> POS shows auto-amount QRIS unless mode is static_raw
   const hasAutoAmountQris = useMemo(
-    () => Boolean(paymentSettings.qrisStaticPayload) && validateQrisPayload(paymentSettings.qrisStaticPayload).ok,
-    [paymentSettings.qrisStaticPayload],
+    () =>
+      paymentSettings.qrisConversionMode !== "static_raw" &&
+      Boolean(paymentSettings.qrisStaticPayload) &&
+      validateQrisPayload(paymentSettings.qrisStaticPayload).ok,
+    [paymentSettings.qrisConversionMode, paymentSettings.qrisStaticPayload],
   );
 
   // Customization Modal State
@@ -4922,7 +4934,9 @@ function PosPage({
             outletPay?.qrisNmid,
         ) || "";
       const nextStaticImg = String(
-        mergedPay.qrisStaticImageUrl ||
+        (activeOutlet?.settings as any)?.qris_static_image_url ||
+          mergedPay.qris_static_image_url ||
+          mergedPay.qrisStaticImageUrl ||
           mergedPay.staticQrisImageUrl ||
           mergedPay.static_qris_image_url ||
           mergedPay.qrisImageUrl ||
@@ -4931,14 +4945,24 @@ function PosPage({
           localPay?.staticQrisImageUrl ||
           outletPay?.qrisStaticImageUrl ||
           outletPay?.staticQrisImageUrl ||
+          (fallbackOutletWithPay?.settings as any)?.qris_static_image_url ||
           "",
       ).trim();
       const nextStaticPayload = normalizeQrisPayload(
-        mergedPay.qrisStaticPayload ||
+        (activeOutlet?.settings as any)?.qris_static_payload ||
           mergedPay.qris_static_payload ||
-          (activeOutlet?.settings as any)?.qris_static_payload ||
+          mergedPay.qrisStaticPayload ||
           (fallbackOutletWithPay?.settings as any)?.qris_static_payload ||
           "",
+      );
+      const nextConversionMode = normalizeQrisConversionMode(
+        (activeOutlet?.settings as any)?.qris_conversion_mode ||
+          mergedPay.qris_conversion_mode ||
+          mergedPay.qrisConversionMode ||
+          localPay?.qris_conversion_mode ||
+          localPay?.qrisConversionMode ||
+          (fallbackOutletWithPay?.settings as any)?.qris_conversion_mode,
+        "static_with_amount",
       );
 
       setPaymentSettings((prev) => {
@@ -4950,6 +4974,7 @@ function PosPage({
           qrisNmid: nextQrisNmid,
           qrisStaticImageUrl: nextStaticImg,
           qrisStaticPayload: nextStaticPayload,
+          qrisConversionMode: nextConversionMode,
         };
         if (
           prev.cashEnabled === next.cashEnabled &&
@@ -4958,7 +4983,8 @@ function PosPage({
           prev.transferEnabled === next.transferEnabled &&
           prev.qrisNmid === next.qrisNmid &&
           prev.qrisStaticImageUrl === next.qrisStaticImageUrl &&
-          prev.qrisStaticPayload === next.qrisStaticPayload
+          prev.qrisStaticPayload === next.qrisStaticPayload &&
+          prev.qrisConversionMode === next.qrisConversionMode
         ) {
           return prev;
         }
@@ -4969,11 +4995,13 @@ function PosPage({
     syncSettings();
     window.addEventListener("focus", syncSettings);
     window.addEventListener("storage", syncSettings);
+    window.addEventListener("payment:updated", syncSettings);
     window.addEventListener("tax:updated", syncSettings);
     window.addEventListener("outlet:changed", syncSettings);
     return () => {
       window.removeEventListener("focus", syncSettings);
       window.removeEventListener("storage", syncSettings);
+      window.removeEventListener("payment:updated", syncSettings);
       window.removeEventListener("tax:updated", syncSettings);
       window.removeEventListener("outlet:changed", syncSettings);
     };
@@ -8105,20 +8133,24 @@ function PosPage({
                         otomatis saat pelanggan scan. Kasir cukup 1-klik Konfirmasi Lunas setelah dana masuk.
                       </p>
                     </>
-                  ) : paymentSettings.qrisStaticImageUrl ? (
+                  ) : paymentSettings.qrisStaticImageUrl || paymentSettings.qrisStaticPayload ? (
                     <>
                       <p className="text-xs font-black uppercase tracking-wider text-primary">
                         QRIS Statis Resmi Toko • Tagihan {formatRupiah(total)}
                       </p>
-                      <div className="mx-auto size-52 overflow-hidden rounded-2xl border border-border bg-white p-2.5 shadow-xs flex items-center justify-center">
-                        <img
-                          src={paymentSettings.qrisStaticImageUrl}
-                          alt="QRIS Statis Resmi Toko"
-                          className="h-full w-full object-contain"
-                        />
-                      </div>
+                      {paymentSettings.qrisStaticImageUrl ? (
+                        <div className="mx-auto size-52 overflow-hidden rounded-2xl border border-border bg-white p-2.5 shadow-xs flex items-center justify-center">
+                          <img
+                            src={paymentSettings.qrisStaticImageUrl}
+                            alt="QRIS Statis Resmi Toko"
+                            className="h-full w-full object-contain"
+                          />
+                        </div>
+                      ) : (
+                        <QrCode className="mx-auto size-9 text-primary" />
+                      )}
                       <p className="text-xs text-muted-foreground">
-                        Pelanggan dapat memindai gambar QRIS Statis di atas sebesar{" "}
+                        Pelanggan memindai QRIS Statis murni toko sebesar{" "}
                         <strong className="text-foreground">{formatRupiah(total)}</strong>.
                       </p>
                     </>

@@ -4462,6 +4462,137 @@ await (async () => {
   }
 })();
 
+// --- TEST 119: MainActivity Bluetooth Registration Order, /payment Save Button & ShopeePay Anti-Expired QRIS Modes ---
+console.log("\n▶ 119. MAINACTIVITY REGISTERPLUGIN ORDER, /PAYMENT SAVE & SHOPEEPAY ANTI-EXPIRED QRIS MODES");
+
+test("MainActivity.java calls registerPlugin(WhatsAppLauncherPlugin) and registerPlugin(BluetoothPrinterPlugin) strictly BEFORE super.onCreate(savedInstanceState)", () => {
+  const mainJava = fs.readFileSync(
+    path.join(process.cwd(), "android/app/src/main/java/com/kebabschoice/pos/MainActivity.java"),
+    "utf8",
+  );
+  const btJava = fs.readFileSync(
+    path.join(process.cwd(), "android/app/src/main/java/com/kebabschoice/pos/BluetoothPrinterPlugin.java"),
+    "utf8",
+  );
+  const thermalTs = fs.readFileSync(
+    path.join(process.cwd(), "src/services/thermal-printer.service.ts"),
+    "utf8",
+  );
+
+  const idxWa = mainJava.indexOf("registerPlugin(WhatsAppLauncherPlugin.class);");
+  const idxBt = mainJava.indexOf("registerPlugin(BluetoothPrinterPlugin.class);");
+  const idxSuper = mainJava.indexOf("super.onCreate(savedInstanceState);");
+
+  assert.ok(idxWa > 0 && idxBt > 0 && idxSuper > 0, "MainActivity.java must contain both registerPlugin calls and super.onCreate");
+  assert.ok(
+    idxWa < idxSuper && idxBt < idxSuper,
+    "Both registerPlugin calls MUST appear strictly BEFORE super.onCreate(savedInstanceState)",
+  );
+  assert.ok(
+    btJava.includes('@CapacitorPlugin(name = "BluetoothPrinter"') &&
+      thermalTs.includes('"BluetoothPrinter"'),
+    "BluetoothPrinterPlugin @CapacitorPlugin name must match 'BluetoothPrinter' in thermal-printer.service.ts",
+  );
+});
+
+test("PaymentSettingsPage (/payment) enables Simpan Perubahan without NMID, persists qris_conversion_mode & static fields, and warns on 000201010212 payloads", () => {
+  const payCode = fs.readFileSync(
+    path.join(process.cwd(), "src/pages/settings/PaymentSettingsPage.tsx"),
+    "utf8",
+  );
+  const qrisSvcCode = fs.readFileSync(
+    path.join(process.cwd(), "src/services/qris.service.ts"),
+    "utf8",
+  );
+
+  assert.ok(
+    payCode.includes("Simpan Perubahan") &&
+      payCode.includes("disabled={isSaving}") &&
+      !payCode.includes("disabled={!qrisNmid") &&
+      payCode.includes("qris_static_image_url") &&
+      payCode.includes("qris_static_payload") &&
+      payCode.includes("qris_mode") &&
+      payCode.includes("qris_conversion_mode") &&
+      payCode.includes("nmid"),
+    "PaymentSettingsPage must keep Simpan Perubahan enabled when not saving (even with empty NMID) and save all QRIS fields to outlets.settings + localStorage",
+  );
+
+  assert.ok(
+    payCode.includes(
+      "QR ini adalah QR Dinamis sementara (kedaluwarsa dalam 20 menit). Gunakan QRIS Statis permanen (000201010211...).",
+    ),
+    "PaymentSettingsPage must display yellow warning when payload starts with 000201010212",
+  );
+
+  assert.ok(
+    payCode.includes('"dynamic_010212"') &&
+      payCode.includes('"static_with_amount"') &&
+      payCode.includes('"static_raw"') &&
+      qrisSvcCode.includes('"dynamic_010212"') &&
+      qrisSvcCode.includes('"static_with_amount"') &&
+      qrisSvcCode.includes('"static_raw"'),
+    "Both PaymentSettingsPage and qris.service.ts must support dynamic_010212, static_with_amount, and static_raw modes",
+  );
+});
+
+test("ShopeePay QRIS modes: dynamic_010212, static_with_amount (keeps 010211 + tag 54 + valid CRC16), and static_raw (untouched) all produce valid outputs", () => {
+  const {
+    applyQrisConversionMode,
+    computeCrc16Ccitt,
+    convertStaticQrisWithAmount,
+    formatTLV,
+    isTemporaryDynamicQrisPayload,
+    validateQrisPayload,
+    verifyQrisCrc,
+  } = qrisEmvMod;
+
+  const shopeeBody =
+    formatTLV("00", "01") +
+    formatTLV("01", "11") +
+    formatTLV(
+      "26",
+      formatTLV("00", "ID.CO.SHOPEE.WWW") +
+        formatTLV("01", "936009180021556677") +
+        formatTLV("02", "21556677") +
+        formatTLV("03", "UMI"),
+    ) +
+    formatTLV(
+      "51",
+      formatTLV("00", "ID.CO.QRIS.WWW") +
+        formatTLV("02", "ID1025998877665") +
+        formatTLV("03", "UMI"),
+    ) +
+    formatTLV("52", "5812") +
+    formatTLV("53", "360") +
+    formatTLV("58", "ID") +
+    formatTLV("59", "KEBABS CHOICE") +
+    formatTLV("60", "BOGOR") +
+    "6304";
+  const shopeeStatic = `${shopeeBody}${computeCrc16Ccitt(shopeeBody)}`;
+
+  assert.strictEqual(isTemporaryDynamicQrisPayload(shopeeStatic), false);
+
+  // 1. static_with_amount -> keeps 010211 (Static!), injects 540525000 before 5802ID, valid CRC16
+  const staticAmt = convertStaticQrisWithAmount(shopeeStatic, 25000);
+  assert.ok(staticAmt.startsWith("000201010211"), "static_with_amount must preserve 010211 static tag");
+  assert.ok(!staticAmt.includes("010212"), "static_with_amount must NOT switch to 010212");
+  assert.ok(staticAmt.includes("5405250005802ID"), "static_with_amount must insert 540525000 before 5802ID");
+  assert.ok(verifyQrisCrc(staticAmt), "static_with_amount CRC16 must be valid");
+  const staticAmtCheck = validateQrisPayload(staticAmt);
+  assert.ok(staticAmtCheck.ok && staticAmtCheck.isStatic && staticAmtCheck.crcValid);
+
+  // 2. dynamic_010212 -> switches to 010212 + 540525000 + valid CRC16
+  const dynAmt = applyQrisConversionMode(shopeeStatic, 25000, "dynamic_010212");
+  assert.ok(dynAmt.startsWith("000201010212"), "dynamic_010212 must switch to 010212");
+  assert.strictEqual(isTemporaryDynamicQrisPayload(dynAmt), true);
+  assert.ok(dynAmt.includes("5405250005802ID"));
+  assert.ok(verifyQrisCrc(dynAmt));
+
+  // 3. static_raw -> exact untouched static payload
+  const rawOut = applyQrisConversionMode(shopeeStatic, 25000, "static_raw");
+  assert.strictEqual(rawOut, shopeeStatic, "static_raw must keep original static payload 100% untouched");
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

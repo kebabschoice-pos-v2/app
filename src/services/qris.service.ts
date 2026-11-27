@@ -1,4 +1,22 @@
 import { supabase } from "@/integrations/supabase/client";
+import {
+  computeCrc16Ccitt,
+  convertStaticQrisToDynamic,
+  formatTLV,
+  normalizeQrisPayload,
+  validateQrisPayload,
+} from "@/lib/qris-emv";
+
+// EMVCo helpers live in a dependency-free module (shared by POS UI + integration tests).
+export {
+  computeCrc16Ccitt,
+  convertStaticQrisToDynamic,
+  formatTLV,
+  normalizeQrisPayload,
+  validateQrisPayload,
+  verifyQrisCrc,
+  parseEmvTlv,
+} from "@/lib/qris-emv";
 
 export interface QrisTransaction {
   id?: string;
@@ -31,6 +49,11 @@ export interface QrisTransactionResponse {
   mode?: "dynamic" | "static";
   /** Tampilan gambar QRIS statis milik toko (jika diunggah Owner) */
   qr_image_url?: string;
+  /**
+   * true = payload statis toko sudah dikonversi ke QRIS Dinamis EMVCo (tag 010212 + tag 54 nominal + CRC baru),
+   * sehingga nominal transaksi langsung terisi otomatis di aplikasi pembayaran pelanggan.
+   */
+  auto_amount?: boolean;
 }
 
 /**
@@ -86,6 +109,22 @@ export function normalizeNmid(value: unknown): string | null {
   return raw;
 }
 
+/**
+ * Merge the top-level `outlets.settings.qris_static_payload` (raw static QRIS text used for
+ * automatic-amount dynamic QRIS) into the outlet's payment_settings object.
+ */
+function resolveOutletPaySettings(settings: any): any | null {
+  if (!settings || typeof settings !== "object") return null;
+  const pay = settings.payment_settings && typeof settings.payment_settings === "object"
+    ? settings.payment_settings
+    : null;
+  const topLevelPayload = normalizeQrisPayload(settings.qris_static_payload);
+  if (!pay && !topLevelPayload) return null;
+  const merged = { ...(pay || {}) };
+  if (topLevelPayload && !merged.qrisStaticPayload) merged.qrisStaticPayload = topLevelPayload;
+  return merged;
+}
+
 async function loadOutletPaymentSettings(
   outletId?: string | null,
   businessId?: string | null,
@@ -96,7 +135,7 @@ async function loadOutletPaymentSettings(
         .select("settings")
         .eq("id", outletId)
         .maybeSingle();
-      const directPay = (data?.settings as any)?.payment_settings;
+      const directPay = resolveOutletPaySettings(data?.settings);
       if (
         directPay &&
         (directPay.qrisNmid ||
@@ -121,7 +160,7 @@ async function loadOutletPaymentSettings(
       if (Array.isArray(busOutlets)) {
         let firstFound: any = null;
         for (const out of busOutlets) {
-          const pay = (out?.settings as any)?.payment_settings;
+          const pay = resolveOutletPaySettings(out?.settings);
           if (pay) {
             if (!firstFound) firstFound = pay;
             if (
@@ -152,9 +191,13 @@ export function extractStaticQris(cfg: any): StaticQrisSettings | null {
   if (!cfg) return null;
   if (String(cfg.qrisMode || "").toLowerCase() === "dynamic") return null;
   if (cfg.qrisStaticEnabled === false) return null;
-  const payload = String(
-    cfg.qrisStaticPayload || cfg.staticQrisPayload || cfg.static_qris_payload || "",
-  ).trim();
+  const payload = normalizeQrisPayload(
+    cfg.qrisStaticPayload ||
+      cfg.staticQrisPayload ||
+      cfg.static_qris_payload ||
+      cfg.qris_static_payload ||
+      "",
+  );
   const imageUrl = String(
     cfg.qrisStaticImageUrl ||
       cfg.staticQrisImageUrl ||
@@ -265,34 +308,21 @@ function persistFallbackTx(tx: QrisTransaction): void {
 }
 
 /**
- * Compute CRC16-CCITT (False) checksum required by EMVCo / Bank Indonesia QRIS specifications
- * Polynomial: 0x1021, Initial: 0xFFFF
+ * Build the per-transaction QRIS payload from the store's static QRIS:
+ * static payload (010211) -> dynamic payload (010212 + tag 54 nominal + CRC16-CCITT recalculated).
+ * Returns "" when the static payload is missing/invalid so callers fall back to the static image.
  */
-export function computeCrc16Ccitt(str: string): string {
-  let crc = 0xffff;
-  const polynomial = 0x1021;
-
-  for (let i = 0; i < str.length; i++) {
-    const byte = str.charCodeAt(i);
-    crc ^= byte << 8;
-    for (let bit = 0; bit < 8; bit++) {
-      if ((crc & 0x8000) !== 0) {
-        crc = ((crc << 1) ^ polynomial) & 0xffff;
-      } else {
-        crc = (crc << 1) & 0xffff;
-      }
-    }
+export function buildAutoAmountQrisPayload(staticPayload: string, amount: number): string {
+  const clean = normalizeQrisPayload(staticPayload);
+  if (!clean || !(Number(amount) > 0)) return "";
+  const check = validateQrisPayload(clean);
+  if (!check.ok) return "";
+  try {
+    return convertStaticQrisToDynamic(clean, amount);
+  } catch (err) {
+    console.warn("[QRIS] Gagal konversi QRIS statis ke dinamis:", err);
+    return "";
   }
-
-  return (crc & 0xffff).toString(16).toUpperCase().padStart(4, "0");
-}
-
-/**
- * Format Tag-Length-Value (TLV) string for EMVCo QRIS
- */
-export function formatTLV(tag: string, value: string): string {
-  const lenStr = String(value.length).padStart(2, "0");
-  return `${tag}${lenStr}${value}`;
 }
 
 /**
@@ -393,16 +423,20 @@ export async function generateDynamicQris(params: {
   // When present it is shown as-is — no fabricated NMID, no generated payload.
   const staticQris = extractStaticQris(outletSettings) || extractStaticQris(localSettings);
   if (staticQris) {
+    // When the Owner saved the static QRIS text payload, convert it to an EMVCo dynamic QRIS
+    // (010212 + tag 54 nominal + recalculated CRC) so the amount is pre-filled on scan.
+    const autoAmountPayload = buildAutoAmountQrisPayload(staticQris.payload, params.amount);
     return {
       external_reference_id: `QRIS-STATIC-${timestamp}-${randomSuffix}`,
-      qris_payload: staticQris.payload,
+      qris_payload: autoAmountPayload || staticQris.payload,
       amount: params.amount,
       order_number: params.orderNumber,
       status: "PENDING",
       expires_at: expiresAt,
       merchant_name: staticQris.merchantName || merchantName,
       mode: "static",
-      qr_image_url: staticQris.imageUrl || undefined,
+      auto_amount: Boolean(autoAmountPayload),
+      qr_image_url: autoAmountPayload ? undefined : staticQris.imageUrl || undefined,
     };
   }
 

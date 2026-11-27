@@ -74,6 +74,7 @@ export function AttendancePage({
     offOrLeaveStaff: { name: string; status: "OFF" | "SAKIT" | "IZIN"; note?: string }[];
   } | null>(null);
   const [loading, setLoading] = useState(true);
+  const ownerNamesRef = useRef<Set<string>>(new Set(["iky", "owner", "owner hq"]));
   const [resolvedOutletState, setResolvedOutletState] = useState<{ id: string; name: string } | null>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -337,6 +338,7 @@ export function AttendancePage({
             ownerNamesLower.add(st.name.trim().toLowerCase());
           }
         }
+        ownerNamesRef.current = ownerNamesLower;
         const isAllowedRosterName = (nm?: string | null) => {
           const clean = String(nm || "").trim();
           if (!clean || clean === "-") return false;
@@ -392,7 +394,12 @@ export function AttendancePage({
           if (!r) return;
           const filterNonOwner = (nm?: string | null) => {
             const c = String(nm || "").trim().toLowerCase();
-            return Boolean(c) && c !== "-" && c !== "iky" && c !== "owner" && !c.includes("owner hq");
+            return (
+              Boolean(c) &&
+              c !== "-" &&
+              !ownerNamesRef.current.has(c) &&
+              !c.includes("owner hq")
+            );
           };
           setTodayRoster({
             morningStaff: (r.morningStaff || []).filter(filterNonOwner),

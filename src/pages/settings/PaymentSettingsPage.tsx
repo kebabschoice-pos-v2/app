@@ -1,20 +1,54 @@
-import { useState, useEffect } from "react";
-import { CreditCard, Banknote, QrCode, Smartphone, Building, Check, Upload, Trash2 } from "lucide-react";
+import { useState, useEffect, useMemo } from "react";
+import {
+  CreditCard,
+  Banknote,
+  QrCode,
+  Building,
+  Upload,
+  Trash2,
+  ScanLine,
+  CheckCircle2,
+  AlertTriangle,
+  Loader2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
+import {
+  convertStaticQrisToDynamic,
+  normalizeQrisPayload,
+  validateQrisPayload,
+} from "@/lib/qris-emv";
 
 export function PaymentSettingsPage() {
   const [cashEnabled, setCashEnabled] = useState(true);
   const [qrisEnabled, setQrisEnabled] = useState(true);
   const [qrisNmid, setQrisNmid] = useState("");
   const [qrisStaticImageUrl, setQrisStaticImageUrl] = useState("");
+  // Raw static QRIS text (e.g. Shopee Partner) -> converted to dynamic QRIS with auto amount at /pos
+  const [qrisStaticPayload, setQrisStaticPayload] = useState("");
+  const [isDecodingQris, setIsDecodingQris] = useState(false);
   const [cardEnabled, setCardEnabled] = useState(true);
   const [transferEnabled, setTransferEnabled] = useState(false);
   const [bankName, setBankName] = useState("BCA");
   const [accountNumber, setAccountNumber] = useState("1234567890");
   const [accountHolder, setAccountHolder] = useState("PT Kebabs Choice POS");
+
+  const payloadCheck = useMemo(() => {
+    const clean = normalizeQrisPayload(qrisStaticPayload);
+    if (!clean) return null;
+    const validation = validateQrisPayload(clean);
+    let sample = "";
+    if (validation.ok) {
+      try {
+        sample = convertStaticQrisToDynamic(clean, 10000);
+      } catch {
+        sample = "";
+      }
+    }
+    return { ...validation, sample };
+  }, [qrisStaticPayload]);
 
   useEffect(() => {
     async function loadSettings() {
@@ -31,6 +65,8 @@ export function PaymentSettingsPage() {
             parsed.static_qris_image_url ||
             parsed.qrisImageUrl;
           if (localStaticImg) setQrisStaticImageUrl(localStaticImg);
+          const localPayload = parsed.qrisStaticPayload || parsed.qris_static_payload;
+          if (localPayload) setQrisStaticPayload(String(localPayload));
           if (typeof parsed.cardEnabled === "boolean") setCardEnabled(parsed.cardEnabled);
           if (typeof parsed.transferEnabled === "boolean") setTransferEnabled(parsed.transferEnabled);
           if (parsed.bankName) setBankName(parsed.bankName);
@@ -38,9 +74,16 @@ export function PaymentSettingsPage() {
           if (parsed.accountHolder) setAccountHolder(parsed.accountHolder);
         }
 
-        // Check Supabase outlets.settings.payment_settings
+        // Check Supabase outlets.settings.payment_settings (+ outlets.settings.qris_static_payload)
         const { data: outletsData } = await supabase.from("outlets").select("id, settings").limit(10);
         if (outletsData && Array.isArray(outletsData)) {
+          const remotePayload = outletsData
+            .map((out) => {
+              const s = (out.settings as any) || {};
+              return s.qris_static_payload || s.payment_settings?.qrisStaticPayload || "";
+            })
+            .find(Boolean);
+          if (remotePayload) setQrisStaticPayload(String(remotePayload));
           for (const out of outletsData) {
             const payConf = (out.settings as any)?.payment_settings;
             if (payConf) {
@@ -69,6 +112,30 @@ export function PaymentSettingsPage() {
     loadSettings();
   }, []);
 
+  const tryAutoDecodeQris = async (imageSrc: string) => {
+    setIsDecodingQris(true);
+    try {
+      const { decodeQrFromImage } = await import("@/lib/qr-tools");
+      const decoded = normalizeQrisPayload(await decodeQrFromImage(imageSrc));
+      if (decoded && validateQrisPayload(decoded).ok) {
+        setQrisStaticPayload(decoded);
+        toast.success("Payload QRIS berhasil dibaca otomatis dari gambar", {
+          description: "Nominal transaksi akan otomatis terisi saat pelanggan scan QRIS di POS.",
+        });
+      } else if (decoded) {
+        setQrisStaticPayload(decoded);
+        toast.warning("QR terbaca, tetapi bukan payload QRIS yang valid. Periksa / tempel manual.");
+      } else {
+        toast.info("Payload QRIS tidak terbaca dari gambar — tempel teks payload secara manual.");
+      }
+    } catch (err) {
+      console.warn("[QRIS] Auto-decode gagal:", err);
+      toast.info("Payload QRIS tidak terbaca dari gambar — tempel teks payload secara manual.");
+    } finally {
+      setIsDecodingQris(false);
+    }
+  };
+
   const handleUploadQrisImage = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -82,18 +149,27 @@ export function PaymentSettingsPage() {
       if (result) {
         setQrisStaticImageUrl(result);
         toast.success("Gambar QRIS Statis siap disimpan — klik Simpan Metode Pembayaran.");
+        void tryAutoDecodeQris(result);
       }
     };
     reader.readAsDataURL(file);
   };
 
   const handleSave = async () => {
+    const cleanPayload = normalizeQrisPayload(qrisStaticPayload);
+    if (cleanPayload && !validateQrisPayload(cleanPayload).ok) {
+      toast.error("Payload Teks QRIS Statis tidak valid", {
+        description: validateQrisPayload(cleanPayload).error,
+      });
+      return;
+    }
     const data = {
       cashEnabled,
       qrisEnabled,
       qrisNmid: qrisNmid.trim(),
       qrisStaticImageUrl: qrisStaticImageUrl.trim(),
       staticQrisImageUrl: qrisStaticImageUrl.trim(),
+      qrisStaticPayload: cleanPayload,
       cardEnabled,
       transferEnabled,
       bankName,
@@ -117,7 +193,11 @@ export function PaymentSettingsPage() {
           await supabase
             .from("outlets")
             .update({
-              settings: { ...curr, payment_settings: { ...prevPay, ...data } } as any,
+              settings: {
+                ...curr,
+                qris_static_payload: cleanPayload,
+                payment_settings: { ...prevPay, ...data },
+              } as any,
             })
             .eq("id", out.id);
         }
@@ -260,6 +340,83 @@ export function PaymentSettingsPage() {
                     </p>
                   )}
                 </div>
+              </div>
+
+              {/* Payload Teks QRIS Statis -> QRIS Dinamis EMVCo dengan nominal otomatis */}
+              <div className="sm:col-span-2 space-y-2 rounded-xl border border-primary/20 bg-primary/5 p-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label
+                    htmlFor="qris-static-payload"
+                    className="text-xs font-bold text-foreground/80"
+                  >
+                    Payload Teks QRIS Statis (Untuk Nominal Otomatis)
+                  </label>
+                  <div className="flex items-center gap-1.5">
+                    {qrisStaticImageUrl && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={isDecodingQris}
+                        onClick={() => void tryAutoDecodeQris(qrisStaticImageUrl)}
+                        className="h-8 rounded-lg text-xs font-bold gap-1"
+                      >
+                        {isDecodingQris ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : (
+                          <ScanLine className="size-3.5" />
+                        )}
+                        <span>Baca dari Gambar</span>
+                      </Button>
+                    )}
+                    {qrisStaticPayload && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setQrisStaticPayload("")}
+                        className="h-8 rounded-lg text-xs font-bold text-destructive hover:text-destructive"
+                      >
+                        Kosongkan
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <textarea
+                  id="qris-static-payload"
+                  value={qrisStaticPayload}
+                  onChange={(e) => setQrisStaticPayload(e.target.value)}
+                  rows={3}
+                  spellCheck={false}
+                  placeholder="00020101021126...5802ID59...6304XXXX (otomatis terisi saat gambar QRIS diunggah, atau tempel manual)"
+                  className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-[11px] leading-5 text-foreground break-all focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                {payloadCheck ? (
+                  payloadCheck.ok ? (
+                    <div className="flex items-start gap-1.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3.5 mt-0.5 shrink-0" />
+                      <span>
+                        Payload QRIS valid
+                        {payloadCheck.merchantName ? ` • ${payloadCheck.merchantName}` : ""}
+                        {payloadCheck.merchantCity ? ` (${payloadCheck.merchantCity})` : ""}
+                        {payloadCheck.isStatic ? " • Statis (010211)" : payloadCheck.isDynamic ? " • Dinamis (010212)" : ""}
+                        {payloadCheck.crcValid ? " • CRC OK" : " • CRC akan dihitung ulang"}. Di POS, QRIS
+                        Dinamis EMVCo (tag 54 nominal + CRC16 baru) dibuat otomatis per transaksi.
+                      </span>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-1.5 text-[11px] text-rose-600 dark:text-rose-400">
+                      <AlertTriangle className="size-3.5 mt-0.5 shrink-0" />
+                      <span>{payloadCheck.error}</span>
+                    </div>
+                  )
+                ) : (
+                  <p className="text-[11px] text-muted-foreground">
+                    Opsional. Jika diisi (mis. QRIS Statis Shopee Partner), POS akan menampilkan QRIS
+                    Dinamis sehingga nominal transaksi langsung terisi saat pelanggan scan. Kasir tetap
+                    menekan Konfirmasi Lunas setelah dana masuk.
+                  </p>
+                )}
               </div>
             </div>
           )}

@@ -1978,11 +1978,11 @@ test("Validates codebase integrity for Add-ons, Fast Cash Tender, and Strict Iso
     "utf-8"
   );
 
-  // 1. Quick cash tender buttons
-  assert.ok(posCode.includes('label: "+10rb"'), "POS cart must provide +10rb cash button");
-  assert.ok(posCode.includes('label: "+20rb"'), "POS cart must provide +20rb cash button");
-  assert.ok(posCode.includes('label: "+50rb"'), "POS cart must provide +50rb cash button");
-  assert.ok(posCode.includes('label: "+100rb"'), "POS cart must provide +100rb cash button");
+  // 1. Loyverse-style Smart Cash Suggestions (Uang Pas + max 3 denominations > total, zero +10rb/+20rb/+50rb/+100rb clutter)
+  assert.ok(posCode.includes("getSmartCashSuggestions(total)"), "POS payment modal must use Loyverse getSmartCashSuggestions(total)");
+  assert.ok(posCode.includes('t("pos.exact_cash", "Uang Pas")'), "POS payment modal must provide Uang Pas button");
+  assert.ok(!posCode.includes('label: "+10rb"'), "POS payment modal must remove legacy +10rb button");
+  assert.ok(!posCode.includes('label: "+100rb"'), "POS payment modal must remove legacy +100rb button");
 
   // 2. Add-on stock depletion
   assert.ok(posCode.includes("addOnList"), "POS checkout must collect add-on list");
@@ -3428,13 +3428,13 @@ test("Enforces slim w-20 POS 1-click icon rail, unified top bar with search & gr
     "POS top bar must unify Online badge, cashier shift indicator, and inline menu search in one compact bar",
   );
 
-  // 3. TOMORO product catalog surface + circular cart quantity badge + min-h-[40px] touch buttons
+  // 3. TOMORO product catalog surface + circular cart quantity badge + min-h-[40px]/min-h-[48px] touch buttons
   assert.ok(
     posAppCode.includes("bg-muted/30 p-2.5") &&
       posAppCode.includes("const qtyInCart = cartQtyByProductId[product.id] || 0") &&
-      posAppCode.includes("min-h-[40px]") &&
+      (posAppCode.includes("min-h-[40px]") || posAppCode.includes("min-h-[48px]")) &&
       posAppCode.includes("rounded-full bg-primary text-primary-foreground text-xs font-black"),
-    "POS catalog must use soft gray canvas, circular brand-accent cart quantity badge on cards, and min-h-[40px] touch buttons",
+    "POS catalog must use soft gray canvas, circular brand-accent cart quantity badge on cards, and min-h-[40px]/min-h-[48px] touch buttons",
   );
 
   // 4. Compact 3-zone Smart Cart + pinned Bayar CTA + Dedicated 1-Screen Payment Modal (native numeric input + quick cash presets, no on-screen numpad)
@@ -3831,14 +3831,14 @@ test("Enforces mandatory open shift before checkout, offline BOM/product/shift s
   // 5. Tablet touch ergonomics & solid portal Void/Refund authorization modal
   assert.ok(
     posAppCode.includes('inputMode="numeric"') &&
-      posAppCode.includes("min-h-[38px] min-w-[38px]") &&
+      posAppCode.includes("min-h-[48px]") &&
       posAppCode.includes(
         'fixed inset-0 z-[9998] flex items-center justify-center bg-black/60',
       ) &&
       posAppCode.includes(
         'relative z-[9999] w-full max-w-md rounded-[2rem] border border-border bg-white dark:bg-slate-900',
       ),
-    "Payment cash input must use inputMode='numeric', Smart Cart & quick cash buttons must use min-h-[38px] min-w-[38px], and Void/Refund modal must render via createPortal with solid z-[9999] panel",
+    "Payment cash input must use inputMode='numeric', Smart Cash buttons must use min-h-[48px], and Void/Refund modal must render via createPortal with solid z-[9999] panel",
   );
 });
 
@@ -4056,14 +4056,15 @@ test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0
   );
   assert.ok(
     receiptModalSlice.includes("Kirim Struk WA") &&
-      receiptModalSlice.includes("openWhatsAppReceipt") &&
+      receiptModalSlice.includes("shareReceiptImage") &&
       ordersPageSlice.includes("Kirim Struk WA") &&
       ordersPageSlice.includes("handleSendOrderWhatsApp") &&
+      ordersPageSlice.includes("shareReceiptImage") &&
       !posAppCode.includes('aria-label="Order WA"') &&
       !posAppCode.includes("isWaOrderModalOpen") &&
       posAppCode.includes('| "whatsapp"') &&
       posAppCode.includes('{ id: "whatsapp", label: "WhatsApp" }'),
-    "ReceiptModal and OrdersPage (/pos/orders) must preserve Kirim Struk WA, /pos toolbar must remove Order WA button, and Step 2 popup must support WhatsApp channel",
+    "ReceiptModal and OrdersPage (/pos/orders) must share PNG receipts via shareReceiptImage on Kirim Struk WA, /pos toolbar must remove Order WA button, and Step 2 popup must support WhatsApp channel",
   );
 
   // 4. Clean 7-Item Settings Menu List in UnifiedProfileTabs (/profile & /pos/profile) with ← Kembali back button
@@ -4095,6 +4096,184 @@ test("Enforces 128D face biometric matching without PIN (Euclidean distance <= 0
       !langSettingsCode.includes("German") &&
       !langSettingsCode.includes("Arabic"),
     "src/lib/i18n.ts must provide real-time useTranslation() via kebabschoicepos_language + language:changed event and LanguageSettingsPage must only offer Bahasa Indonesia (ID) & English (EN)",
+  );
+});
+
+// --- TEST 117: Tugas Bagian 1/2 — Dynamic EMVCo QRIS, PNG Receipt Share, Loyverse Smart Cash, POS Speed, Today Shift Roster & Secure Owner Register ---
+console.log("\n▶ 117. TUGAS BAGIAN 1/2: QRIS DINAMIS EMVCO, STRUK GAMBAR PNG, TUNAI ALA LOYVERSE, KECEPATAN POS, JADWAL ABSEN & REGISTER");
+
+const qrisEmvMod = await import("../src/lib/qris-emv.ts");
+const cashSuggestionsMod = await import("../src/lib/cash-suggestions.ts");
+
+test("convertStaticQrisToDynamic converts static QRIS (010211) to dynamic (010212), injects tag 54 before 5802ID, and computes valid CRC16-CCITT (0xFFFF, poly 0x1021)", () => {
+  const {
+    computeCrc16Ccitt,
+    convertStaticQrisToDynamic,
+    formatTLV,
+    verifyQrisCrc,
+    validateQrisPayload,
+  } = qrisEmvMod;
+
+  // Build realistic Shopee Partner / ASPI static QRIS payload (tag 01 = 11, no tag 54, country 5802ID)
+  const staticBodyWithoutCrc =
+    formatTLV("00", "01") +
+    formatTLV("01", "11") +
+    formatTLV(
+      "26",
+      formatTLV("00", "ID.CO.SHOPEE.WWW") +
+        formatTLV("01", "936009180020001234") +
+        formatTLV("02", "20001234") +
+        formatTLV("03", "UMI"),
+    ) +
+    formatTLV(
+      "51",
+      formatTLV("00", "ID.CO.QRIS.WWW") +
+        formatTLV("02", "ID1025334455667") +
+        formatTLV("03", "UMI"),
+    ) +
+    formatTLV("52", "5812") +
+    formatTLV("53", "360") +
+    formatTLV("58", "ID") +
+    formatTLV("59", "KEBABS CHOICE") +
+    formatTLV("60", "JAKARTA") +
+    formatTLV("61", "12340") +
+    "6304";
+  const staticPayload = `${staticBodyWithoutCrc}${computeCrc16Ccitt(staticBodyWithoutCrc)}`;
+  assert.ok(staticPayload.includes("010211"), "Fixture must start as static QRIS (010211)");
+  assert.ok(verifyQrisCrc(staticPayload), "Fixture static QRIS CRC16 must be valid");
+
+  // 1. Convert static QRIS for Rp 9.000 -> must contain 010212, 54049000 before 5802ID, and valid CRC16
+  const dynamic9000 = convertStaticQrisToDynamic(staticPayload, 9000);
+  assert.ok(dynamic9000.includes("010212"), "Dynamic QRIS must switch tag 01 from 010211 to 010212");
+  assert.ok(!dynamic9000.includes("010211"), "Dynamic QRIS must no longer contain static tag 010211");
+  assert.ok(
+    dynamic9000.includes("540490005802ID"),
+    "Dynamic QRIS must insert tag 54049000 immediately before 5802ID",
+  );
+  assert.ok(verifyQrisCrc(dynamic9000), "Dynamic QRIS 6304 CRC16-CCITT checksum must be valid");
+  const check9000 = validateQrisPayload(dynamic9000);
+  assert.ok(check9000.ok && check9000.isDynamic && check9000.crcValid, "Dynamic QRIS must pass structural & CRC validation");
+
+  // 2. Re-converting a payload that ALREADY has an old tag 54 must strip the old tag 54 and insert the new amount (Rp 79.000 -> 540579000)
+  const dynamic79000 = convertStaticQrisToDynamic(dynamic9000, 79000);
+  assert.ok(!dynamic79000.includes("54049000"), "Old tag 54 (54049000) must be removed");
+  assert.ok(
+    dynamic79000.includes("5405790005802ID"),
+    "Updated tag 54 (540579000) must appear immediately before 5802ID",
+  );
+  assert.ok(verifyQrisCrc(dynamic79000), "Re-converted QRIS CRC16-CCITT checksum must be valid");
+});
+
+test("getSmartCashSuggestions(79000) & getSmartCashSuggestions(9000) follow Loyverse smart cash rules", () => {
+  const { getSmartCashSuggestions } = cashSuggestionsMod;
+
+  const for79k = getSmartCashSuggestions(79000);
+  assert.deepStrictEqual(
+    for79k,
+    [80000, 100000],
+    "Rp 79.000 must suggest strictly [80000, 100000] alongside Uang Pas",
+  );
+  assert.ok(for79k.every((v) => v > 79000) && for79k.length <= 3);
+
+  const for9k = getSmartCashSuggestions(9000);
+  assert.deepStrictEqual(
+    for9k,
+    [10000, 20000, 50000],
+    "Rp 9.000 must suggest [10000, 20000, 50000] alongside Uang Pas",
+  );
+  assert.ok(for9k.every((v) => v > 9000) && for9k.length <= 3);
+});
+
+test("Verifies all 6 feature groups across PaymentSettings, Receipt Image PNG, POS Modals & Cart, Attendance Roster, Toaster top-center, and Register Security", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const qrisServiceCode = read("src/services/qris.service.ts");
+  const paymentSettingsCode = read("src/pages/settings/PaymentSettingsPage.tsx");
+  const receiptImgCode = read("src/lib/receipt-image.ts");
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const rootCode = read("src/routes/__root.tsx");
+  const attendanceCode = read("src/components/kebabschoicepos/AttendancePage.tsx");
+  const registerCode = read("src/components/kebabschoicepos/RegisterExperience.tsx");
+
+  // 1. Dynamic QRIS EMVCo in qris.service.ts & PaymentSettingsPage.tsx + POS QRIS modal
+  assert.ok(
+    qrisServiceCode.includes("convertStaticQrisToDynamic") &&
+      paymentSettingsCode.includes("Payload Teks QRIS Statis (Untuk Nominal Otomatis)") &&
+      paymentSettingsCode.includes("qris_static_payload") &&
+      paymentSettingsCode.includes("decodeQrFromImage") &&
+      posAppCode.includes("qrisStaticPayload") &&
+      posAppCode.includes("generateQrDataUrl"),
+    "qris.service.ts, PaymentSettingsPage.tsx, and /pos must wire static QRIS payload auto-decode, outlets.settings.qris_static_payload persistence, and dynamic QR rendering",
+  );
+
+  // 2. PNG Receipt Image (580px canvas -> struk-<orderNumber>.png -> navigator.share files)
+  assert.ok(
+    receiptImgCode.includes("RECEIPT_IMAGE_WIDTH = 580") &&
+      receiptImgCode.includes("`struk-${sanitizeFilePart(orderNumber)}.png`") &&
+      receiptImgCode.includes('title: "Struk KebabsChoice"') &&
+      receiptImgCode.includes("nav.share") &&
+      posAppCode.includes("shareReceiptImage"),
+    "receipt-image.ts must render 580px white thermal canvas to struk-<orderNumber>.png and share via navigator.share({ files: [pngFile], title: 'Struk KebabsChoice' })",
+  );
+
+  // 3. POS Payment & Customer Modals: no LANGKAH 2/3 DARI 3, no numpad, no +10rb..Reset, Tahan button in both modals
+  assert.ok(
+    !posAppCode.includes("LANGKAH 2 DARI 3") &&
+      !posAppCode.includes("LANGKAH 3 DARI 3") &&
+      !posAppCode.includes("STEP 2 OF 3") &&
+      !posAppCode.includes("STEP 3 OF 3") &&
+      !posAppCode.includes("handleNumpadPress") &&
+      !posAppCode.includes('label: "+10rb"') &&
+      !posAppCode.includes('label: "+20rb"') &&
+      !posAppCode.includes('label: "+50rb"') &&
+      !posAppCode.includes('label: "+100rb"'),
+    "POS modals must strip step badges, on-screen numpad, and +10rb/+20rb/+50rb/+100rb/Reset row",
+  );
+  const step2Slice = posAppCode.slice(
+    posAppCode.indexOf("LANGKAH 2 — POPUP DATA PESANAN & PELANGGAN"),
+    posAppCode.indexOf("LANGKAH 3 — MODAL METODE PEMBAYARAN"),
+  );
+  const step3Slice = posAppCode.slice(
+    posAppCode.indexOf("LANGKAH 3 — MODAL METODE PEMBAYARAN"),
+    posAppCode.indexOf("PRODUCT CUSTOMIZATION MODAL KOMPAK 1-LAYAR"),
+  );
+  assert.ok(
+    step2Slice.includes("onClick={handleHoldOrder}") &&
+      step3Slice.includes("onClick={handleHoldOrder}"),
+    "Both Data Pesanan & Pelanggan modal and Pembayaran Pesanan modal must include Tahan (Hold) button",
+  );
+
+  // 4. POS Speed: zero 'ditambahkan ke keranjang' toast, deduplicated Smart Cart variants, Toaster at top-center
+  assert.ok(
+    !posAppCode.includes("ditambahkan ke keranjang") &&
+      posAppCode.includes("pushUniqueOptionToken") &&
+      posAppCode.includes("deduplicatedModifiers") &&
+      rootCode.includes('position="top-center"'),
+    "POS must omit add-to-cart toast, deduplicate variant tokens in Smart Cart, and position Toaster at top-center in __root.tsx",
+  );
+
+  // 5. AttendancePage: compact Jadwal Shift Hari Ini from getTodayOutletRoster without OWNER + shift badge next to selected staff
+  assert.ok(
+    attendanceCode.includes("getTodayOutletRoster") &&
+      attendanceCode.includes("Jadwal Shift Hari Ini") &&
+      attendanceCode.includes("Shift Pagi") &&
+      attendanceCode.includes("Shift Malam") &&
+      attendanceCode.includes("Libur / OFF:") &&
+      attendanceCode.includes("selectedShiftBadge"),
+    "AttendancePage must render compact Jadwal Shift Hari Ini (Shift Pagi, Shift Malam, Libur / OFF without OWNER) and shift badge beside selected staff",
+  );
+
+  // 6. RegisterExperience: back links to /login/hq & /login/pos, no leaked code placeholder, VITE_OWNER_INVITE_CODE support
+  assert.ok(
+    registerCode.includes('to="/login/hq"') &&
+      registerCode.includes("← Kembali ke Login HQ") &&
+      registerCode.includes('to="/login/pos"') &&
+      registerCode.includes("Masuk Kasir POS") &&
+      registerCode.includes('placeholder="Masukkan kode master internal"') &&
+      registerCode.includes("Kode master khusus owner (tidak dikirim ke email)") &&
+      registerCode.includes("VITE_OWNER_INVITE_CODE") &&
+      registerCode.includes("KEBABSCHOICE-OWNER-VIP") &&
+      !/CONTOH:\s*KEBABSCHOICE/i.test(registerCode),
+    "RegisterExperience.tsx must render HQ & POS login links, hide code hint from placeholder, and support VITE_OWNER_INVITE_CODE with fallback KEBABSCHOICE-OWNER-VIP",
   );
 });
 

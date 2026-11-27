@@ -248,7 +248,9 @@ import {
   type UiScale,
 } from "@/lib/theme";
 import { playPosSound } from "@/lib/pos-sound";
-import { openWhatsAppReceipt } from "@/lib/whatsapp-receipt";
+import { shareReceiptImage } from "@/lib/receipt-image";
+import { getSmartCashSuggestions } from "@/lib/cash-suggestions";
+import { normalizeQrisPayload, validateQrisPayload } from "@/lib/qris-emv";
 import { isCapacitorAndroid, openWhatsAppHomeNative } from "@/lib/native-whatsapp";
 import {
   formatRupiahInput,
@@ -3353,15 +3355,17 @@ function ReceiptModal({
             type="button"
             variant="secondary"
             className="flex-1 rounded-xl text-xs font-bold gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-            onClick={() => {
+            onClick={async () => {
               const targetWaPhone = waPhoneInput.trim() || data.customerPhone || undefined;
-              openWhatsAppReceipt(
+              const res = await shareReceiptImage(
                 {
                   storeName: headerStoreName,
                   outletName: data.outletName,
                   branchAddress,
                   orderNumber: data.orderNumber,
                   orderType: data.orderType,
+                  tableNumber: data.tableNumber,
+                  ojolOrderCode: data.ojolOrderCode,
                   customerName: data.customerName || undefined,
                   customerQueueName: data.customerQueueName || undefined,
                   customerPhone: targetWaPhone,
@@ -3383,6 +3387,9 @@ function ReceiptModal({
                 },
                 targetWaPhone,
               );
+              if (res === "downloaded") {
+                toast.success("Gambar struk PNG diunduh — lampirkan pada chat WhatsApp.");
+              }
             }}
           >
             <Send className="size-3.5" />
@@ -4438,6 +4445,8 @@ function PosPage({
     transferEnabled: boolean;
     qrisNmid: string;
     qrisStaticImageUrl: string;
+    /** Raw static QRIS text (outlets.settings.qris_static_payload) -> dynamic QRIS with auto amount */
+    qrisStaticPayload: string;
   }>({
     cashEnabled: true,
     qrisEnabled: true,
@@ -4445,6 +4454,7 @@ function PosPage({
     transferEnabled: false,
     qrisNmid: "",
     qrisStaticImageUrl: "",
+    qrisStaticPayload: "",
   });
 
   useEffect(() => {
@@ -4466,6 +4476,9 @@ function PosPage({
               parsed.qris_image_url ||
               "",
           ).trim(),
+          qrisStaticPayload: normalizeQrisPayload(
+            parsed.qrisStaticPayload || parsed.qris_static_payload || "",
+          ),
         });
       }
     } catch {}
@@ -4614,40 +4627,55 @@ function PosPage({
   // Raw text of the free-form "Uang Diterima" input (formatted with Indonesian thousand dots)
   const [cashTenderedInput, setCashTenderedInput] = useState<string>("");
 
-  // Touch Numpad handler for Focus Payment Modal
-  const handleNumpadPress = (key: string) => {
+  // Reset the free-form cash input back to "Uang Pas" (empty = exact amount)
+  const handleClearCashTendered = () => {
     playPosSound("tap");
-    const currentDigits = cashTenderedInput.replace(/\D/g, "");
-    let nextDigits = currentDigits;
-    if (key === "backspace") {
-      nextDigits = currentDigits.slice(0, -1);
-    } else if (key === "clear") {
-      nextDigits = "";
-    } else {
-      const candidate = (currentDigits === "0" ? "" : currentDigits) + key;
-      if (candidate.length > 10) return;
-      nextDigits = candidate;
-    }
-    if (!nextDigits) {
-      setCashTenderedInput("");
-      setCashTendered(0);
-      return;
-    }
-    const formatted = formatRupiahInput(nextDigits);
-    setCashTenderedInput(formatted);
-    setCashTendered(parseNumberFromDots(formatted));
+    setCashTenderedInput("");
+    setCashTendered(0);
   };
 
-  // QR source for the modal: the store's official static QRIS image when available,
-  // otherwise a QR encoded from the (real) transaction payload.
+  // QR source for the modal: an offline-rendered QR from the transaction payload (dynamic QRIS /
+  // static payload converted to dynamic with auto amount), otherwise the store's static QRIS image.
+  const [qrisGeneratedQrSrc, setQrisGeneratedQrSrc] = useState<string>("");
+  useEffect(() => {
+    const payload = qrisModalData?.qris_payload || "";
+    const shouldRender = Boolean(payload) && (!qrisModalData?.qr_image_url || qrisModalData?.auto_amount);
+    if (!shouldRender) {
+      setQrisGeneratedQrSrc("");
+      return;
+    }
+    let cancelled = false;
+    import("@/lib/qr-tools")
+      .then(({ generateQrDataUrl }) =>
+        generateQrDataUrl(payload, { width: 560, margin: 2, errorCorrectionLevel: "M" }),
+      )
+      .then((url) => {
+        if (!cancelled) setQrisGeneratedQrSrc(url);
+      })
+      .catch((err) => {
+        console.warn("[QRIS] Render QR lokal gagal, fallback ke layanan QR online:", err);
+        if (!cancelled) {
+          setQrisGeneratedQrSrc(
+            `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(payload)}`,
+          );
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [qrisModalData?.qris_payload, qrisModalData?.qr_image_url, qrisModalData?.auto_amount]);
+
   const qrisDisplayQrSrc = qrisModalData
-    ? qrisModalData.qr_image_url ||
-      (qrisModalData.qris_payload
-        ? `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
-            qrisModalData.qris_payload,
-          )}`
-        : "")
+    ? qrisModalData.auto_amount
+      ? qrisGeneratedQrSrc
+      : qrisModalData.qr_image_url || qrisGeneratedQrSrc
     : "";
+
+  // Static QRIS text payload configured by the Owner -> POS shows auto-amount dynamic QRIS
+  const hasAutoAmountQris = useMemo(
+    () => Boolean(paymentSettings.qrisStaticPayload) && validateQrisPayload(paymentSettings.qrisStaticPayload).ok,
+    [paymentSettings.qrisStaticPayload],
+  );
 
   // Customization Modal State
   const [customizingProduct, setCustomizingProduct] = useState<Product | null>(null);
@@ -4895,6 +4923,13 @@ function PosPage({
           outletPay?.staticQrisImageUrl ||
           "",
       ).trim();
+      const nextStaticPayload = normalizeQrisPayload(
+        mergedPay.qrisStaticPayload ||
+          mergedPay.qris_static_payload ||
+          (activeOutlet?.settings as any)?.qris_static_payload ||
+          (fallbackOutletWithPay?.settings as any)?.qris_static_payload ||
+          "",
+      );
 
       setPaymentSettings((prev) => {
         const next = {
@@ -4904,6 +4939,7 @@ function PosPage({
           transferEnabled: mergedPay.transferEnabled ?? false,
           qrisNmid: nextQrisNmid,
           qrisStaticImageUrl: nextStaticImg,
+          qrisStaticPayload: nextStaticPayload,
         };
         if (
           prev.cashEnabled === next.cashEnabled &&
@@ -4911,7 +4947,8 @@ function PosPage({
           prev.cardEnabled === next.cardEnabled &&
           prev.transferEnabled === next.transferEnabled &&
           prev.qrisNmid === next.qrisNmid &&
-          prev.qrisStaticImageUrl === next.qrisStaticImageUrl
+          prev.qrisStaticImageUrl === next.qrisStaticImageUrl &&
+          prev.qrisStaticPayload === next.qrisStaticPayload
         ) {
           return prev;
         }
@@ -5076,21 +5113,26 @@ function PosPage({
     });
     setSelectedGroupOptions(initialGroupSelections);
 
-    // Default legacy variant
-    const defaultVar =
-      product.variants && product.variants.length > 0 ? (product.variants[0] ?? null) : null;
-    setSelectedVariant(defaultVar);
+    // Legacy variant & level only apply when product has NO dynamic variant_groups
+    if (vGroups.length > 0) {
+      setSelectedVariant(null);
+      setSelectedLevel(null);
+    } else {
+      const defaultVar =
+        product.variants && product.variants.length > 0 ? (product.variants[0] ?? null) : null;
+      setSelectedVariant(defaultVar);
 
-    // Default level
-    const levels = product.modifiers?.filter((m) => m.category === "level") || [];
-    const defaultLvl =
-      levels.find(
-        (l) =>
-          l.name.toLowerCase().includes("tidak pedas") || l.name.toLowerCase().includes("original"),
-      ) ||
-      levels[0] ||
-      null;
-    setSelectedLevel(defaultLvl);
+      const levels = product.modifiers?.filter((m) => m.category === "level") || [];
+      const defaultLvl =
+        levels.find(
+          (l) =>
+            l.name.toLowerCase().includes("tidak pedas") ||
+            l.name.toLowerCase().includes("original"),
+        ) ||
+        levels[0] ||
+        null;
+      setSelectedLevel(defaultLvl);
+    }
 
     setSelectedPreps([]);
     setSelectedAddons([]);
@@ -5173,9 +5215,31 @@ function PosPage({
       })
       .filter((g) => g.options.length > 0);
 
-    const variantNames = selectedVariantGroupsSummary
-      .flatMap((g) => g.options.map((o) => o.name))
-      .filter(Boolean);
+    const seenVariantKeys = new Set<string>();
+    const variantNames: string[] = [];
+    for (const rawName of selectedVariantGroupsSummary.flatMap((g) => g.options.map((o) => o.name))) {
+      const clean = String(rawName || "").replace(/\s+/g, " ").trim();
+      if (!clean) continue;
+      const key = clean.toLowerCase();
+      if (!seenVariantKeys.has(key)) {
+        seenVariantKeys.add(key);
+        variantNames.push(clean);
+      }
+    }
+
+    const deduplicatedModifiers = (
+      vGroups.length > 0
+        ? selectedPreps
+        : [...(selectedLevel ? [selectedLevel.name] : []), ...selectedPreps]
+    )
+      .map((m) => String(m || "").replace(/\s+/g, " ").trim())
+      .filter((m) => {
+        if (!m) return false;
+        const key = m.toLowerCase();
+        if (seenVariantKeys.has(key)) return false;
+        seenVariantKeys.add(key);
+        return true;
+      });
 
     const firstOpt = selectedVariantGroupsSummary[0]?.options[0];
     const legacyVariant = firstOpt
@@ -5195,7 +5259,7 @@ function PosPage({
       selected_variant: legacyVariant,
       variant_name: variantNames.length > 0 ? variantNames.join(" • ") : undefined,
       selected_variant_groups: selectedVariantGroupsSummary,
-      selected_modifiers: [...(selectedLevel ? [selectedLevel.name] : []), ...selectedPreps],
+      selected_modifiers: deduplicatedModifiers,
       selected_addons: selectedAddons.map((a) => ({
         name: a.name,
         price: Number(a.price_adjustment) || 0,
@@ -5207,6 +5271,7 @@ function PosPage({
     setCart((current) => [...current, newItem]);
     setCustomizingProduct(null);
   };
+  const handleConfirmVariant = handleConfirmAddToCart;
 
   // Barcode Scanner Handler (Tahap 2B - Keyboard Wedge Mode)
   const handleBarcodeScan = (barcode: string) => {
@@ -7271,13 +7336,13 @@ function PosPage({
               const pushUniqueOptionToken = (raw?: string | null) => {
                 if (!raw) return;
                 String(raw)
-                  .split(/[•·]/)
-                  .map((part) => part.trim())
+                  .split(/[•·|,]/)
+                  .map((part) => part.replace(/\s+/g, " ").trim())
                   .filter(Boolean)
                   .forEach((part) => {
-                    const key = part.toLowerCase();
-                    if (!seenOptionTokens.has(key)) {
-                      seenOptionTokens.add(key);
+                    const normalizedKey = part.replace(/^\+\s*/, "").toLowerCase();
+                    if (!seenOptionTokens.has(normalizedKey)) {
+                      seenOptionTokens.add(normalizedKey);
                       optionTokens.push(part);
                     }
                   });
@@ -7743,8 +7808,19 @@ function PosPage({
                 </div>
               </div>
 
-              {/* Tombol Utama Lanjut ke Pembayaran */}
-              <div className="pt-1 border-t border-border/60">
+              {/* Tombol Tahan (Hold) + Lanjut ke Pembayaran */}
+              <div className="pt-1 border-t border-border/60 flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleHoldOrder}
+                  className="h-11 px-3 rounded-xl flex items-center justify-center gap-1 border-dashed border-border bg-muted text-foreground/80 hover:bg-secondary shrink-0 font-bold text-xs cursor-pointer active:scale-95 transition-transform duration-100"
+                  title="Simpan sementara antrean pesanan ini (Hold)"
+                  aria-label="Tahan pesanan"
+                >
+                  <Clock className="size-4 shrink-0" />
+                  <span>{language === "en" ? t("cart.hold", "Hold") : "Tahan"}</span>
+                </Button>
                 <Button
                   type="button"
                   variant="hero"
@@ -7753,7 +7829,7 @@ function PosPage({
                     setIsCustomerStepModalOpen(false);
                     setIsPaymentModalOpen(true);
                   }}
-                  className="w-full h-11 rounded-xl text-sm font-black shadow-brand gap-1.5 active:scale-95 transition-transform duration-100"
+                  className="flex-1 min-w-0 h-11 rounded-xl text-sm font-black shadow-brand gap-1.5 active:scale-95 transition-transform duration-100"
                 >
                   {language === "en" ? (
                     <span>
@@ -7771,7 +7847,7 @@ function PosPage({
         )}
 
       {/* ======================================================================== */}
-      {/* LANGKAH 3 — MODAL METODE PEMBAYARAN + NUMPAD SENTUH BESAR                */}
+      {/* LANGKAH 3 — MODAL METODE PEMBAYARAN + REKOMENDASI TUNAI PINTAR (ALA LOYVERSE)   */}
       {/* ======================================================================== */}
       {isPaymentModalOpen && cart.length > 0 && typeof document !== "undefined" && createPortal(
         <div className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/60 p-3 sm:p-4 animate-in fade-in">
@@ -7883,7 +7959,7 @@ function PosPage({
                 </div>
               </div>
 
-              {/* TUNAI: Input Nominal Bebas + Preset + Numpad Sentuh Besar (0–9) + Kembalian */}
+              {/* TUNAI: Input Nominal (keyboard angka tablet) + Uang Pas + Rekomendasi Tunai Pintar + Kembalian */}
               {paymentMethod === "cash" && (
                 <div className="space-y-3 animate-in fade-in duration-150">
                   {/* Kotak Nominal Uang Diterima */}
@@ -7894,6 +7970,9 @@ function PosPage({
                     <Input
                       type="text"
                       inputMode="numeric"
+                      pattern="[0-9.]*"
+                      autoComplete="off"
+                      enterKeyHint="done"
                       aria-label="Nominal Uang Tunai Diterima"
                       placeholder={
                         total > 0 ? formatRupiahInput(total) : "Ketik nominal uang diterima..."
@@ -7914,76 +7993,60 @@ function PosPage({
                     {cashTenderedInput && (
                       <button
                         type="button"
-                        onClick={() => handleNumpadPress("clear")}
+                        onClick={handleClearCashTendered}
                         className="absolute right-3 top-1/2 -translate-y-1/2 rounded-lg px-2 py-1 text-xs font-bold text-muted-foreground hover:bg-muted hover:text-rose-500 cursor-pointer"
-                        title="Reset ke Uang Pas"
+                        title="Kembali ke Uang Pas"
                       >
                         {t("pos.exact_short", "Pas")}
                       </button>
                     )}
                   </div>
 
-                  {/* Tombol Preset Cepat */}
-                  <div className="grid grid-cols-4 gap-1.5">
-                    {[
-                      { label: t("pos.exact_cash", "Uang Pas"), val: total },
-                      { label: "20.000", val: 20000 },
-                      { label: "50.000", val: 50000 },
-                      { label: "100.000", val: 100000 },
-                    ].map((btn, i) => (
-                      <Button
-                        key={i}
-                        type="button"
-                        size="sm"
-                        variant={cashTendered === btn.val ? "default" : "outline"}
-                        className="min-h-[40px] rounded-xl text-xs font-bold px-1.5 active:scale-95 transition-transform duration-100"
-                        onClick={() => {
-                          playPosSound("option");
-                          setCashTendered(btn.val);
-                          setCashTenderedInput(formatRupiahInput(btn.val));
-                        }}
+                  {/* Rekomendasi Tunai Pintar ala Loyverse: Uang Pas + maks. 3 pecahan > total */}
+                  {(() => {
+                    const smartCashOptions = [
+                      { label: t("pos.exact_cash", "Uang Pas"), val: total, exact: true },
+                      ...getSmartCashSuggestions(total).map((val) => ({
+                        label: formatRupiahInput(val),
+                        val,
+                        exact: false,
+                      })),
+                    ];
+                    return (
+                      <div
+                        className={cn(
+                          "grid gap-1.5",
+                          smartCashOptions.length >= 4
+                            ? "grid-cols-4"
+                            : smartCashOptions.length === 3
+                              ? "grid-cols-3"
+                              : "grid-cols-2",
+                        )}
+                        aria-label="Rekomendasi Tunai Pintar"
                       >
-                        {btn.label}
-                      </Button>
-                    ))}
-                  </div>
-
-                  {/* Baris Tambahan Nominal Cepat */}
-                  <div className="grid grid-cols-5 gap-1.5">
-                    {[
-                      { label: "+10rb", add: 10000 },
-                      { label: "+20rb", add: 20000 },
-                      { label: "+50rb", add: 50000 },
-                      { label: "+100rb", add: 100000 },
-                    ].map((inc, i) => (
-                      <Button
-                        key={i}
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        className="min-h-[38px] min-w-[38px] rounded-xl text-xs font-bold px-1 bg-background hover:bg-primary/10 border-primary/20 active:scale-95 transition-transform duration-100"
-                        onClick={() => {
-                          playPosSound("option");
-                          setCashTendered((prev) => {
-                            const nextVal = Math.max(total, (prev || total) + inc.add);
-                            setCashTenderedInput(formatRupiahInput(nextVal));
-                            return nextVal;
-                          });
-                        }}
-                      >
-                        {inc.label}
-                      </Button>
-                    ))}
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="min-h-[38px] min-w-[38px] rounded-xl text-xs font-bold px-1 text-muted-foreground hover:text-rose-500"
-                      onClick={() => handleNumpadPress("clear")}
-                    >
-                      Reset
-                    </Button>
-                  </div>
+                        {smartCashOptions.map((btn) => {
+                          const isActive = btn.exact
+                            ? cashTendered === 0 || cashTendered === total
+                            : cashTendered === btn.val;
+                          return (
+                            <Button
+                              key={`${btn.exact ? "exact" : "cash"}-${btn.val}`}
+                              type="button"
+                              variant={isActive ? "default" : "outline"}
+                              className="min-h-[48px] rounded-xl text-sm font-black px-1.5 active:scale-95 transition-transform duration-100"
+                              onClick={() => {
+                                playPosSound("option");
+                                setCashTendered(btn.val);
+                                setCashTenderedInput(formatRupiahInput(btn.val));
+                              }}
+                            >
+                              {btn.label}
+                            </Button>
+                          );
+                        })}
+                      </div>
+                    );
+                  })()}
 
                   {/* Kembalian / Kurang Bayar Besar & Jelas */}
                   <div
@@ -8020,7 +8083,19 @@ function PosPage({
               {/* QRIS Info Card: Tampilkan QRIS Statis langsung jika diunggah, atau peringatan + shortcut jika belum dikonfigurasi */}
               {paymentMethod === "qris" && (
                 <div className="rounded-2xl border border-primary/25 bg-primary/5 p-4 text-center space-y-2.5">
-                  {paymentSettings.qrisStaticImageUrl ? (
+                  {hasAutoAmountQris ? (
+                    <>
+                      <QrCode className="mx-auto size-9 text-primary" />
+                      <p className="text-sm font-black text-foreground">
+                        QRIS Dinamis Otomatis • {formatRupiah(total)}
+                      </p>
+                      <p className="text-xs text-muted-foreground max-w-sm mx-auto">
+                        QRIS toko dikonversi menjadi QRIS Dinamis EMVCo — nominal{" "}
+                        <strong className="text-foreground">{formatRupiah(total)}</strong> langsung terisi
+                        otomatis saat pelanggan scan. Kasir cukup 1-klik Konfirmasi Lunas setelah dana masuk.
+                      </p>
+                    </>
+                  ) : paymentSettings.qrisStaticImageUrl ? (
                     <>
                       <p className="text-xs font-black uppercase tracking-wider text-primary">
                         QRIS Statis Resmi Toko • Tagihan {formatRupiah(total)}
@@ -8094,8 +8169,20 @@ function PosPage({
               )}
             </div>
 
-            {/* Footer Final CTA Modal Pembayaran */}
-            <div className="border-t border-border p-4 bg-muted/20">
+            {/* Footer Final CTA Modal Pembayaran: Tahan (Hold) + Selesaikan */}
+            <div className="border-t border-border p-4 bg-muted/20 flex items-stretch gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={isSubmittingCheckout || cart.length === 0}
+                onClick={handleHoldOrder}
+                className="min-h-[52px] px-3.5 rounded-2xl flex items-center justify-center gap-1 border-dashed border-border bg-muted text-foreground/80 hover:bg-secondary shrink-0 font-bold text-xs cursor-pointer active:scale-95 transition-transform duration-100"
+                title="Simpan sementara antrean pesanan ini (Hold)"
+                aria-label="Tahan pesanan"
+              >
+                <Clock className="size-4 shrink-0" />
+                <span>{language === "en" ? t("cart.hold", "Hold") : "Tahan"}</span>
+              </Button>
               <Button
                 type="button"
                 variant="hero"
@@ -8114,7 +8201,7 @@ function PosPage({
                     setIsSubmittingCheckout(false);
                   }
                 }}
-                className="min-h-[52px] w-full rounded-2xl text-base font-black shadow-brand gap-2 active:scale-95 transition-transform duration-100"
+                className="min-h-[52px] flex-1 min-w-0 rounded-2xl text-base font-black shadow-brand gap-2 active:scale-95 transition-transform duration-100"
               >
                 {isSubmittingCheckout ? (
                   <>
@@ -8493,7 +8580,7 @@ function PosPage({
                   type="button"
                   variant="hero"
                   className="flex-1 h-10 px-4 rounded-xl text-xs sm:text-sm font-bold shadow-brand gap-1.5 whitespace-nowrap active:scale-95 transition-transform duration-100"
-                  onClick={handleConfirmAddToCart}
+                  onClick={handleConfirmVariant}
                 >
                   <span>{t("pos.add_to_cart", "Tambah ke Keranjang")}</span>
                   <span>•</span>
@@ -8516,9 +8603,11 @@ function PosPage({
                   QRIS
                 </div>
                 <span className="text-xs font-semibold text-muted-foreground">
-                  {qrisModalData.mode === "static"
-                    ? "Statis • QRIS Resmi Toko"
-                    : "Dinamis • ASPI / BI"}
+                  {qrisModalData.auto_amount
+                    ? "Dinamis EMVCo • Nominal Otomatis"
+                    : qrisModalData.mode === "static"
+                      ? "Statis • QRIS Resmi Toko"
+                      : "Dinamis • ASPI / BI"}
                 </span>
               </div>
               <Badge
@@ -8653,9 +8742,11 @@ function PosPage({
                     <img
                       src={qrisDisplayQrSrc}
                       alt={
-                        qrisModalData.mode === "static"
-                          ? "QRIS Statis Resmi Toko"
-                          : "QRIS Dinamis"
+                        qrisModalData.auto_amount
+                          ? "QRIS Dinamis Nominal Otomatis"
+                          : qrisModalData.mode === "static"
+                            ? "QRIS Statis Resmi Toko"
+                            : "QRIS Dinamis"
                       }
                       className="h-full w-full object-contain"
                     />
@@ -8688,14 +8779,18 @@ function PosPage({
                 <div className="rounded-2xl bg-muted/40 p-3 text-center text-xs text-muted-foreground space-y-1">
                   <p className="font-semibold text-foreground flex items-center justify-center gap-1.5">
                     <RadioTower className="size-3.5 text-primary animate-pulse" />
-                    {qrisModalData.mode === "static"
-                      ? "Pindai QRIS Statis Toko & Pastikan Nominal Sesuai"
-                      : "Menunggu Pelanggan Memindai QRIS"}
+                    {qrisModalData.auto_amount
+                      ? "QRIS Dinamis — Nominal Otomatis Terisi Saat Di-scan"
+                      : qrisModalData.mode === "static"
+                        ? "Pindai QRIS Statis Toko & Pastikan Nominal Sesuai"
+                        : "Menunggu Pelanggan Memindai QRIS"}
                   </p>
                   <p className="text-[11px]">
-                    {qrisModalData.mode === "static"
-                      ? "Setelah dana benar-benar masuk, kasir menekan tombol Konfirmasi Pembayaran Diterima."
-                      : "Dapat dipindai via GoPay, OVO, ShopeePay, Dana, BCA, Mandiri, & Semua m-Banking."}
+                    {qrisModalData.auto_amount
+                      ? "Pelanggan cukup scan tanpa mengetik angka. Setelah dana masuk, kasir tekan Konfirmasi Lunas."
+                      : qrisModalData.mode === "static"
+                        ? "Setelah dana benar-benar masuk, kasir menekan tombol Konfirmasi Pembayaran Diterima."
+                        : "Dapat dipindai via GoPay, OVO, ShopeePay, Dana, BCA, Mandiri, & Semua m-Banking."}
                   </p>
                 </div>
 
@@ -8709,7 +8804,9 @@ function PosPage({
                       onClick={handleConfirmStaticQrisPayment}
                     >
                       <CheckCircle2 className="size-4" />
-                      Konfirmasi Pembayaran Diterima
+                      {qrisModalData.auto_amount
+                        ? "Konfirmasi Lunas (Dana Diterima)"
+                        : "Konfirmasi Pembayaran Diterima"}
                     </Button>
                     <Button
                       type="button"
@@ -10122,7 +10219,14 @@ function OrdersPage({
 
   const handleSendOrderWhatsApp = (
     order: SalesOrder,
-    explicitItems?: Array<{ name: string; quantity: number; price: number; subtotal: number }>,
+    explicitItems?: Array<{
+      name: string;
+      quantity: number;
+      price: number;
+      subtotal: number;
+      variant?: string | null;
+      notes?: string | null;
+    }>,
   ) => {
     const displayMeta = resolveOrderDisplayMeta(order as any);
     const printerCfg = getSavedPrinterConfig();
@@ -10133,6 +10237,8 @@ function OrdersPage({
       if (snapshotItems.length > 0) {
         resolvedItems = snapshotItems.map((it: any) => ({
           name: it.name || `Order POS #${order.order_number}`,
+          variant: it.variant_name || null,
+          notes: it.notes || null,
           quantity: Number(it.quantity) || 1,
           price: Number(it.unit_price ?? it.price) || 0,
           subtotal:
@@ -10145,6 +10251,8 @@ function OrdersPage({
           rawOrderItems.length > 0
             ? rawOrderItems.map((it: any) => ({
                 name: it.name || `Order POS #${order.order_number}`,
+                variant: it.variant_name || null,
+                notes: it.notes || null,
                 quantity: Number(it.quantity) || 1,
                 price: Number(it.unit_price ?? it.price) || 0,
                 subtotal:
@@ -10162,13 +10270,14 @@ function OrdersPage({
       }
     }
 
-    openWhatsAppReceipt(
+    void shareReceiptImage(
       {
         storeName: headerStoreName,
         outletName: displayMeta.outletName,
         branchAddress: printerCfg.branchAddress,
         orderNumber: order.order_number,
         orderType: (order as any).order_type || order.channel || undefined,
+        tableNumber: (order as any).table_number || undefined,
         customerName: displayMeta.custName || undefined,
         customerQueueName: displayMeta.queueName || undefined,
         customerPhone: displayMeta.customerPhone || undefined,
@@ -10185,7 +10294,11 @@ function OrdersPage({
         footerMessage: printerCfg.footerMessage || "Terima kasih atas kunjungan Anda!",
       },
       displayMeta.customerPhone,
-    );
+    ).then((res) => {
+      if (res === "downloaded") {
+        toast.success("Gambar struk PNG diunduh — lampirkan pada chat WhatsApp.");
+      }
+    });
   };
 
   // Open Supervisor Action Modal (reject already void/cancelled/refunded orders immediately)
@@ -11447,6 +11560,8 @@ function OrdersPage({
                             selectedDetailOrder,
                             detailItems.map((it) => ({
                               name: it.name,
+                              variant: it.variant_name || null,
+                              notes: it.notes || null,
                               quantity: it.quantity,
                               price: it.unit_price,
                               subtotal: it.subtotal || it.unit_price * it.quantity,

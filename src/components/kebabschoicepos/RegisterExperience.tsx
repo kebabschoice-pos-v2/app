@@ -168,7 +168,7 @@ export function RegisterExperience() {
             required
           />
           <p className="text-xs text-muted-foreground">
-            Kode master khusus owner (tidak dikirim ke email).
+            Kode master khusus owner (tidak dikirim ke email)
           </p>
         </div>
         <div className="space-y-2">

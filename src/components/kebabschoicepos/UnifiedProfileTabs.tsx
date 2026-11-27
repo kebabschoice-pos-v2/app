@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import {
   Bluetooth,
+  BellRing,
   CheckCircle2,
   ChevronRight,
   Globe2,
@@ -72,6 +73,11 @@ import {
 import { useTranslation } from "@/lib/i18n";
 import { ThemeModal } from "@/components/theme/ThemeModal";
 import { LanguageSettingsPage } from "@/pages/account/LanguageSettingsPage";
+import {
+  isNativeApkEnvironment,
+  isNotificationAccessEnabledNative,
+  openNotificationAccessSettingsNative,
+} from "@/lib/native-qris-auto-confirm";
 
 export type ProfileMenuSection =
   | "display"
@@ -134,6 +140,8 @@ export function UnifiedProfileTabs({
   const [isTestingPrint, setIsTestingPrint] = useState(false);
   const [pairedBtDevices, setPairedBtDevices] = useState<PairedBluetoothPrinter[]>([]);
   const [showPairedBtPicker, setShowPairedBtPicker] = useState(false);
+  const [isNativeApk] = useState<boolean>(() => isNativeApkEnvironment());
+  const [notifAccessEnabled, setNotifAccessEnabled] = useState<boolean>(false);
 
   // Security: Password & Supervisor PIN
   const [newPassword, setNewPassword] = useState("");
@@ -276,11 +284,25 @@ export function UnifiedProfileTabs({
     window.addEventListener("ui-scale-changed", syncScale);
     window.addEventListener("pos:view-mode-changed", syncView);
     window.addEventListener("pos:sound-changed", syncSound);
+
+    const refreshNotifAccess = () => {
+      if (isNativeApkEnvironment()) {
+        isNotificationAccessEnabledNative()
+          .then((enabled) => setNotifAccessEnabled(enabled))
+          .catch(() => {});
+      }
+    };
+    refreshNotifAccess();
+    window.addEventListener("focus", refreshNotifAccess);
+    document.addEventListener("visibilitychange", refreshNotifAccess);
+
     return () => {
       unsubPrinter();
       window.removeEventListener("ui-scale-changed", syncScale);
       window.removeEventListener("pos:view-mode-changed", syncView);
       window.removeEventListener("pos:sound-changed", syncSound);
+      window.removeEventListener("focus", refreshNotifAccess);
+      document.removeEventListener("visibilitychange", refreshNotifAccess);
     };
   }, [propEmail, propName, propRole]);
 
@@ -857,6 +879,55 @@ export function UnifiedProfileTabs({
                   })}
                 </div>
               </div>
+
+              {/* Auto-Lunas QRIS (Shopee Partner) — Khusus di dalam .apk Android */}
+              {isNativeApk && (
+                <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-2.5">
+                  <div className="flex items-center justify-between gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <BellRing className="size-4 text-primary" />
+                      <h2 className="text-sm font-black text-foreground">
+                        Auto-Lunas QRIS (Shopee Partner)
+                      </h2>
+                    </div>
+                    <span
+                      className={cn(
+                        "rounded-full px-2.5 py-0.5 text-[11px] font-bold",
+                        notifAccessEnabled
+                          ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                          : "bg-secondary text-muted-foreground",
+                      )}
+                    >
+                      {notifAccessEnabled ? "Aktif" : "Belum Aktif"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Mendeteksi notifikasi pembayaran QRIS masuk dari aplikasi Shopee Partner secara
+                    otomatis dan langsung melunaskan tagihan kasir bila nominal cocok persis.
+                  </p>
+                  <div className="pt-0.5">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={notifAccessEnabled ? "outline" : "default"}
+                      onClick={async () => {
+                        const opened = await openNotificationAccessSettingsNative();
+                        if (opened) {
+                          toast.info(
+                            "Geser saklar 'KebabsChoice POS' pada daftar Akses Notifikasi Android.",
+                          );
+                        } else {
+                          toast.error("Gagal membuka Pengaturan Akses Notifikasi Android.");
+                        }
+                      }}
+                      className="h-9 rounded-xl text-xs font-bold gap-1.5"
+                    >
+                      <BellRing className="size-3.5" />
+                      <span>Aktifkan Akses Notifikasi</span>
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

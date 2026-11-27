@@ -4593,6 +4593,128 @@ test("ShopeePay QRIS modes: dynamic_010212, static_with_amount (keeps 010211 + t
   assert.strictEqual(rawOut, shopeeStatic, "static_raw must keep original static payload 100% untouched");
 });
 
+// --- TEST 120: Auto-Lunas QRIS via Notifikasi Shopee Partner, Tombol Tahan di Modal QRIS, & Perbaikan /orders ---
+console.log("\n▶ 120. AUTO-LUNAS QRIS NOTIFIKASI SHOPEE PARTNER, TOMBOL TAHAN MODAL QRIS, & FILTER/KPI /ORDERS");
+
+const autoConfirmMod = await import("../src/lib/native-qris-auto-confirm.ts");
+
+test("Shopee Partner notification parser detects 'Pembayaran QRIS diterima Rp 22.000' as 22000 and strictly rejects promo 'Cashback Rp 22.000'", () => {
+  const {
+    extractNotificationRupiahAmount,
+    isIncomingPaymentNotificationText,
+    isMonitoredPaymentPackage,
+    parseShopeePartnerNotification,
+  } = autoConfirmMod;
+
+  // 1. Real incoming Shopee Partner QRIS payment notification -> 22000
+  const validShopee = parseShopeePartnerNotification({
+    packageName: "com.shopee.merchant.id",
+    title: "Shopee Partner",
+    text: "Pembayaran QRIS diterima Rp 22.000",
+    timestamp: 1700000000000,
+  });
+  assert.ok(validShopee, "Valid Shopee Partner QRIS payment notification must be accepted");
+  assert.strictEqual(validShopee.amount, 22000);
+  assert.strictEqual(validShopee.packageName, "com.shopee.merchant.id");
+
+  // Variant formats: Rp22.000,00 and IDR 22.000
+  assert.strictEqual(extractNotificationRupiahAmount("Dana berhasil masuk Rp22.000,00"), 22000);
+  assert.strictEqual(extractNotificationRupiahAmount("Pembayaran sukses IDR 22.000"), 22000);
+  assert.strictEqual(extractNotificationRupiahAmount("Total diterima Rp 1.250.500"), 1250500);
+
+  // 2. Promo notifications MUST be rejected (anti false-positive)
+  const rejectedCashback = parseShopeePartnerNotification({
+    packageName: "com.shopee.merchant.id",
+    title: "Promo Spesial!",
+    text: "Cashback Rp 22.000 berhasil menanti Anda",
+  });
+  assert.strictEqual(rejectedCashback, null, "Promo 'Cashback Rp 22.000' must be rejected");
+  assert.strictEqual(isIncomingPaymentNotificationText("Cashback Rp 22.000"), false);
+  assert.strictEqual(isIncomingPaymentNotificationText("Voucher diskon Rp 22.000 diterima"), false);
+  assert.strictEqual(isIncomingPaymentNotificationText("Gratis ongkir Rp 22.000"), false);
+
+  // 3. Unmonitored chat/social packages MUST be rejected even if someone chats "Pembayaran diterima Rp 22.000"
+  assert.strictEqual(isMonitoredPaymentPackage("com.shopee.merchant.id"), true);
+  assert.strictEqual(isMonitoredPaymentPackage("com.gojek.resto"), true);
+  assert.strictEqual(isMonitoredPaymentPackage("com.whatsapp"), false);
+  const rejectedChat = parseShopeePartnerNotification({
+    packageName: "com.whatsapp",
+    title: "Pelanggan",
+    text: "Pembayaran QRIS diterima Rp 22.000",
+  });
+  assert.strictEqual(rejectedChat, null, "WhatsApp chat notification must never trigger auto-confirm");
+});
+
+test("Verifies PaymentNotificationListener.java, PaymentAutoConfirmPlugin.java, AndroidManifest.xml, QRIS Hold & Auto-Confirm, Profile toggle, and /orders KPI & Filter", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const listenerJava = read(
+    "android/app/src/main/java/com/kebabschoice/pos/PaymentNotificationListener.java",
+  );
+  const pluginJava = read(
+    "android/app/src/main/java/com/kebabschoice/pos/PaymentAutoConfirmPlugin.java",
+  );
+  const manifestXml = read("android/app/src/main/AndroidManifest.xml");
+  const mainActivityJava = read(
+    "android/app/src/main/java/com/kebabschoice/pos/MainActivity.java",
+  );
+  const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+  const profileTabsCode = read("src/components/kebabschoicepos/UnifiedProfileTabs.tsx");
+
+  // 1. Native Android NotificationListenerService + PaymentAutoConfirmPlugin + Manifest + MainActivity
+  assert.ok(
+    listenerJava.includes("extends NotificationListenerService") &&
+      listenerJava.includes('"com.shopee.merchant.id"') &&
+      listenerJava.includes('"cashback"') &&
+      listenerJava.includes('"voucher"') &&
+      listenerJava.includes("extractRupiahAmount") &&
+      pluginJava.includes('@CapacitorPlugin(name = "PaymentAutoConfirm")') &&
+      pluginJava.includes("paymentNotificationReceived") &&
+      pluginJava.includes("isNotificationAccessEnabled") &&
+      pluginJava.includes("openNotificationAccessSettings") &&
+      pluginJava.includes("ACTION_NOTIFICATION_LISTENER_SETTINGS") &&
+      manifestXml.includes("android.permission.BIND_NOTIFICATION_LISTENER_SERVICE") &&
+      manifestXml.includes("android.service.notification.NotificationListenerService") &&
+      manifestXml.includes(".PaymentNotificationListener"),
+    "Native PaymentNotificationListener, PaymentAutoConfirmPlugin, and AndroidManifest service must be properly configured",
+  );
+
+  const idxAutoConfirm = mainActivityJava.indexOf("registerPlugin(PaymentAutoConfirmPlugin.class);");
+  const idxSuper = mainActivityJava.indexOf("super.onCreate(savedInstanceState);");
+  assert.ok(
+    idxAutoConfirm > 0 && idxAutoConfirm < idxSuper,
+    "MainActivity.java must register PaymentAutoConfirmPlugin BEFORE super.onCreate(savedInstanceState)",
+  );
+
+  // 2. POS QRIS modal auto-confirm + Tahan / Pending + hide Cek Status on QRIS-STATIC- + Profile card
+  assert.ok(
+    posAppCode.includes("subscribePaymentNotifications") &&
+      posAppCode.includes("terdeteksi otomatis dari Shopee Partner!") &&
+      posAppCode.includes("Tahan / Pending") &&
+      posAppCode.includes("handleHoldQrisPendingOrder") &&
+      posAppCode.includes('"QRIS-STATIC-"') &&
+      profileTabsCode.includes("Auto-Lunas QRIS (Shopee Partner)") &&
+      profileTabsCode.includes("Aktifkan Akses Notifikasi"),
+    "POS QRIS Modal & UnifiedProfileTabs must wire Shopee Partner auto-confirm, Tahan / Pending button, and Notification Access shortcut",
+  );
+
+  // 3. OrdersPage: getActiveOutlets + filterOutletOptions + Refresh + Ringkasan Metode Pembayaran (Terfilter)
+  const ordersSlice = posAppCode.slice(
+    posAppCode.indexOf("function OrdersPage("),
+    posAppCode.indexOf("function ProfilePage("),
+  );
+  assert.ok(
+    ordersSlice.includes("getActiveOutlets()") &&
+      ordersSlice.includes("filterOutletOptions") &&
+      ordersSlice.includes("handleRefreshOrders") &&
+      ordersSlice.includes("Ringkasan Metode Pembayaran (Terfilter)") &&
+      ordersSlice.includes("Tunai (Cash)") &&
+      ordersSlice.includes("QRIS") &&
+      ordersSlice.includes("EDC / Lainnya") &&
+      !ordersSlice.includes("Semua Cabang Terhubung"),
+    "OrdersPage must merge getActiveOutlets + snapshot.outlets + order outlet names, render Refresh button, and replace static Status Outlet card with Ringkasan Metode Pembayaran (Terfilter)",
+  );
+});
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

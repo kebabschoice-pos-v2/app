@@ -210,7 +210,7 @@ import {
   isDateWithinFilter,
   type AnalyticsFilter,
 } from "@/services/reports.service";
-import { getOutletList, isOutletDeletedOrArchived } from "@/services/outlet.service";
+import { getActiveOutlets, getOutletList, isOutletDeletedOrArchived } from "@/services/outlet.service";
 import { verifySupervisorPin } from "@/services/supervisor.service";
 import { InventoryManagement } from "@/pages/inventory/InventoryManagement";
 import { StockOpnamePage } from "@/pages/inventory/StockOpnamePage";
@@ -254,6 +254,7 @@ import { shareReceiptImage } from "@/lib/receipt-image";
 import { getSmartCashSuggestions } from "@/lib/cash-suggestions";
 import { normalizeQrisPayload, validateQrisPayload } from "@/lib/qris-emv";
 import { isCapacitorAndroid, openWhatsAppHomeNative } from "@/lib/native-whatsapp";
+import { subscribePaymentNotifications } from "@/lib/native-qris-auto-confirm";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -4635,6 +4636,7 @@ function PosPage({
   // Dynamic QRIS Realtime Payment State (Tahap 4)
   const [isQrisModalOpen, setIsQrisModalOpen] = useState(false);
   const [qrisModalData, setQrisModalData] = useState<QrisTransactionResponse | null>(null);
+  const [qrisOpenedAtMs, setQrisOpenedAtMs] = useState<number>(0);
   const [qrisStatus, setQrisStatus] = useState<"PENDING" | "PAID" | "EXPIRED" | "FAILED">("PENDING");
   const [qrisSettlementRef, setQrisSettlementRef] = useState<string>("");
   const [isCheckingQris, setIsCheckingQris] = useState(false);
@@ -4781,6 +4783,67 @@ function PosPage({
     setDiscountValue(0);
     toast.success("Antrean Berhasil Ditahan (Hold)", {
       description: `Pesanan "${newHold.customerQueueName || 'Antrean #' + (heldOrders.length + 1)}" (${newHold.items.length} item) tersimpan sementara.`,
+    });
+  };
+
+  /**
+   * Parkirkan pesanan QRIS yang sedang menunggu pembayaran ke daftar `Tertahan`
+   * agar kasir dapat melayani antrean pelanggan berikutnya.
+   */
+  const handleHoldQrisPendingOrder = () => {
+    const itemsToHold =
+      qrisPendingOrder?.cartItems && Array.isArray(qrisPendingOrder.cartItems) && qrisPendingOrder.cartItems.length > 0
+        ? qrisPendingOrder.cartItems
+        : cart;
+    if (!itemsToHold || itemsToHold.length === 0) {
+      toast.info("Tidak ada item pesanan QRIS untuk ditahan.");
+      return;
+    }
+
+    const chosenOutletId =
+      qrisPendingOrder?.chosenOutletId ||
+      (selectedOutletId !== "all" ? selectedOutletId : activeOutlets[0]?.id || undefined);
+
+    const newHold: HeldOrder = {
+      id: `hold_${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      outletId: chosenOutletId,
+      orderType: qrisPendingOrder?.orderType || orderType,
+      tableNumber: (qrisPendingOrder?.tableNumber ?? tableNumber) || undefined,
+      customerQueueName: (qrisPendingOrder?.customerQueueName ?? customerQueueName) || undefined,
+      ojolOrderCode: (qrisPendingOrder?.ojolOrderCode ?? ojolOrderCode) || undefined,
+      orderNotes: orderNotes || undefined,
+      items: [...itemsToHold],
+      discountType,
+      discountValue,
+    };
+
+    const updated = [newHold, ...allHeldOrders];
+    setAllHeldOrders(updated);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
+    }
+
+    playPosSound("option");
+    setIsQrisModalOpen(false);
+    setQrisModalData(null);
+    setQrisPendingOrder(null);
+    setQrisStatus("PENDING");
+    setQrisPersistError(null);
+    setCart([]);
+    setIsCustomerStepModalOpen(false);
+    setIsPaymentModalOpen(false);
+    setIsMobileCartDrawerOpen(false);
+    setActiveCartPopover(null);
+    setOrderType("take_away");
+    setCustomerQueueName("");
+    setOjolOrderCode("");
+    setTableNumber("");
+    setOrderNotes("");
+    setDiscountValue(0);
+
+    toast.success("Pesanan QRIS diparkir ke daftar Tertahan", {
+      description: `Antrean "${newHold.customerQueueName || "QRIS #" + (heldOrders.length + 1)}" (${newHold.items.length} item) dapat dilanjutkan kapan saja.`,
     });
   };
 
@@ -5983,6 +6046,44 @@ function PosPage({
     }
   };
 
+  // Auto-Lunas QRIS via Notifikasi Native Shopee Partner (.apk Capacitor)
+  const confirmStaticQrisRef = useRef(handleConfirmStaticQrisPayment);
+  confirmStaticQrisRef.current = handleConfirmStaticQrisPayment;
+  const autoConfirmedOrderRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!isQrisModalOpen || qrisStatus !== "PENDING" || !qrisModalData) {
+      return;
+    }
+    const grandTotal = Math.round(
+      Number(qrisPendingOrder?.total ?? qrisModalData.amount ?? total) || 0,
+    );
+    if (grandTotal <= 0) return;
+
+    const currentOrderKey = `${qrisModalData.order_number}_${grandTotal}`;
+    const createdFloorMs = qrisOpenedAtMs > 0 ? qrisOpenedAtMs - 5000 : 0;
+
+    return subscribePaymentNotifications((evt) => {
+      if (autoConfirmedOrderRef.current === currentOrderKey) return;
+      if (Math.round(Number(evt.amount) || 0) !== grandTotal) return;
+      if (createdFloorMs > 0 && evt.timestamp < createdFloorMs) return;
+
+      autoConfirmedOrderRef.current = currentOrderKey;
+      toast.success(
+        `Dana ${formatRupiah(grandTotal)} terdeteksi otomatis dari Shopee Partner!`,
+      );
+      playPosSound("success");
+      void confirmStaticQrisRef.current();
+    });
+  }, [
+    isQrisModalOpen,
+    qrisStatus,
+    qrisModalData,
+    qrisPendingOrder,
+    qrisOpenedAtMs,
+    total,
+  ]);
+
   // Checkout transaction
   async function checkout() {
     if (activeShift?.status !== "open") {
@@ -6149,6 +6250,7 @@ function PosPage({
         });
 
         setQrisModalData(qrisRes);
+        setQrisOpenedAtMs(Date.now());
         setQrisStatus("PENDING");
         setQrisSettlementRef("");
         setIsSettlingQris(false);
@@ -8846,53 +8948,79 @@ function PosPage({
                       onClick={handleConfirmStaticQrisPayment}
                     >
                       <CheckCircle2 className="size-4" />
-                      {qrisModalData.auto_amount
-                        ? "Konfirmasi Lunas (Dana Diterima)"
-                        : "Konfirmasi Pembayaran Diterima"}
+                      Konfirmasi Lunas (Dana Diterima)
                     </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-10 rounded-xl text-xs font-semibold gap-1.5"
-                      disabled={isCheckingQris}
-                      onClick={handleCheckQrisStatus}
-                    >
-                      <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
-                      Cek Status Pembayaran
-                    </Button>
-                  </div>
-                ) : (
-                  <div
-                    className={cn(
-                      "grid gap-2 pt-1",
-                      import.meta.env.DEV ? "grid-cols-2" : "grid-cols-1",
-                    )}
-                  >
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      className="h-10 rounded-xl text-xs font-semibold gap-1.5"
-                      disabled={isCheckingQris}
-                      onClick={handleCheckQrisStatus}
-                    >
-                      <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
-                      Cek Status Pembayaran
-                    </Button>
-
-                    {import.meta.env.DEV && (
+                    {!String(qrisModalData.external_reference_id || "").startsWith(
+                      "QRIS-STATIC-",
+                    ) && (
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        className="h-10 rounded-xl text-xs font-semibold border-border bg-muted text-foreground/75 hover:bg-muted gap-1.5"
-                        onClick={handleSimulateQrisPayment}
+                        className="h-10 rounded-xl text-xs font-semibold gap-1.5"
+                        disabled={isCheckingQris}
+                        onClick={handleCheckQrisStatus}
                       >
-                        <Zap className="size-3.5 text-foreground/75" />
-                        Simulasi Bayar (Test)
+                        <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
+                        Cek Status Pembayaran
                       </Button>
                     )}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isCheckingQris || isSettlingQris}
+                      onClick={handleHoldQrisPendingOrder}
+                      className="h-10 rounded-xl text-xs font-bold gap-1.5 border-dashed border-border bg-muted/40 text-foreground/85 hover:bg-secondary cursor-pointer"
+                    >
+                      <Clock className="size-3.5" />
+                      Tahan / Pending
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2 pt-1">
+                    <div
+                      className={cn(
+                        "grid gap-2",
+                        import.meta.env.DEV ? "grid-cols-2" : "grid-cols-1",
+                      )}
+                    >
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="h-10 rounded-xl text-xs font-semibold gap-1.5"
+                        disabled={isCheckingQris}
+                        onClick={handleCheckQrisStatus}
+                      >
+                        <RefreshCw className={cn("size-3.5", isCheckingQris && "animate-spin")} />
+                        Cek Status Pembayaran
+                      </Button>
+
+                      {import.meta.env.DEV && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-10 rounded-xl text-xs font-semibold border-border bg-muted text-foreground/75 hover:bg-muted gap-1.5"
+                          onClick={handleSimulateQrisPayment}
+                        >
+                          <Zap className="size-3.5 text-foreground/75" />
+                          Simulasi Bayar (Test)
+                        </Button>
+                      )}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isCheckingQris || isSettlingQris}
+                      onClick={handleHoldQrisPendingOrder}
+                      className="w-full h-10 rounded-xl text-xs font-bold gap-1.5 border-dashed border-border bg-muted/40 text-foreground/85 hover:bg-secondary cursor-pointer"
+                    >
+                      <Clock className="size-3.5" />
+                      Tahan / Pending
+                    </Button>
                   </div>
                 )}
 
@@ -9715,6 +9843,39 @@ function OrdersPage({
   const [dbOutlets, setDbOutlets] = useState<OutletItem[]>(() =>
     (snapshot.outlets || []).filter((o) => !isOutletDeletedOrArchived(o)),
   );
+  const [isRefreshingOrders, setIsRefreshingOrders] = useState(false);
+
+  const syncActiveOutletsFromDb = async () => {
+    try {
+      const list = await getActiveOutlets();
+      if (!list || list.length === 0) return;
+      const fetched: OutletItem[] = list
+        .filter((o: any) => !isOutletDeletedOrArchived(o))
+        .map((o: any) => ({
+          id: o.id,
+          name: o.name || o.outlet_name || "Cabang",
+          code: o.code || "",
+          address: o.address || "",
+          active: !isOutletDeletedOrArchived(o),
+          settings: (o.settings as any) || {},
+        }));
+      setDbOutlets((prev) => {
+        const map = new Map<string, OutletItem>();
+        prev.forEach((o) => {
+          if (o?.id) map.set(o.id, o);
+        });
+        (snapshot.outlets || [])
+          .filter((o) => !isOutletDeletedOrArchived(o))
+          .forEach((o) => {
+            if (o?.id) map.set(o.id, { ...(map.get(o.id) || {}), ...o });
+          });
+        fetched.forEach((o) => {
+          if (o?.id) map.set(o.id, { ...(map.get(o.id) || {}), ...o });
+        });
+        return Array.from(map.values());
+      });
+    } catch {}
+  };
 
   useEffect(() => {
     const incomingOutlets = (snapshot.outlets || []).filter((o) => !isOutletDeletedOrArchived(o));
@@ -9722,7 +9883,7 @@ function OrdersPage({
       setDbOutlets((prev) => {
         const map = new Map<string, OutletItem>();
         prev.forEach((o) => map.set(o.id, o));
-        incomingOutlets.forEach((o) => map.set(o.id, o));
+        incomingOutlets.forEach((o) => map.set(o.id, { ...(map.get(o.id) || {}), ...o }));
         const merged = Array.from(map.values());
         if (merged.length === prev.length && merged.every((item, idx) => item.id === prev[idx]?.id)) {
           return prev;
@@ -9731,14 +9892,14 @@ function OrdersPage({
       });
     }
     let isCancelled = false;
-    getOutletList(snapshot.businessId || undefined)
+    getActiveOutlets()
       .then((list) => {
         if (isCancelled || !list || list.length === 0) return;
         const fetched: OutletItem[] = list
           .filter((o: any) => !isOutletDeletedOrArchived(o))
           .map((o: any) => ({
             id: o.id,
-            name: o.name,
+            name: o.name || o.outlet_name || "Cabang",
             code: o.code || "",
             address: o.address || "",
             active: !isOutletDeletedOrArchived(o),
@@ -10052,17 +10213,80 @@ function OrdersPage({
     };
   };
 
+  // Gabungkan getActiveOutlets() + snapshot.outlets + nama cabang unik dari daftar order
+  // agar seluruh cabang aktif (cth. "kebab pasar jumat") selalu tampil di dropdown FILTER OUTLET.
+  const filterOutletOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    const seenLowerNames = new Set<string>();
+
+    const register = (idRaw?: string | null, nameRaw?: string | null) => {
+      const id = String(idRaw || "").trim();
+      const name = String(nameRaw || "").trim();
+      if (!name) return;
+      const lower = name.toLowerCase();
+      if (id) {
+        if (!byId.has(id)) {
+          byId.set(id, { id, name });
+          seenLowerNames.add(lower);
+        }
+        return;
+      }
+      if (lower === "outlet utama" || seenLowerNames.has(lower)) return;
+      const syntheticId = `name:${lower}`;
+      byId.set(syntheticId, { id: syntheticId, name });
+      seenLowerNames.add(lower);
+    };
+
+    activeOutlets.forEach((o) => register(o.id, o.name));
+    (snapshot.outlets || [])
+      .filter((o) => !isOutletDeletedOrArchived(o))
+      .forEach((o) => register(o.id, o.name));
+
+    localOrders.forEach((ord) => {
+      const meta = orderMetadataMap[ord.id];
+      const ordId = (ord as any).outlet_id || meta?.outlet_id || null;
+      const ordName =
+        (ordId && outletNameById[ordId]) ||
+        meta?.outlet_name ||
+        (ord as any).outlet_name ||
+        null;
+      if (ordName && String(ordName).trim().toLowerCase() !== "outlet utama") {
+        register(ordId, ordName);
+      }
+    });
+
+    return Array.from(byId.values());
+  }, [activeOutlets, snapshot.outlets, localOrders, orderMetadataMap, outletNameById]);
+
   const filteredOrders = useMemo(() => {
+    const selectedOption =
+      selectedOutletFilter !== "all"
+        ? filterOutletOptions.find((o) => o.id === selectedOutletFilter) || null
+        : null;
+    const selectedNameLower = selectedOption?.name.trim().toLowerCase() || "";
+
     return localOrders.filter((ord) => {
       const displayMeta = resolveOrderDisplayMeta(ord as any);
       if (selectedOutletFilter !== "all") {
-        if (displayMeta.resolvedOutletId && displayMeta.resolvedOutletId !== selectedOutletFilter) {
-          return false;
-        }
-        if (!displayMeta.resolvedOutletId) {
-          const defaultOutlet =
-            snapshot.assignedOutletId || (activeOutlets.length > 0 ? activeOutlets[0]?.id : "all");
-          if (selectedOutletFilter !== defaultOutlet && selectedOutletFilter !== "all") return false;
+        const displayNameLower = displayMeta.outletName.trim().toLowerCase();
+        if (selectedOutletFilter.startsWith("name:")) {
+          const targetName = selectedOutletFilter.slice(5);
+          if (displayNameLower !== targetName) return false;
+        } else if (displayMeta.resolvedOutletId) {
+          const idMatches = displayMeta.resolvedOutletId === selectedOutletFilter;
+          const nameMatches = Boolean(selectedNameLower && displayNameLower === selectedNameLower);
+          if (!idMatches && !nameMatches) {
+            return false;
+          }
+        } else {
+          const nameMatches = Boolean(selectedNameLower && displayNameLower === selectedNameLower);
+          if (!nameMatches) {
+            const defaultOutlet =
+              snapshot.assignedOutletId || (activeOutlets.length > 0 ? activeOutlets[0]?.id : "all");
+            if (selectedOutletFilter !== defaultOutlet && selectedOutletFilter !== "all") {
+              return false;
+            }
+          }
         }
       }
 
@@ -10085,6 +10309,7 @@ function OrdersPage({
   }, [
     localOrders,
     selectedOutletFilter,
+    filterOutletOptions,
     dateFilter,
     searchQuery,
     orderMetadataMap,
@@ -10094,11 +10319,58 @@ function OrdersPage({
     activeOutlets,
   ]);
 
+  const validFilteredOrders = useMemo(
+    () =>
+      filteredOrders.filter(
+        (ord) =>
+          ord.status !== "refunded" && ord.status !== "void" && ord.status !== "cancelled",
+      ),
+    [filteredOrders],
+  );
+
   const filteredTotalRevenue = useMemo(() => {
-    return filteredOrders
-      .filter((ord) => ord.status !== "refunded" && ord.status !== "void" && ord.status !== "cancelled")
-      .reduce((sum, ord) => sum + (Number(ord.total) || 0), 0);
-  }, [filteredOrders]);
+    return validFilteredOrders.reduce((sum, ord) => sum + (Number(ord.total) || 0), 0);
+  }, [validFilteredOrders]);
+
+  const filteredPaymentSummary = useMemo(() => {
+    const summary = {
+      cash: { total: 0, count: 0 },
+      qris: { total: 0, count: 0 },
+      other: { total: 0, count: 0 },
+    };
+    for (const ord of validFilteredOrders) {
+      const amount = Number(ord.total) || 0;
+      const pm = String(ord.payment_method || "cash").trim().toLowerCase();
+      if (pm === "cash" || pm === "tunai") {
+        summary.cash.total += amount;
+        summary.cash.count += 1;
+      } else if (pm === "qris") {
+        summary.qris.total += amount;
+        summary.qris.count += 1;
+      } else {
+        summary.other.total += amount;
+        summary.other.count += 1;
+      }
+    }
+    return summary;
+  }, [validFilteredOrders]);
+
+  const handleRefreshOrders = async () => {
+    if (isRefreshingOrders) return;
+    setIsRefreshingOrders(true);
+    try {
+      await Promise.all([
+        syncActiveOutletsFromDb(),
+        onRefresh ? onRefresh() : Promise.resolve(),
+      ]);
+      setLocalOrders(getMergedOrders(snapshot.orders));
+      toast.success("Data transaksi & cabang berhasil diperbarui");
+    } catch {
+      toast.error("Gagal memuat ulang data transaksi");
+    } finally {
+      setIsRefreshingOrders(false);
+    }
+  };
 
   const handleExportOrdersCSV = () => {
     if (filteredOrders.length === 0) {
@@ -10923,7 +11195,7 @@ function OrdersPage({
                   <option value="all">
                     {t("orders.all_outlets_option", "Semua Cabang Outlet")}
                   </option>
-                  {activeOutlets.map((o) => (
+                  {filterOutletOptions.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
                     </option>
@@ -11021,7 +11293,18 @@ function OrdersPage({
             />
           </div>
 
-          {/* Export CSV */}
+          {/* Refresh & Export CSV */}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={handleRefreshOrders}
+            disabled={isRefreshingOrders}
+            className="rounded-2xl h-11 px-3.5 gap-1.5 font-bold cursor-pointer shrink-0"
+          >
+            <RefreshCw className={cn("size-4", isRefreshingOrders && "animate-spin")} />
+            Refresh
+          </Button>
           <Button
             variant="default"
             size="sm"
@@ -11088,18 +11371,37 @@ function OrdersPage({
           )}
         >
           <p className="text-xs text-muted-foreground font-semibold">
-            {t("orders.outlet_status", "Status Outlet")}
+            {t("orders.payment_summary_filtered", "Ringkasan Metode Pembayaran (Terfilter)")}
           </p>
-          <p
-            className={cn(
-              "font-bold text-foreground mt-1",
-              isPosOrders ? "text-base sm:text-lg" : "text-xl",
-            )}
-          >
-            {selectedOutletFilter === "all"
-              ? t("orders.all_connected", "Semua Cabang Terhubung")
-              : dbOutlets.find((o) => o.id === selectedOutletFilter)?.name || "Aktif"}
-          </p>
+          <div className="mt-1.5 space-y-1 text-xs">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-muted-foreground">Tunai (Cash)</span>
+              <span className="font-bold text-foreground tabular-nums">
+                {formatRupiah(filteredPaymentSummary.cash.total)}{" "}
+                <span className="font-normal text-muted-foreground">
+                  ({filteredPaymentSummary.cash.count} trx)
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-muted-foreground">QRIS</span>
+              <span className="font-bold text-foreground tabular-nums">
+                {formatRupiah(filteredPaymentSummary.qris.total)}{" "}
+                <span className="font-normal text-muted-foreground">
+                  ({filteredPaymentSummary.qris.count} trx)
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-medium text-muted-foreground">EDC / Lainnya</span>
+              <span className="font-bold text-foreground tabular-nums">
+                {formatRupiah(filteredPaymentSummary.other.total)}{" "}
+                <span className="font-normal text-muted-foreground">
+                  ({filteredPaymentSummary.other.count} trx)
+                </span>
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 

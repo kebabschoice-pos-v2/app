@@ -39,6 +39,7 @@ public class MainActivity extends BridgeActivity {
         // WAJIB di Capacitor Android: semua registerPlugin(...) harus dipanggil SEBELUM super.onCreate(savedInstanceState)
         registerPlugin(WhatsAppLauncherPlugin.class);
         registerPlugin(BluetoothPrinterPlugin.class);
+        registerPlugin(PaymentAutoConfirmPlugin.class);
 
         cameraPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),

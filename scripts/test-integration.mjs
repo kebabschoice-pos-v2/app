@@ -4277,6 +4277,191 @@ test("Verifies all 6 feature groups across PaymentSettings, Receipt Image PNG, P
   );
 });
 
+// --- TEST 118: Tugas Bagian 2/2 — Native Android Bluetooth Classic (SPP) Plugin & Direct ESC/POS Base64 Printing ---
+console.log("\n▶ 118. TUGAS BAGIAN 2/2: PLUGIN NATIVE BLUETOOTH CLASSIC (SPP) DI .APK ANDROID TANPA RAWBT");
+
+const thermalPrinterMod = await import("../src/services/thermal-printer.service.ts");
+
+test("BluetoothPrinterPlugin.java, MainActivity.java, and AndroidManifest.xml implement full Android Bluetooth Classic SPP (00001101-0000-1000-8000-00805F9B34FB)", () => {
+  const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+  const pluginJavaPath = "android/app/src/main/java/com/kebabschoice/pos/BluetoothPrinterPlugin.java";
+  assert.ok(
+    fs.existsSync(path.join(process.cwd(), pluginJavaPath)),
+    "BluetoothPrinterPlugin.java must exist in com.kebabschoice.pos",
+  );
+
+  const pluginJava = read(pluginJavaPath);
+  const mainActivityJava = read("android/app/src/main/java/com/kebabschoice/pos/MainActivity.java");
+  const manifestXml = read("android/app/src/main/AndroidManifest.xml");
+  const printerSettingsCode = read("src/pages/settings/PrinterSettingsPage.tsx");
+  const profileTabsCode = read("src/components/kebabschoicepos/UnifiedProfileTabs.tsx");
+
+  assert.ok(
+    pluginJava.includes('@CapacitorPlugin(\n    name = "BluetoothPrinter"') ||
+      pluginJava.includes('@CapacitorPlugin(name = "BluetoothPrinter"'),
+    "BluetoothPrinterPlugin must declare @CapacitorPlugin name BluetoothPrinter",
+  );
+  assert.ok(
+    pluginJava.includes("00001101-0000-1000-8000-00805F9B34FB") &&
+      pluginJava.includes("BluetoothAdapter") &&
+      pluginJava.includes("BluetoothDevice") &&
+      pluginJava.includes("BluetoothSocket") &&
+      pluginJava.includes("BLUETOOTH_CONNECT") &&
+      pluginJava.includes("BLUETOOTH_SCAN") &&
+      pluginJava.includes("public void ensureBluetoothEnabled(PluginCall call)") &&
+      pluginJava.includes("public void listPairedPrinters(PluginCall call)") &&
+      pluginJava.includes("public void printBase64(PluginCall call)") &&
+      pluginJava.includes("createRfcommSocketToServiceRecord(SPP_UUID)"),
+    "BluetoothPrinterPlugin.java must use SPP_UUID 00001101-0000-1000-8000-00805F9B34FB and provide ensureBluetoothEnabled, listPairedPrinters, and printBase64",
+  );
+
+  assert.ok(
+    mainActivityJava.includes("registerPlugin(WhatsAppLauncherPlugin.class);") &&
+      mainActivityJava.includes("registerPlugin(BluetoothPrinterPlugin.class);"),
+    "MainActivity.java must register both WhatsAppLauncherPlugin and BluetoothPrinterPlugin",
+  );
+
+  assert.ok(
+    manifestXml.includes("android.permission.BLUETOOTH") &&
+      manifestXml.includes("android.permission.BLUETOOTH_ADMIN") &&
+      manifestXml.includes("android.permission.BLUETOOTH_CONNECT") &&
+      manifestXml.includes("android.permission.BLUETOOTH_SCAN"),
+    "AndroidManifest.xml must declare BLUETOOTH, BLUETOOTH_ADMIN, BLUETOOTH_CONNECT, and BLUETOOTH_SCAN",
+  );
+
+  assert.ok(
+    printerSettingsCode.includes("discoverPairedBluetoothPrinters") &&
+      printerSettingsCode.includes("selectPairedBluetoothPrinter") &&
+      profileTabsCode.includes("discoverPairedBluetoothPrinters") &&
+      profileTabsCode.includes("selectPairedBluetoothPrinter") &&
+      profileTabsCode.includes("Hubungkan Bluetooth"),
+    "PrinterSettingsPage.tsx and UnifiedProfileTabs.tsx must integrate paired Bluetooth printer discovery and 1-click selection",
+  );
+});
+
+await (async () => {
+  totalTests++;
+  const name =
+    "Native Capacitor .apk flow runs ensureBluetoothEnabled -> listPairedPrinters -> 1-click localStorage auto-connect -> printBase64 without RawBT or window.print, while preserving browser fallback";
+  const prevWin = globalThis.window;
+  const prevNav = globalThis.navigator;
+  const prevStorage = globalThis.localStorage;
+  try {
+    const store = new Map();
+    const mockLocalStorage = {
+      getItem: (k) => (store.has(k) ? store.get(k) : null),
+      setItem: (k, v) => store.set(k, String(v)),
+      removeItem: (k) => store.delete(k),
+      clear: () => store.clear(),
+    };
+
+    const calls = [];
+    let browserPrintCalled = 0;
+    let rawBtHref = "";
+
+    Object.defineProperty(globalThis, "localStorage", {
+      value: mockLocalStorage,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: { userAgent: "Android Capacitor WebView" },
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(globalThis, "window", {
+      value: {
+        print: () => {
+          browserPrintCalled++;
+        },
+        location: {
+          get href() {
+            return rawBtHref;
+          },
+          set href(v) {
+            rawBtHref = v;
+          },
+        },
+        Capacitor: {
+          isNativePlatform: () => true,
+          getPlatform: () => "android",
+          Plugins: {
+            BluetoothPrinter: {
+              ensureBluetoothEnabled: async () => {
+                calls.push("ensureBluetoothEnabled");
+                return { enabled: true };
+              },
+              listPairedPrinters: async () => {
+                calls.push("listPairedPrinters");
+                return {
+                  devices: [
+                    { name: "RPP02N-Thermal", address: "DC:0D:30:AA:BB:CC" },
+                    { name: "Eppos EP5802AI", address: "66:32:11:22:33:44" },
+                  ],
+                };
+              },
+              printBase64: async ({ address, base64 }) => {
+                calls.push({ method: "printBase64", address, base64 });
+                return { ok: true };
+              },
+            },
+          },
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    // 1. Discover paired printers in .apk
+    const devices = await thermalPrinterMod.discoverPairedBluetoothPrinters();
+    assert.strictEqual(devices.length, 2);
+    assert.deepStrictEqual(calls.slice(0, 2), ["ensureBluetoothEnabled", "listPairedPrinters"]);
+
+    // 2. 1-click select printer -> saves address & name in localStorage
+    const info = thermalPrinterMod.selectPairedBluetoothPrinter(devices[0]);
+    assert.strictEqual(info.status, "connected");
+    assert.strictEqual(info.name, "RPP02N-Thermal");
+    assert.strictEqual(info.address, "DC:0D:30:AA:BB:CC");
+    const savedBt = thermalPrinterMod.getSavedNativeBluetoothPrinter();
+    assert.deepStrictEqual(savedBt, { name: "RPP02N-Thermal", address: "DC:0D:30:AA:BB:CC" });
+
+    // 3. Test Print / Cetak Struk -> sends Base64 ESC/POS directly via printBase64 without RawBT or window.print
+    const printRes = await thermalPrinterMod.testThermalPrint();
+    assert.strictEqual(printRes.success, true);
+    assert.strictEqual(printRes.mode, "thermal");
+    assert.strictEqual(browserPrintCalled, 0, "window.print() must NOT be called in .apk");
+    assert.strictEqual(rawBtHref, "", "RawBT URL scheme must NOT be triggered in .apk");
+
+    const printCall = calls.find((c) => typeof c === "object" && c.method === "printBase64");
+    assert.ok(printCall, "BluetoothPrinter.printBase64 must be invoked");
+    assert.strictEqual(printCall.address, "DC:0D:30:AA:BB:CC");
+    const decodedBytes = Buffer.from(printCall.base64, "base64");
+    assert.strictEqual(decodedBytes[0], 0x1b);
+    assert.strictEqual(decodedBytes[1], 0x40);
+    assert.ok(decodedBytes.toString("utf8").includes("KEBAB'S CHOICE"));
+
+    // 4. Browser fallback remains intact when Capacitor.isNativePlatform() is false
+    await thermalPrinterMod.disconnectPrinter();
+    globalThis.window.Capacitor.isNativePlatform = () => false;
+    const webFallbackRes = await thermalPrinterMod.testThermalPrint();
+    assert.strictEqual(webFallbackRes.mode, "browser");
+    assert.strictEqual(browserPrintCalled, 1, "Standard browser must still fall back to window.print()");
+
+    console.log(`  ✅ [PASS] ${name}`);
+    passedTests++;
+  } catch (err) {
+    console.error(`  ❌ [FAIL] ${name}:`, err.message);
+    throw err;
+  } finally {
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+    if (prevNav === undefined) delete globalThis.navigator;
+    else globalThis.navigator = prevNav;
+    if (prevStorage === undefined) delete globalThis.localStorage;
+    else globalThis.localStorage = prevStorage;
+  }
+})();
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

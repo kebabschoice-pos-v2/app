@@ -38,6 +38,7 @@ public class MainActivity extends BridgeActivity {
     public void onCreate(Bundle savedInstanceState) {
         // Plugin native custom harus didaftarkan sebelum super.onCreate()
         registerPlugin(WhatsAppLauncherPlugin.class);
+        registerPlugin(BluetoothPrinterPlugin.class);
 
         cameraPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),

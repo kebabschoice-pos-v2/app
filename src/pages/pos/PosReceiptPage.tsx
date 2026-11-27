@@ -351,7 +351,7 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
     toast.info("Mengirim data ke printer struk thermal...");
     try {
       const printerConfig = getSavedPrinterConfig();
-      await printReceipt({
+      const result = await printReceipt({
         storeName: printerConfig.storeName || businessProfile?.name || "KebabsChoice POS",
         outletName: selectedOrder.outlet_name || "Outlet Utama",
         branchAddress: printerConfig.branchAddress || selectedOrder.outlet_address || businessProfile?.address,
@@ -381,9 +381,19 @@ export function PosReceiptPage({ snapshot }: { snapshot?: any }) {
         change: selectedOrder.changeAmount,
         footerMessage: printerConfig.footerMessage || "Terima kasih atas kunjungan Anda!",
       });
+      if (result.mode === "thermal") {
+        toast.success("Struk berhasil dicetak ke printer thermal!");
+      }
     } catch (err: any) {
       console.warn("Thermal print fallback to browser:", err);
-      window.print();
+      if ((window as any).Capacitor?.isNativePlatform?.()) {
+        toast.error(
+          "Gagal mencetak ke printer Bluetooth: " +
+            (err?.message || "Pastikan printer menyala & terhubung."),
+        );
+      } else {
+        window.print();
+      }
     }
   };
 

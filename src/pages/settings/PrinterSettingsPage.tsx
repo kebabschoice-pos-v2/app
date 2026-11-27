@@ -21,12 +21,16 @@ import {
   connectUsbPrinter,
   connectRawBtPrinter,
   disconnectPrinter,
+  discoverPairedBluetoothPrinters,
+  selectPairedBluetoothPrinter,
+  isNativeCapacitorPlatform,
   subscribePrinterStatus,
   kickCashDrawer,
   testThermalPrint,
   isBluetoothSupported,
   isUsbSupported,
   type ConnectedPrinterInfo,
+  type PairedBluetoothPrinter,
 } from "@/services/thermal-printer.service";
 
 export function PrinterSettingsPage() {
@@ -47,6 +51,8 @@ export function PrinterSettingsPage() {
   const [copies, setCopies] = useState(1);
   const [isTesting, setIsTesting] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [pairedPrinters, setPairedPrinters] = useState<PairedBluetoothPrinter[]>([]);
+  const [showPairedPrinters, setShowPairedPrinters] = useState(false);
   const [printerInfo, setPrinterInfo] = useState<ConnectedPrinterInfo>({
     type: "none",
     name: "Belum Terhubung",
@@ -115,7 +121,14 @@ export function PrinterSettingsPage() {
   }, []);
 
   const handleSave = async () => {
+    let prevSaved: Record<string, any> = {};
+    try {
+      const rawPrev = localStorage.getItem("kebabschoicepos_printer_settings");
+      if (rawPrev) prevSaved = JSON.parse(rawPrev);
+    } catch {}
+
     const data = {
+      ...prevSaved,
       connectionType,
       paperSize,
       printerName,
@@ -159,6 +172,23 @@ export function PrinterSettingsPage() {
   const handleConnectBt = async () => {
     setIsConnecting(true);
     try {
+      if ((window as any).Capacitor?.isNativePlatform?.()) {
+        const devices = await discoverPairedBluetoothPrinters();
+        setPairedPrinters(devices);
+        setShowPairedPrinters(true);
+        if (devices.length === 0) {
+          toast.info("Belum ada perangkat Bluetooth ter-pair di tablet", {
+            description:
+              "Buka Pengaturan Bluetooth Android, pair printer thermal (PIN 0000 / 1234), lalu ketuk Hubungkan Bluetooth lagi.",
+          });
+        } else {
+          toast.info(`Pilih printer thermal (${devices.length} perangkat ter-pair)`, {
+            description: "Klik 1x nama printer untuk langsung terhubung otomatis.",
+          });
+        }
+        return;
+      }
+
       const ok = await connectBluetoothPrinter();
       if (ok) {
         toast.success("Printer Bluetooth berhasil terhubung!", {
@@ -170,6 +200,17 @@ export function PrinterSettingsPage() {
     } finally {
       setIsConnecting(false);
     }
+  };
+
+  const handleChoosePairedPrinter = (device: PairedBluetoothPrinter) => {
+    const connected = selectPairedBluetoothPrinter(device);
+    setPrinterInfo(connected);
+    setPrinterName(device.name);
+    setConnectionType("bluetooth");
+    setShowPairedPrinters(false);
+    toast.success(`Printer ${device.name} terhubung!`, {
+      description: `MAC ${device.address} tersimpan untuk auto-connect & cetak langsung tanpa RawBT.`,
+    });
   };
 
   const handleConnectUsb = async () => {
@@ -300,6 +341,19 @@ export function PrinterSettingsPage() {
             <div className="flex flex-wrap items-center gap-2">
               {printerInfo.status === "connected" ? (
                 <>
+                  {isNativeCapacitorPlatform() && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleConnectBt}
+                      disabled={isConnecting}
+                      className="rounded-xl text-xs font-bold gap-1.5"
+                    >
+                      <Bluetooth className="size-3.5" />
+                      Ganti Printer Bluetooth
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="outline"
@@ -333,17 +387,19 @@ export function PrinterSettingsPage() {
                     <Bluetooth className="size-3.5" />
                     Hubungkan Bluetooth
                   </Button>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleConnectRawBt}
-                    disabled={isConnecting}
-                    className="rounded-xl text-xs font-bold gap-1.5"
-                  >
-                    <Smartphone className="size-3.5" />
-                    RawBT (Bluetooth Android)
-                  </Button>
+                  {!isNativeCapacitorPlatform() && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={handleConnectRawBt}
+                      disabled={isConnecting}
+                      className="rounded-xl text-xs font-bold gap-1.5"
+                    >
+                      <Smartphone className="size-3.5" />
+                      RawBT (Bluetooth Android)
+                    </Button>
+                  )}
                   <Button
                     type="button"
                     variant="outline"
@@ -359,6 +415,99 @@ export function PrinterSettingsPage() {
               )}
             </div>
           </div>
+
+          {/* Daftar Printer Bluetooth Ter-pair di Tablet (.apk Native SPP) */}
+          {showPairedPrinters && (
+            <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-black text-foreground">
+                    Daftar Printer Bluetooth Ter-pair di Tablet
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Klik 1x nama printer thermal kasir (Eppos, Panda, RPP02N, VSC, Blueprint, Iware) untuk auto-connect.
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={isConnecting}
+                    onClick={handleConnectBt}
+                    className="h-8 rounded-lg text-xs font-bold gap-1"
+                  >
+                    <RefreshCw className={`size-3 ${isConnecting ? "animate-spin" : ""}`} />
+                    Segarkan
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setShowPairedPrinters(false)}
+                    className="h-8 rounded-lg text-xs font-bold"
+                  >
+                    Tutup
+                  </Button>
+                </div>
+              </div>
+
+              {pairedPrinters.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border px-4 py-3 text-xs text-muted-foreground">
+                  Belum ada perangkat Bluetooth yang di-pair di tablet ini. Buka{" "}
+                  <strong>Pengaturan Android &rarr; Bluetooth</strong>, pasangkan printer thermal (PIN standar:{" "}
+                  <code>0000</code> atau <code>1234</code>), lalu tekan <strong>Segarkan</strong>.
+                </div>
+              ) : (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {pairedPrinters.map((dev) => {
+                    const isSelected =
+                      printerInfo.status === "connected" &&
+                      printerInfo.address?.toUpperCase() === dev.address.toUpperCase();
+                    return (
+                      <button
+                        key={dev.address}
+                        type="button"
+                        onClick={() => handleChoosePairedPrinter(dev)}
+                        className={`flex items-center justify-between gap-3 rounded-xl border p-3 text-left transition-all cursor-pointer active:scale-98 ${
+                          isSelected
+                            ? "border-emerald-500 bg-emerald-500/10"
+                            : "border-border bg-background hover:border-primary/50 hover:bg-primary/5"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                            <Bluetooth className="size-4" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-black text-foreground truncate">{dev.name}</p>
+                            <p className="text-[11px] font-mono text-muted-foreground truncate">
+                              {dev.address}
+                            </p>
+                          </div>
+                        </div>
+                        <span
+                          className={`shrink-0 rounded-full px-2.5 py-0.5 text-[10px] font-black uppercase ${
+                            isSelected
+                              ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                              : "bg-primary/10 text-primary"
+                          }`}
+                        >
+                          {isSelected ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Check className="size-3" /> Aktif
+                            </span>
+                          ) : (
+                            "Pilih"
+                          )}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Tipe Koneksi */}

@@ -41,10 +41,14 @@ import {
   connectRawBtPrinter,
   connectUsbPrinter,
   disconnectPrinter,
+  discoverPairedBluetoothPrinters,
+  isNativeCapacitorPlatform,
   kickCashDrawer,
+  selectPairedBluetoothPrinter,
   subscribePrinterStatus,
   testThermalPrint,
   type ConnectedPrinterInfo,
+  type PairedBluetoothPrinter,
 } from "@/services/thermal-printer.service";
 import {
   getStoredPosViewMode,
@@ -128,6 +132,8 @@ export function UnifiedProfileTabs({
   });
   const [isConnectingPrinter, setIsConnectingPrinter] = useState(false);
   const [isTestingPrint, setIsTestingPrint] = useState(false);
+  const [pairedBtDevices, setPairedBtDevices] = useState<PairedBluetoothPrinter[]>([]);
+  const [showPairedBtPicker, setShowPairedBtPicker] = useState(false);
 
   // Security: Password & Supervisor PIN
   const [newPassword, setNewPassword] = useState("");
@@ -897,6 +903,19 @@ export function UnifiedProfileTabs({
                   onClick={async () => {
                     setIsConnectingPrinter(true);
                     try {
+                      if ((window as any).Capacitor?.isNativePlatform?.()) {
+                        const devices = await discoverPairedBluetoothPrinters();
+                        setPairedBtDevices(devices);
+                        setShowPairedBtPicker(true);
+                        if (devices.length === 0) {
+                          toast.info(
+                            "Belum ada printer Bluetooth ter-pair di tablet. Pair di Pengaturan Bluetooth Android (PIN 0000 / 1234).",
+                          );
+                        } else {
+                          toast.info(`Pilih printer (${devices.length} perangkat ter-pair)`);
+                        }
+                        return;
+                      }
                       const ok = await connectBluetoothPrinter();
                       if (ok) toast.success("Printer Bluetooth terhubung!");
                     } catch (err: any) {
@@ -908,30 +927,32 @@ export function UnifiedProfileTabs({
                   className="h-9 rounded-xl text-xs font-bold gap-1.5"
                 >
                   <Bluetooth className="size-3.5" />
-                  Bluetooth
+                  Hubungkan Bluetooth
                 </Button>
 
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  disabled={isConnectingPrinter}
-                  onClick={async () => {
-                    setIsConnectingPrinter(true);
-                    try {
-                      const ok = await connectRawBtPrinter();
-                      if (ok) toast.success("Mode RawBT Android diaktifkan!");
-                    } catch (err: any) {
-                      toast.error("Gagal aktifkan RawBT: " + err?.message);
-                    } finally {
-                      setIsConnectingPrinter(false);
-                    }
-                  }}
-                  className="h-9 rounded-xl text-xs font-bold gap-1.5"
-                >
-                  <Smartphone className="size-3.5" />
-                  RawBT Android
-                </Button>
+                {!isNativeCapacitorPlatform() && (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={isConnectingPrinter}
+                    onClick={async () => {
+                      setIsConnectingPrinter(true);
+                      try {
+                        const ok = await connectRawBtPrinter();
+                        if (ok) toast.success("Mode RawBT Android diaktifkan!");
+                      } catch (err: any) {
+                        toast.error("Gagal aktifkan RawBT: " + err?.message);
+                      } finally {
+                        setIsConnectingPrinter(false);
+                      }
+                    }}
+                    className="h-9 rounded-xl text-xs font-bold gap-1.5"
+                  >
+                    <Smartphone className="size-3.5" />
+                    RawBT Android
+                  </Button>
+                )}
 
                 <Button
                   type="button"
@@ -962,6 +983,7 @@ export function UnifiedProfileTabs({
                     variant="ghost"
                     onClick={async () => {
                       await disconnectPrinter();
+                      setShowPairedBtPicker(false);
                       toast.info("Koneksi printer diputus");
                     }}
                     className="h-9 rounded-xl text-xs font-bold text-destructive"
@@ -970,6 +992,71 @@ export function UnifiedProfileTabs({
                   </Button>
                 )}
               </div>
+
+              {showPairedBtPicker && (
+                <div className="rounded-xl border border-border bg-muted/25 p-3 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-black text-foreground">
+                      Printer Bluetooth Ter-pair di Tablet (Klik 1x)
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setShowPairedBtPicker(false)}
+                      className="text-[11px] font-bold text-muted-foreground hover:text-foreground cursor-pointer"
+                    >
+                      Tutup
+                    </button>
+                  </div>
+                  {pairedBtDevices.length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Belum ada printer yang di-pair di Pengaturan Bluetooth Android (PIN standar: 0000 / 1234).
+                    </p>
+                  ) : (
+                    <div className="grid gap-1.5">
+                      {pairedBtDevices.map((dev) => {
+                        const isCurrent =
+                          printerInfo.status === "connected" &&
+                          printerInfo.address?.toUpperCase() === dev.address.toUpperCase();
+                        return (
+                          <button
+                            key={dev.address}
+                            type="button"
+                            onClick={() => {
+                              const info = selectPairedBluetoothPrinter(dev);
+                              setPrinterInfo(info);
+                              setShowPairedBtPicker(false);
+                              toast.success(`Terhubung ke ${dev.name} (${dev.address})`);
+                            }}
+                            className={cn(
+                              "flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer",
+                              isCurrent
+                                ? "border-emerald-500 bg-emerald-500/10"
+                                : "border-border bg-card hover:border-primary/50 hover:bg-primary/5",
+                            )}
+                          >
+                            <div className="min-w-0">
+                              <p className="text-xs font-bold text-foreground truncate">{dev.name}</p>
+                              <p className="text-[11px] font-mono text-muted-foreground truncate">
+                                {dev.address}
+                              </p>
+                            </div>
+                            <span
+                              className={cn(
+                                "rounded-full px-2 py-0.5 text-[10px] font-bold shrink-0",
+                                isCurrent
+                                  ? "bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"
+                                  : "bg-primary/10 text-primary",
+                              )}
+                            >
+                              {isCurrent ? "Aktif" : "Pilih"}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-border/60">
                 <div className="flex items-center gap-2">
@@ -1004,7 +1091,12 @@ export function UnifiedProfileTabs({
                     onClick={async () => {
                       setIsTestingPrint(true);
                       try {
-                        await testThermalPrint();
+                        const res = await testThermalPrint();
+                        if (res.mode === "thermal") {
+                          toast.success("Test print terkirim ke printer thermal!");
+                        }
+                      } catch (err: any) {
+                        toast.error("Gagal test print: " + (err?.message || "Periksa koneksi printer"));
                       } finally {
                         setIsTestingPrint(false);
                       }

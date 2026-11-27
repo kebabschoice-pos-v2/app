@@ -3400,7 +3400,7 @@ function ReceiptModal({
             className="flex-1 rounded-xl text-xs font-bold gap-1.5 shadow-brand"
             onClick={async () => {
               try {
-                await printReceipt({
+                const res = await printReceipt({
                   storeName: headerStoreName,
                   outletName: data.outletName,
                   branchAddress: branchAddress,
@@ -3433,9 +3433,19 @@ function ReceiptModal({
                   change: data.changeAmount ?? Math.max(0, (data.cashReceived ?? data.total) - data.total),
                   footerMessage: footerText,
                 });
-              } catch (err) {
+                if (res.mode === "thermal") {
+                  toast.success("Struk berhasil dicetak ke printer thermal!");
+                }
+              } catch (err: any) {
                 console.warn("Print receipt fallback:", err);
-                window.print();
+                if ((window as any).Capacitor?.isNativePlatform?.()) {
+                  toast.error(
+                    "Gagal mencetak ke printer Bluetooth: " +
+                      (err?.message || "Pastikan printer menyala & terhubung."),
+                  );
+                } else {
+                  window.print();
+                }
               }
             }}
           >

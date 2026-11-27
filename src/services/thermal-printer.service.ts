@@ -1,16 +1,31 @@
 /**
  * Direct Thermal Printing & Cash Drawer Service (ESC/POS)
- * Supports Web Bluetooth & Web USB API with automatic fallback to window.print()
+ * Supports Native Android Bluetooth Classic SPP (.apk Capacitor),
+ * Web Bluetooth & Web USB API, RawBT, with automatic fallback to window.print() on web browsers.
  * Fully SSR-safe: all navigator/window calls are guarded with client-side checks.
  */
+
+import { registerPlugin } from "@capacitor/core";
 
 export type PaperSize = "58mm" | "80mm";
 export type PrinterConnectionType = "bluetooth" | "usb" | "rawbt" | "none";
 export type PrinterConnectionStatus = "disconnected" | "connecting" | "connected";
 
+export interface PairedBluetoothPrinter {
+  name: string;
+  address: string;
+}
+
+export interface BluetoothPrinterPluginInterface {
+  ensureBluetoothEnabled(): Promise<{ enabled: boolean }>;
+  listPairedPrinters(): Promise<{ devices: PairedBluetoothPrinter[] }>;
+  printBase64(options: { address: string; base64: string }): Promise<{ ok: boolean }>;
+}
+
 export interface ConnectedPrinterInfo {
   type: PrinterConnectionType;
   name: string;
+  address?: string;
   status: PrinterConnectionStatus;
   paperSize: PaperSize;
   openCashDrawerOnCash: boolean;
@@ -68,9 +83,32 @@ export function isClient(): boolean {
   return true;
 }
 
-// Check Web Bluetooth API support
+// Check if running inside native Android/iOS Capacitor .apk
+export function isNativeCapacitorPlatform(): boolean {
+  if (typeof window === "undefined") return false;
+  return Boolean((window as any).Capacitor?.isNativePlatform?.());
+}
+
+const RegisteredBluetoothPrinter =
+  registerPlugin<BluetoothPrinterPluginInterface>("BluetoothPrinter");
+
+export function getNativeBluetoothPrinterPlugin(): BluetoothPrinterPluginInterface {
+  if (typeof window !== "undefined") {
+    const directPlugin = (window as any).Capacitor?.Plugins?.BluetoothPrinter as
+      | BluetoothPrinterPluginInterface
+      | undefined;
+    if (directPlugin) {
+      return directPlugin;
+    }
+  }
+  return RegisteredBluetoothPrinter;
+}
+
+export const NATIVE_BT_PRINTER_STORAGE_KEY = "kebabschoicepos_native_bt_printer";
+
+// Check Web Bluetooth API or Native Capacitor Bluetooth SPP support
 export function isBluetoothSupported(): boolean {
-  return isClient() && "bluetooth" in navigator;
+  return isClient() && (isNativeCapacitorPlatform() || "bluetooth" in navigator);
 }
 
 // Check Web USB API support
@@ -111,6 +149,7 @@ const BT_SERVICE_UUIDS = [
 // In-memory active connection state
 let activeBtDevice: any = null;
 let activeBtCharacteristic: any = null;
+let activeNativeBtPrinter: PairedBluetoothPrinter | null = null;
 let activeUsbDevice: any = null;
 let activeUsbEndpoint: number = 1;
 
@@ -172,9 +211,123 @@ export function getSavedPrinterConfig(): {
 }
 
 /**
+ * Read saved native Bluetooth Classic (SPP) printer { name, address } from localStorage
+ */
+export function getSavedNativeBluetoothPrinter(): PairedBluetoothPrinter | null {
+  if (!isClient()) return null;
+  try {
+    const rawDedicated = localStorage.getItem(NATIVE_BT_PRINTER_STORAGE_KEY);
+    if (rawDedicated) {
+      const parsed = JSON.parse(rawDedicated);
+      if (parsed?.address && typeof parsed.address === "string") {
+        return {
+          name: String(parsed.name || `Bluetooth ${parsed.address}`),
+          address: parsed.address.trim(),
+        };
+      }
+    }
+    const rawSettings = localStorage.getItem("kebabschoicepos_printer_settings");
+    if (rawSettings) {
+      const parsed = JSON.parse(rawSettings);
+      const addr = parsed?.address || parsed?.nativeBtAddress;
+      if (addr && typeof addr === "string") {
+        return {
+          name: String(parsed.name || parsed.nativeBtName || parsed.printerName || `Bluetooth ${addr}`),
+          address: addr.trim(),
+        };
+      }
+    }
+  } catch {}
+  return null;
+}
+
+/**
+ * Auto-hydrate saved native Bluetooth printer when running inside .apk Capacitor
+ */
+function hydrateNativeBluetoothPrinterIfSaved(): PairedBluetoothPrinter | null {
+  if (!isNativeCapacitorPlatform()) return null;
+  if (activeNativeBtPrinter?.address) return activeNativeBtPrinter;
+  const saved = getSavedNativeBluetoothPrinter();
+  if (!saved?.address) return null;
+
+  activeNativeBtPrinter = saved;
+  if (currentPrinterInfo.status !== "connected") {
+    const cfg = getSavedPrinterConfig();
+    currentPrinterInfo = {
+      type: "bluetooth",
+      name: saved.name,
+      address: saved.address,
+      status: "connected",
+      paperSize: cfg.paperSize,
+      openCashDrawerOnCash: cfg.openCashDrawer,
+    };
+  }
+  return saved;
+}
+
+/**
+ * Request runtime Bluetooth permissions + enable Bluetooth on Android tablet,
+ * then return paired Bluetooth devices ({ name, address }[])
+ */
+export async function discoverPairedBluetoothPrinters(): Promise<PairedBluetoothPrinter[]> {
+  if (!(window as any).Capacitor?.isNativePlatform?.()) {
+    return [];
+  }
+  const BluetoothPrinter = getNativeBluetoothPrinterPlugin();
+  await BluetoothPrinter.ensureBluetoothEnabled();
+  const result = await BluetoothPrinter.listPairedPrinters();
+  return Array.isArray(result?.devices) ? result.devices : [];
+}
+
+/**
+ * Save chosen paired Bluetooth printer (address & name) to localStorage for auto-connect
+ * and mark printer status as connected.
+ */
+export function selectPairedBluetoothPrinter(device: PairedBluetoothPrinter): ConnectedPrinterInfo {
+  const cleanDevice: PairedBluetoothPrinter = {
+    name: (device.name || `Bluetooth ${device.address}`).trim(),
+    address: device.address.trim(),
+  };
+  activeNativeBtPrinter = cleanDevice;
+
+  const cfg = getSavedPrinterConfig();
+  if (isClient()) {
+    try {
+      localStorage.setItem(NATIVE_BT_PRINTER_STORAGE_KEY, JSON.stringify(cleanDevice));
+      const raw = localStorage.getItem("kebabschoicepos_printer_settings");
+      const parsed = raw ? JSON.parse(raw) : {};
+      localStorage.setItem(
+        "kebabschoicepos_printer_settings",
+        JSON.stringify({
+          ...parsed,
+          connectionType: "bluetooth",
+          printerName: cleanDevice.name,
+          name: cleanDevice.name,
+          address: cleanDevice.address,
+          nativeBtName: cleanDevice.name,
+          nativeBtAddress: cleanDevice.address,
+        }),
+      );
+    } catch {}
+  }
+
+  currentPrinterInfo = {
+    type: "bluetooth",
+    name: cleanDevice.name,
+    address: cleanDevice.address,
+    status: "connected",
+    paperSize: cfg.paperSize,
+    openCashDrawerOnCash: cfg.openCashDrawer,
+  };
+  notifyListeners();
+  return { ...currentPrinterInfo };
+}
+
+/**
  * Get current connected printer information
  */
 export function getConnectedPrinter(): ConnectedPrinterInfo {
+  hydrateNativeBluetoothPrinterIfSaved();
   return { ...currentPrinterInfo };
 }
 
@@ -182,6 +335,7 @@ export function getConnectedPrinter(): ConnectedPrinterInfo {
  * Subscribe to printer connection status changes
  */
 export function subscribePrinterStatus(callback: (info: ConnectedPrinterInfo) => void): () => void {
+  hydrateNativeBluetoothPrinterIfSaved();
   statusListeners.add(callback);
   callback({ ...currentPrinterInfo });
   return () => {
@@ -393,9 +547,37 @@ async function sendToBtCharacteristic(characteristic: any, data: Uint8Array): Pr
 }
 
 /**
- * Connect to Thermal Printer via Web Bluetooth
+ * Connect to Thermal Printer via Native Android Bluetooth SPP (.apk) or Web Bluetooth (browser)
  */
 export async function connectBluetoothPrinter(): Promise<boolean> {
+  // Di dalam .apk Capacitor: gunakan plugin native BluetoothPrinter (SPP Classic)
+  if (isClient() && (window as any).Capacitor?.isNativePlatform?.()) {
+    try {
+      currentPrinterInfo.status = "connecting";
+      notifyListeners();
+
+      const devices = await discoverPairedBluetoothPrinters();
+      if (devices.length === 0) {
+        currentPrinterInfo.status = "disconnected";
+        notifyListeners();
+        throw new Error(
+          "Belum ada printer Bluetooth ter-pair di tablet. Pair printer terlebih dahulu di Pengaturan Bluetooth Android.",
+        );
+      }
+
+      const saved = getSavedNativeBluetoothPrinter();
+      const matched = saved
+        ? devices.find((d) => d.address.toUpperCase() === saved.address.toUpperCase())
+        : undefined;
+      selectPairedBluetoothPrinter(matched || devices[0]!);
+      return true;
+    } catch (err: any) {
+      currentPrinterInfo.status = "disconnected";
+      notifyListeners();
+      throw err;
+    }
+  }
+
   if (!isBluetoothSupported()) {
     throw new Error(
       "Web Bluetooth API tidak didukung pada browser ini (Gunakan Chrome/Edge di desktop atau Android).",
@@ -617,6 +799,42 @@ export async function connectRawBtPrinter(): Promise<boolean> {
 }
 
 /**
+ * Send ESC/POS byte buffer directly to Native Android Bluetooth Classic (SPP) printer via Base64
+ */
+export async function sendToNativeBluetoothPrinter(
+  data: Uint8Array,
+  addressOverride?: string,
+): Promise<boolean> {
+  if (!isClient() || !(window as any).Capacitor?.isNativePlatform?.()) {
+    return false;
+  }
+  const saved = hydrateNativeBluetoothPrinterIfSaved();
+  const address = (addressOverride || activeNativeBtPrinter?.address || saved?.address || "").trim();
+  if (!address) {
+    throw new Error(
+      "Printer Bluetooth belum dipilih. Klik Hubungkan Bluetooth lalu pilih printer ter-pair.",
+    );
+  }
+
+  const base64 = uint8ArrayToBase64(data);
+  if (!base64) {
+    throw new Error("Gagal mengonversi byte ESC/POS ke Base64.");
+  }
+
+  const BluetoothPrinter = getNativeBluetoothPrinterPlugin();
+  try {
+    const res = await BluetoothPrinter.printBase64({ address, base64 });
+    return res?.ok !== false;
+  } catch (firstErr) {
+    // Jika Bluetooth sempat dimatikan atau izin perlu diminta ulang, aktifkan lalu coba 1x lagi
+    await BluetoothPrinter.ensureBluetoothEnabled();
+    const retryRes = await BluetoothPrinter.printBase64({ address, base64 });
+    if (retryRes?.ok === false) throw firstErr;
+    return true;
+  }
+}
+
+/**
  * Disconnect current active printer
  */
 export async function disconnectPrinter(): Promise<void> {
@@ -627,11 +845,26 @@ export async function disconnectPrinter(): Promise<void> {
     if (activeUsbDevice) {
       await activeUsbDevice.close();
     }
+    if (isClient()) {
+      try {
+        localStorage.removeItem(NATIVE_BT_PRINTER_STORAGE_KEY);
+        const raw = localStorage.getItem("kebabschoicepos_printer_settings");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          delete parsed.address;
+          delete parsed.name;
+          delete parsed.nativeBtAddress;
+          delete parsed.nativeBtName;
+          localStorage.setItem("kebabschoicepos_printer_settings", JSON.stringify(parsed));
+        }
+      } catch {}
+    }
   } catch (e) {
     console.warn("[ThermalPrinter] Disconnect warning:", e);
   } finally {
     activeBtDevice = null;
     activeBtCharacteristic = null;
+    activeNativeBtPrinter = null;
     activeUsbDevice = null;
     const cfg = getSavedPrinterConfig();
     currentPrinterInfo = {
@@ -651,6 +884,12 @@ export async function disconnectPrinter(): Promise<void> {
 export async function kickCashDrawer(): Promise<boolean> {
   const kickBytes = new Uint8Array(ESC_POS.CASH_DRAWER_KICK_PIN2);
   try {
+    if (isClient() && (window as any).Capacitor?.isNativePlatform?.()) {
+      const saved = hydrateNativeBluetoothPrinterIfSaved();
+      if (saved?.address) {
+        return await sendToNativeBluetoothPrinter(kickBytes, saved.address);
+      }
+    }
     if (currentPrinterInfo.status === "connected" && activeBtCharacteristic) {
       await sendToBtCharacteristic(activeBtCharacteristic, kickBytes);
       return true;
@@ -673,7 +912,8 @@ export async function kickCashDrawer(): Promise<boolean> {
 }
 
 /**
- * Print receipt directly via Thermal Printer (BT/USB/RawBT), with graceful fallback to window.print()
+ * Print receipt directly via Thermal Printer (Native SPP / Web BT / Web USB / RawBT),
+ * with graceful fallback to window.print() on standard web browsers.
  */
 export async function printReceipt(
   payload: ThermalReceiptPayload,
@@ -688,7 +928,35 @@ export async function printReceipt(
       payload.openDrawer ?? (cfg.openCashDrawer && payload.paymentMethod.toLowerCase() === "cash"),
   };
 
-  // 1. Try Direct Thermal Printing if connected (Web Bluetooth / Web USB / RawBT)
+  // 0. Di dalam .apk Capacitor: cetak langsung lewat BluetoothPrinter.printBase64({ address, base64 })
+  //    tanpa RawBT dan tanpa dialog print browser.
+  if (isClient() && (window as any).Capacitor?.isNativePlatform?.()) {
+    const buffer = encodeEscPosReceipt(effectivePayload);
+    if (activeUsbDevice) {
+      await activeUsbDevice.transferOut(activeUsbEndpoint, buffer);
+      return { success: true, mode: "thermal" };
+    }
+
+    let targetPrinter = hydrateNativeBluetoothPrinterIfSaved();
+    if (!targetPrinter?.address) {
+      const paired = await discoverPairedBluetoothPrinters();
+      if (paired.length === 1 && paired[0]) {
+        selectPairedBluetoothPrinter(paired[0]);
+        targetPrinter = paired[0];
+      }
+    }
+
+    if (!targetPrinter?.address) {
+      throw new Error(
+        "Printer Bluetooth belum dipilih. Buka Pengaturan Printer lalu klik Hubungkan Bluetooth.",
+      );
+    }
+
+    await sendToNativeBluetoothPrinter(buffer, targetPrinter.address);
+    return { success: true, mode: "thermal" };
+  }
+
+  // 1. Try Direct Thermal Printing if connected on Web Browser (Web Bluetooth / Web USB / RawBT)
   if (currentPrinterInfo.status === "connected" || cfg.connectionType === "rawbt") {
     try {
       const buffer = encodeEscPosReceipt(effectivePayload);
@@ -710,7 +978,7 @@ export async function printReceipt(
     }
   }
 
-  // 2. Fallback to Browser Print
+  // 2. Fallback to Browser Print (hanya di browser biasa)
   if (isClient() && typeof window.print === "function") {
     window.print();
     return { success: true, mode: "browser" };

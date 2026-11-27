@@ -49,9 +49,10 @@
         </service>
     </application>
 
-    <!-- Permissions: Internet & Network -->
+    <!-- Permissions: Internet, Network & In-App APK Update Installer -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Kamera untuk absensi wajah (getUserMedia di WebView) -->
     <uses-permission android:name="android.permission.CAMERA" />

@@ -33,6 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -84,8 +85,9 @@ import {
 } from "@/lib/native-qris-auto-confirm";
 import {
   checkForAppUpdate,
+  downloadAndInstallApkUpdate,
+  formatApkBytes,
   getAppUpdateState,
-  openApkDownloadUrl,
   subscribeAppUpdateState,
   type AppUpdateState,
 } from "@/lib/app-updater";
@@ -617,62 +619,106 @@ export function UnifiedProfileTabs({
       {isNativeApk && (
         <div
           className={cn(
-            "rounded-2xl border px-4 py-3 shadow-xs flex flex-wrap items-center justify-between gap-3",
+            "rounded-2xl border px-4 py-3 shadow-xs space-y-2.5",
             appUpdate.hasUpdate
               ? "border-primary/40 bg-primary/10"
               : "border-border bg-card",
           )}
         >
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className={cn(
-                "flex size-9 shrink-0 items-center justify-center rounded-xl",
-                appUpdate.hasUpdate
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-foreground/80",
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <div
+                className={cn(
+                  "flex size-9 shrink-0 items-center justify-center rounded-xl",
+                  appUpdate.hasUpdate
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-secondary text-foreground/80",
+                )}
+              >
+                <Download className="size-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs sm:text-sm font-black text-foreground truncate">
+                  {appUpdate.hasUpdate
+                    ? `Update Aplikasi Tersedia (v${appUpdate.latestVersion})`
+                    : `Aplikasi Tablet POS (v${appUpdate.installedVersion})`}
+                </p>
+                <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                  {appUpdate.downloading
+                    ? `Mengunduh pembaruan... ${appUpdate.downloadProgress}%${
+                        appUpdate.totalBytes > 0
+                          ? ` (${formatApkBytes(appUpdate.downloadedBytes)} / ${formatApkBytes(appUpdate.totalBytes)})`
+                          : ""
+                      }`
+                    : appUpdate.installTriggered
+                      ? "Unduhan selesai (100%) • Konfirmasi dialog Update Android untuk memasang tanpa uninstall"
+                      : appUpdate.hasUpdate
+                        ? `Terpasang v${appUpdate.installedVersion} • Tap Unduh & Update untuk pasang langsung tanpa browser`
+                        : "Periksa ketersediaan rilis APK terbaru langsung dari server GitHub"}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              {appUpdate.hasUpdate && appUpdate.downloadUrl && (
+                <Button
+                  type="button"
+                  size="sm"
+                  aria-label="Unduh Update Aplikasi"
+                  disabled={appUpdate.downloading}
+                  onClick={async () => {
+                    const res = await downloadAndInstallApkUpdate(appUpdate.downloadUrl);
+                    if (!res.ok && res.mode === "error") {
+                      toast.error(res.error || "Gagal mengunduh pembaruan aplikasi.");
+                    } else if (res.ok && res.mode === "native_installer") {
+                      toast.success("Unduhan selesai (100%)! Ketuk Update pada dialog Android.");
+                    }
+                  }}
+                  className="h-8 rounded-xl text-xs font-black gap-1.5 shadow-brand"
+                >
+                  {appUpdate.downloading ? (
+                    <>
+                      <RefreshCw className="size-3.5 animate-spin" />
+                      <span>{appUpdate.downloadProgress}%</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="size-3.5" />
+                      <span>Unduh &amp; Update</span>
+                    </>
+                  )}
+                </Button>
               )}
-            >
-              <Download className="size-4" />
-            </div>
-            <div className="min-w-0">
-              <p className="text-xs sm:text-sm font-black text-foreground truncate">
-                {appUpdate.hasUpdate
-                  ? `Update Aplikasi Tersedia (v${appUpdate.latestVersion})`
-                  : `Aplikasi Tablet POS (v${appUpdate.installedVersion})`}
-              </p>
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
-                {appUpdate.hasUpdate
-                  ? `Terpasang v${appUpdate.installedVersion} • Tap Unduh Update untuk pasang langsung di tablet`
-                  : "Periksa ketersediaan rilis APK terbaru langsung dari server GitHub"}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            {appUpdate.hasUpdate && appUpdate.downloadUrl && (
               <Button
                 type="button"
                 size="sm"
-                onClick={() => {
-                  void openApkDownloadUrl(appUpdate.downloadUrl);
-                }}
-                className="h-8 rounded-xl text-xs font-black gap-1.5 shadow-brand"
+                variant="outline"
+                disabled={appUpdate.checking || appUpdate.downloading}
+                onClick={handleManualCheckAppUpdate}
+                className="h-8 rounded-xl text-xs font-bold gap-1.5"
               >
-                <Download className="size-3.5" />
-                <span>Unduh Update</span>
+                <RefreshCw className={cn("size-3.5", appUpdate.checking && "animate-spin")} />
+                <span>Cek Update Aplikasi</span>
               </Button>
-            )}
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              disabled={appUpdate.checking}
-              onClick={handleManualCheckAppUpdate}
-              className="h-8 rounded-xl text-xs font-bold gap-1.5"
-            >
-              <RefreshCw className={cn("size-3.5", appUpdate.checking && "animate-spin")} />
-              <span>Cek Update Aplikasi</span>
-            </Button>
+            </div>
           </div>
+
+          {appUpdate.downloading && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-[11px] font-bold text-foreground">
+                <span>Mengunduh pembaruan... {appUpdate.downloadProgress}%</span>
+                {appUpdate.totalBytes > 0 && (
+                  <span className="font-mono text-muted-foreground">
+                    {formatApkBytes(appUpdate.downloadedBytes)} / {formatApkBytes(appUpdate.totalBytes)}
+                  </span>
+                )}
+              </div>
+              <Progress
+                value={appUpdate.downloadProgress}
+                aria-label="Progress unduhan pembaruan APK"
+                className="h-2"
+              />
+            </div>
+          )}
         </div>
       )}
 

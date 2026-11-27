@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev",
+    "prebuild": "node scripts/generate-web-version.mjs",
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "build:vercel": "node scripts/build-vercel.mjs",

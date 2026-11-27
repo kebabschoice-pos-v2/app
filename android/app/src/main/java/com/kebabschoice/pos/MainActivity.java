@@ -40,6 +40,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(WhatsAppLauncherPlugin.class);
         registerPlugin(BluetoothPrinterPlugin.class);
         registerPlugin(PaymentAutoConfirmPlugin.class);
+        registerPlugin(AppUpdatePlugin.class);
 
         cameraPermissionLauncher = registerForActivityResult(
             new ActivityResultContracts.RequestPermission(),

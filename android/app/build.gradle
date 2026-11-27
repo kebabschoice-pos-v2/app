@@ -19,8 +19,23 @@ android {
             ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        kebabschoice {
+            storeFile file('kebabschoice-upload.keystore')
+            storeType 'PKCS12'
+            storePassword System.getenv('KEBABSCHOICE_KEYSTORE_PASSWORD') ?: 'kebabschoicepos'
+            keyAlias System.getenv('KEBABSCHOICE_KEY_ALIAS') ?: 'kebabschoice'
+            keyPassword System.getenv('KEBABSCHOICE_KEY_PASSWORD') ?: 'kebabschoicepos'
+            v1SigningEnabled true
+            v2SigningEnabled true
+        }
+    }
     buildTypes {
+        debug {
+            signingConfig signingConfigs.kebabschoice
+        }
         release {
+            signingConfig signingConfigs.kebabschoice
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }

@@ -7,6 +7,36 @@ interface NativeVersionBridge {
   openDownloadUrl?(options: { url: string }): Promise<{ opened?: boolean }> | { opened?: boolean };
 }
 
+export interface ApkDownloadProgressEvent {
+  percent?: number;
+  downloadedBytes?: number;
+  totalBytes?: number;
+}
+
+interface NativePluginListenerHandle {
+  remove: () => Promise<void> | void;
+}
+
+interface NativeAppUpdateBridge {
+  downloadAndInstallApk?(options: { url: string }):
+    | Promise<{
+        installedPrompted?: boolean;
+        percent?: number;
+        downloadedBytes?: number;
+        totalBytes?: number;
+      }>
+    | {
+        installedPrompted?: boolean;
+        percent?: number;
+        downloadedBytes?: number;
+        totalBytes?: number;
+      };
+  addListener?(
+    eventName: "apkDownloadProgress",
+    listenerFunc: (event: ApkDownloadProgressEvent) => void,
+  ): Promise<NativePluginListenerHandle> | NativePluginListenerHandle;
+}
+
 function isNativeApkEnvironment(): boolean {
   try {
     if (typeof window === "undefined") return false;
@@ -17,6 +47,7 @@ function isNativeApkEnvironment(): boolean {
 }
 
 let cachedBridgeProxy: NativeVersionBridge | null = null;
+let cachedAppUpdateProxy: NativeAppUpdateBridge | null = null;
 
 function getPaymentAutoConfirmPlugin(): NativeVersionBridge | null {
   try {
@@ -44,16 +75,44 @@ function getPaymentAutoConfirmPlugin(): NativeVersionBridge | null {
   }
 }
 
+function getAppUpdatePlugin(): NativeAppUpdateBridge | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const cap = (window as any).Capacitor;
+    if (!cap || typeof cap.isNativePlatform !== "function" || !cap.isNativePlatform()) {
+      return null;
+    }
+    const direct = cap.Plugins?.AppUpdate as NativeAppUpdateBridge | undefined;
+    if (direct) return direct;
+
+    const registered =
+      (Array.isArray(cap.PluginHeaders) &&
+        cap.PluginHeaders.some((h: any) => h?.name === "AppUpdate")) ||
+      (typeof cap.isPluginAvailable === "function" &&
+        Boolean(cap.isPluginAvailable("AppUpdate")));
+    if (!registered) return null;
+
+    if (!cachedAppUpdateProxy) {
+      cachedAppUpdateProxy = registerPlugin<NativeAppUpdateBridge>("AppUpdate");
+    }
+    return cachedAppUpdateProxy;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Sistem Notifikasi & Pengunduh Update `.apk` Otomatis di Tablet Android (GitHub Releases).
+ * Sistem Notifikasi & Pengunduh Update `.apk` In-App di Tablet Android (GitHub Releases).
  *
  * - Mengecek endpoint publik `https://api.github.com/repos/kebabschoice-pos-v2/app/releases/latest`
  *   satu kali saat aplikasi dibuka di dalam `.apk` Capacitor, atau kapan saja saat tombol
  *   `Cek Update Aplikasi` di halaman `Profil` ditekan.
  * - Membaca `versionName` & `versionCode` native dari `PaymentAutoConfirm.getAppVersion()`
  *   (dengan fallback aman `"1.0.0"` pada `.apk` generasi awal yang belum memiliki method tersebut).
- * - Membuka `browser_download_url` file `KebabsChoicePOS.apk` langsung di browser sistem Android
- *   agar kasir/owner tinggal tap unduh & install dari tablet tanpa perlu laptop.
+ * - Mengunduh `KebabsChoicePOS.apk` langsung di background melalui plugin native `AppUpdate`
+ *   sambil menampilkan progress bar `0%–100%` di dalam aplikasi, lalu membuka installer Android
+ *   secara langsung tanpa membuka browser (dan fallback aman ke `openApkDownloadUrl` bila dijalankan
+ *   dari `.apk` versi lama sebelum `AppUpdate` terdaftar).
  */
 
 export const GITHUB_LATEST_RELEASE_API =
@@ -73,6 +132,11 @@ export interface AppUpdateState {
   downloadUrl: string;
   releaseName: string;
   publishedAt: string;
+  downloading: boolean;
+  downloadProgress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  installTriggered: boolean;
   error: string | null;
 }
 
@@ -88,6 +152,11 @@ const initialUpdateState: AppUpdateState = {
   downloadUrl: "",
   releaseName: "",
   publishedAt: "",
+  downloading: false,
+  downloadProgress: 0,
+  downloadedBytes: 0,
+  totalBytes: 0,
+  installTriggered: false,
   error: null,
 };
 
@@ -122,6 +191,15 @@ export function subscribeAppUpdateState(
   return () => {
     listeners.delete(listener);
   };
+}
+
+export function formatApkBytes(bytes: number | null | undefined): string {
+  const safe = Number(bytes) || 0;
+  if (safe <= 0) return "";
+  if (safe < 1024 * 1024) {
+    return `${Math.max(1, Math.round(safe / 1024))} KB`;
+  }
+  return `${(safe / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 /**
@@ -214,7 +292,16 @@ export function parseGitHubReleaseUpdate(
   releasePayload: any,
   installedVersion: string,
   installedVersionCode = 1,
-): Omit<AppUpdateState, "checking" | "isNative"> {
+): Omit<
+  AppUpdateState,
+  | "checking"
+  | "isNative"
+  | "downloading"
+  | "downloadProgress"
+  | "downloadedBytes"
+  | "totalBytes"
+  | "installTriggered"
+> {
   const safeInstalled = normalizeAppVersion(installedVersion) || FALLBACK_INSTALLED_APK_VERSION;
   if (!releasePayload || typeof releasePayload !== "object" || releasePayload.draft) {
     return {
@@ -395,7 +482,7 @@ export async function checkForAppUpdate(options?: {
 }
 
 /**
- * Buka URL download `.apk` (`browser_download_url`) langsung di browser sistem tablet Android.
+ * Buka URL download `.apk` (`browser_download_url`) di browser sistem tablet Android (fallback untuk `.apk` lama).
  */
 export async function openApkDownloadUrl(downloadUrl: string): Promise<boolean> {
   const cleanUrl = String(downloadUrl || "").trim();
@@ -424,8 +511,131 @@ export async function openApkDownloadUrl(downloadUrl: string): Promise<boolean> 
   return false;
 }
 
+/**
+ * Unduh file `.apk` langsung di dalam aplikasi (menampilkan progress bar `0%–100%`) lalu luncurkan
+ * dialog Update Android secara otomatis begitu mencapai `100%` tanpa membuka browser.
+ * Bila dijalankan dari `.apk` generasi awal yang belum memiliki plugin native `AppUpdate`,
+ * otomatis fallback ke `openApkDownloadUrl`.
+ */
+export async function downloadAndInstallApkUpdate(downloadUrl?: string): Promise<{
+  ok: boolean;
+  mode: "native_installer" | "browser_fallback" | "already_downloading" | "error";
+  error?: string;
+}> {
+  const cleanUrl = String(downloadUrl || currentState.downloadUrl || "").trim();
+  if (!cleanUrl) {
+    return {
+      ok: false,
+      mode: "error",
+      error: "URL pembaruan APK tidak tersedia.",
+    };
+  }
+
+  if (currentState.downloading) {
+    return {
+      ok: false,
+      mode: "already_downloading",
+    };
+  }
+
+  const plugin = getAppUpdatePlugin();
+  if (!plugin || typeof plugin.downloadAndInstallApk !== "function") {
+    const opened = await openApkDownloadUrl(cleanUrl);
+    return {
+      ok: opened,
+      mode: opened ? "browser_fallback" : "error",
+      ...(opened ? {} : { error: "Gagal membuka pengunduh pembaruan." }),
+    };
+  }
+
+  let listenerHandle: NativePluginListenerHandle | null = null;
+  let unsubscribed = false;
+
+  emitUpdateState({
+    downloading: true,
+    downloadProgress: 0,
+    downloadedBytes: 0,
+    totalBytes: 0,
+    installTriggered: false,
+    error: null,
+  });
+
+  try {
+    if (typeof plugin.addListener === "function") {
+      const maybeHandle = plugin.addListener("apkDownloadProgress", (event) => {
+        if (unsubscribed) return;
+        const pct = Math.max(
+          0,
+          Math.min(100, Math.round(Number(event?.percent) || 0)),
+        );
+        const dlBytes = Math.max(0, Math.round(Number(event?.downloadedBytes) || 0));
+        const totBytes = Math.max(0, Math.round(Number(event?.totalBytes) || 0));
+        emitUpdateState({
+          downloading: true,
+          downloadProgress: pct,
+          downloadedBytes: dlBytes,
+          totalBytes: totBytes,
+        });
+      });
+
+      if (maybeHandle && typeof (maybeHandle as Promise<NativePluginListenerHandle>).then === "function") {
+        listenerHandle = await (maybeHandle as Promise<NativePluginListenerHandle>);
+      } else {
+        listenerHandle = (maybeHandle as NativePluginListenerHandle) || null;
+      }
+    }
+
+    const res = await Promise.resolve(plugin.downloadAndInstallApk({ url: cleanUrl }));
+    const finalDl = Math.max(
+      currentState.downloadedBytes,
+      Math.round(Number(res?.downloadedBytes) || 0),
+    );
+    const finalTotal = Math.max(
+      currentState.totalBytes,
+      Math.round(Number(res?.totalBytes) || finalDl),
+    );
+
+    emitUpdateState({
+      downloading: false,
+      downloadProgress: 100,
+      downloadedBytes: finalDl,
+      totalBytes: finalTotal,
+      installTriggered: true,
+      error: null,
+    });
+
+    return {
+      ok: true,
+      mode: "native_installer",
+    };
+  } catch (err: any) {
+    const errMsg =
+      typeof err?.message === "string" && err.message.trim().length > 0
+        ? err.message.trim()
+        : "Gagal mengunduh pembaruan aplikasi.";
+    emitUpdateState({
+      downloading: false,
+      error: errMsg,
+    });
+    return {
+      ok: false,
+      mode: "error",
+      error: errMsg,
+    };
+  } finally {
+    unsubscribed = true;
+    if (listenerHandle && typeof listenerHandle.remove === "function") {
+      try {
+        await Promise.resolve(listenerHandle.remove());
+      } catch {}
+    }
+  }
+}
+
 export function resetAppUpdateStateForTests(): void {
   currentState = { ...initialUpdateState };
   hasAutoCheckedOnce = false;
   inflightPromise = null;
+  cachedBridgeProxy = null;
+  cachedAppUpdateProxy = null;
 }

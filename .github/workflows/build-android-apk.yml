@@ -43,7 +43,7 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Compute APK version & build debug APK
+      - name: Compute APK version & build signed APK (fixed keystore)
         id: apk_meta
         run: |
           APP_VERSION_NAME="2.0.${{ github.run_number }}"
@@ -53,14 +53,18 @@ jobs:
           echo "version_code=${APP_VERSION_CODE}" >> "$GITHUB_OUTPUT"
           echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
 
+          keytool -list -keystore android/app/kebabschoice-upload.keystore \
+            -storetype PKCS12 -storepass kebabschoicepos -alias kebabschoice
+
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon \
+          ./gradlew assembleRelease --no-daemon \
             -PappVersionCode="${APP_VERSION_CODE}" \
             -PappVersionName="${APP_VERSION_NAME}"
 
-          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/KebabsChoicePOS.apk
-          cat <<EOF > app/build/outputs/apk/debug/version.json
+          mkdir -p app/build/outputs/apk/release
+          cp app/build/outputs/apk/release/app-release.apk app/build/outputs/apk/release/KebabsChoicePOS.apk
+          cat <<EOF > app/build/outputs/apk/release/version.json
           {
             "versionName": "${APP_VERSION_NAME}",
             "versionCode": ${APP_VERSION_CODE},
@@ -73,7 +77,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: KebabsChoicePOS-Android-APK
-          path: android/app/build/outputs/apk/debug/KebabsChoicePOS.apk
+          path: android/app/build/outputs/apk/release/KebabsChoicePOS.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release with KebabsChoicePOS.apk
@@ -84,10 +88,11 @@ jobs:
           body: |
             Rilis otomatis aplikasi tablet Android **KebabsChoice POS v${{ steps.apk_meta.outputs.version_name }}** (`versionCode: ${{ steps.apk_meta.outputs.version_code }}`).
 
-            - Unduh file **`KebabsChoicePOS.apk`** langsung di tablet kasir atau klik tombol **Unduh Update** pada banner aplikasi POS.
+            - Ditandatangani dengan fixed keystore resmi sehingga tablet langsung **Update/Timpa** tanpa perlu Uninstall & tanpa kehilangan login/Akses Notifikasi.
+            - Klik tombol **Unduh & Update** pada banner atau menu Profil di dalam aplikasi POS tablet.
           files: |
-            android/app/build/outputs/apk/debug/KebabsChoicePOS.apk
-            android/app/build/outputs/apk/debug/version.json
+            android/app/build/outputs/apk/release/KebabsChoicePOS.apk
+            android/app/build/outputs/apk/release/version.json
           draft: false
           prerelease: false
           make_latest: true

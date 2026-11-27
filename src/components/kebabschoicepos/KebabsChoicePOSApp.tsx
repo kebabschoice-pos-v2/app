@@ -260,11 +260,18 @@ import {
 } from "@/lib/native-qris-auto-confirm";
 import {
   checkForAppUpdate,
+  downloadAndInstallApkUpdate,
+  formatApkBytes,
   getAppUpdateState,
-  openApkDownloadUrl,
   subscribeAppUpdateState,
   type AppUpdateState,
 } from "@/lib/app-updater";
+import {
+  fetchServerWebVersion,
+  hasNewerWebBuild,
+  WEB_VERSION_MIN_CHECK_GAP_MS,
+  WEB_VERSION_POLL_INTERVAL_MS,
+} from "@/lib/web-version-checker";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -12696,7 +12703,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     setSearchModalOpen(true);
   };
 
-  // Banner Update .apk Otomatis di Tablet Android (GitHub Releases)
+  // Banner Update .apk Otomatis di Tablet Android (GitHub Releases — In-App Progress Bar)
   const [apkUpdateState, setApkUpdateState] = useState<AppUpdateState>(() => getAppUpdateState());
   const [apkUpdateDismissedForTag, setApkUpdateDismissedForTag] = useState<string>("");
 
@@ -12708,6 +12715,64 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     void checkForAppUpdate();
     return () => {
       unsub();
+    };
+  }, []);
+
+  // Notifikasi Update Web Otomatis (/web-version.json?t=<timestamp> tiap 5 menit & saat tab aktif kembali)
+  const initialWebBuildIdRef = useRef<string | null>(null);
+  const lastWebVersionCheckRef = useRef<number>(0);
+  const [availableWebBuildId, setAvailableWebBuildId] = useState<string>("");
+  const [dismissedWebBuildId, setDismissedWebBuildId] = useState<string>("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    let cancelled = false;
+
+    const checkLatestWebBuild = async (force = false) => {
+      const now = Date.now();
+      if (!force && now - lastWebVersionCheckRef.current < WEB_VERSION_MIN_CHECK_GAP_MS) {
+        return;
+      }
+      lastWebVersionCheckRef.current = now;
+
+      const remote = await fetchServerWebVersion({ now });
+      if (cancelled || !remote?.buildId) return;
+
+      if (!initialWebBuildIdRef.current) {
+        initialWebBuildIdRef.current = remote.buildId;
+        return;
+      }
+
+      if (hasNewerWebBuild(initialWebBuildIdRef.current, remote.buildId)) {
+        setAvailableWebBuildId(remote.buildId);
+      }
+    };
+
+    void checkLatestWebBuild(true);
+
+    const intervalId = window.setInterval(() => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        void checkLatestWebBuild(true);
+      }
+    }, WEB_VERSION_POLL_INTERVAL_MS);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void checkLatestWebBuild(false);
+      }
+    };
+    const handleWindowFocus = () => {
+      void checkLatestWebBuild(false);
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("focus", handleWindowFocus);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("focus", handleWindowFocus);
     };
   }, []);
 
@@ -13469,7 +13534,10 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     apkUpdateState.isNative &&
     apkUpdateState.hasUpdate &&
     Boolean(apkUpdateState.downloadUrl) &&
-    apkUpdateDismissedForTag !== apkUpdateState.latestVersion;
+    (apkUpdateState.downloading || apkUpdateDismissedForTag !== apkUpdateState.latestVersion);
+
+  const showWebTopUpdateBanner =
+    Boolean(availableWebBuildId) && dismissedWebBuildId !== availableWebBuildId;
 
   return (
     <main
@@ -13484,33 +13552,113 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
         <div
           role="region"
           aria-label="Banner Update Aplikasi Android"
-          className="w-full shrink-0 bg-primary text-primary-foreground px-3.5 py-2 flex items-center justify-between gap-3 text-xs shadow-xs z-40 relative"
+          className="w-full shrink-0 bg-primary text-primary-foreground px-3.5 py-2 space-y-1.5 text-xs shadow-xs z-40 relative"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 min-w-0">
+              {apkUpdateState.downloading ? (
+                <Loader2 className="size-4 shrink-0 animate-spin" />
+              ) : (
+                <Download className="size-4 shrink-0" />
+              )}
+              <p className="font-black truncate">
+                {apkUpdateState.downloading ? (
+                  <>
+                    Mengunduh pembaruan... {apkUpdateState.downloadProgress}%
+                    {apkUpdateState.totalBytes > 0 && (
+                      <span className="hidden sm:inline font-medium opacity-90 ml-1.5">
+                        ({formatApkBytes(apkUpdateState.downloadedBytes)} /{" "}
+                        {formatApkBytes(apkUpdateState.totalBytes)})
+                      </span>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    Update Aplikasi Tersedia (v{apkUpdateState.latestVersion})
+                    <span className="hidden sm:inline font-medium opacity-90 ml-1.5">
+                      • Terpasang v{apkUpdateState.installedVersion}
+                    </span>
+                  </>
+                )}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                aria-label="Unduh Update Aplikasi"
+                disabled={apkUpdateState.downloading}
+                onClick={async () => {
+                  const res = await downloadAndInstallApkUpdate(apkUpdateState.downloadUrl);
+                  if (!res.ok && res.mode === "error") {
+                    toast.error(res.error || "Gagal mengunduh pembaruan aplikasi.");
+                  } else if (res.ok && res.mode === "native_installer") {
+                    toast.success("Unduhan selesai (100%)! Ketuk Update pada dialog Android.");
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90 disabled:opacity-75 px-3 py-1 text-xs font-black shadow-2xs transition-colors cursor-pointer active:scale-95"
+              >
+                {apkUpdateState.downloading ? (
+                  <>
+                    <RefreshCw className="size-3.5 text-primary animate-spin" />
+                    <span>{apkUpdateState.downloadProgress}%</span>
+                  </>
+                ) : (
+                  <>
+                    <Download className="size-3.5 text-primary" />
+                    <span>Unduh &amp; Update</span>
+                  </>
+                )}
+              </button>
+              {!apkUpdateState.downloading && (
+                <button
+                  type="button"
+                  aria-label="Tutup banner update"
+                  onClick={() => setApkUpdateDismissedForTag(apkUpdateState.latestVersion)}
+                  className="inline-flex size-6 items-center justify-center rounded-md hover:bg-primary-foreground/15 transition-colors cursor-pointer"
+                >
+                  <X className="size-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+          {apkUpdateState.downloading && (
+            <div className="w-full h-1.5 rounded-full bg-primary-foreground/25 overflow-hidden">
+              <div
+                className="h-full bg-primary-foreground transition-all duration-150"
+                style={{ width: `${Math.max(2, apkUpdateState.downloadProgress)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+      {showWebTopUpdateBanner && (
+        <div
+          role="region"
+          aria-label="Notifikasi Pembaruan Web Tersedia"
+          className="w-full shrink-0 border-b border-primary/25 bg-card text-foreground px-3.5 py-2 flex items-center justify-between gap-3 text-xs shadow-xs z-40 relative"
         >
           <div className="flex items-center gap-2 min-w-0">
-            <Download className="size-4 shrink-0" />
-            <p className="font-black truncate">
-              Update Aplikasi Tersedia (v{apkUpdateState.latestVersion})
-              <span className="hidden sm:inline font-medium opacity-90 ml-1.5">
-                • Terpasang v{apkUpdateState.installedVersion}
-              </span>
-            </p>
+            <span className="inline-flex size-6 shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary">
+              <RefreshCw className="size-3.5" />
+            </span>
+            <p className="font-bold truncate">Pembaruan tampilan &amp; fitur tersedia</p>
           </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <button
               type="button"
               onClick={() => {
-                void openApkDownloadUrl(apkUpdateState.downloadUrl);
+                window.location.reload();
               }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90 px-3 py-1 text-xs font-black shadow-2xs transition-colors cursor-pointer active:scale-95"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 px-3 py-1 text-xs font-black shadow-2xs transition-colors cursor-pointer active:scale-95"
             >
-              <Download className="size-3.5 text-primary" />
-              <span>Unduh Update</span>
+              <RefreshCw className="size-3.5" />
+              <span>Muat Ulang Halaman</span>
             </button>
             <button
               type="button"
-              aria-label="Tutup banner update"
-              onClick={() => setApkUpdateDismissedForTag(apkUpdateState.latestVersion)}
-              className="inline-flex size-6 items-center justify-center rounded-md hover:bg-primary-foreground/15 transition-colors cursor-pointer"
+              aria-label="Tutup notifikasi pembaruan web"
+              onClick={() => setDismissedWebBuildId(availableWebBuildId)}
+              className="inline-flex size-6 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors cursor-pointer"
             >
               <X className="size-3.5" />
             </button>

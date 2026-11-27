@@ -5077,6 +5077,193 @@ await (async () => {
   }
 })();
 
+// --- TEST 122: Fixed Android Keystore, In-App APK Downloader (0%-100% Progress Bar + FileProvider Installer), & Automatic Web Update Notification ---
+console.log("\n▶ 122. FIXED SIGNING KEYSTORE, IN-APP APK DOWNLOADER (PROGRESS BAR TANPA BROWSER), & NOTIFIKASI UPDATE WEB");
+
+const webVersionMod = await import("../src/lib/web-version-checker.ts");
+
+await (async () => {
+  totalTests++;
+  const name =
+    "Fixed signing keystore, AppUpdatePlugin native FileProvider installer, in-app 0%-100% download progress bar, and /web-version.json auto-update bar work end-to-end";
+  const prevWin = globalThis.window;
+  try {
+    const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+    const keystorePath = path.join(process.cwd(), "android/app/kebabschoice-upload.keystore");
+    assert.ok(
+      fs.existsSync(keystorePath) && fs.statSync(keystorePath).size > 1000,
+      "Fixed keystore android/app/kebabschoice-upload.keystore must exist and be non-empty",
+    );
+
+    const gradleCode = read("android/app/build.gradle");
+    const workflowYaml = read(".github/workflows/build-android-apk.yml");
+    const manifestXml = read("android/app/src/main/AndroidManifest.xml");
+    const filePathsXml = read("android/app/src/main/res/xml/file_paths.xml");
+    const appUpdateJava = read(
+      "android/app/src/main/java/com/kebabschoice/pos/AppUpdatePlugin.java",
+    );
+    const mainActivityJava = read(
+      "android/app/src/main/java/com/kebabschoice/pos/MainActivity.java",
+    );
+    const pkgJson = JSON.parse(read("package.json"));
+    const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+    const profileTabsCode = read("src/components/kebabschoicepos/UnifiedProfileTabs.tsx");
+
+    // 1. Fixed Keystore + Gradle signingConfigs + GitHub Actions
+    assert.ok(
+      gradleCode.includes("signingConfigs") &&
+        gradleCode.includes("kebabschoice-upload.keystore") &&
+        gradleCode.includes("kebabschoice") &&
+        gradleCode.includes("signingConfig signingConfigs.kebabschoice") &&
+        workflowYaml.includes("kebabschoice-upload.keystore") &&
+        workflowYaml.includes("assembleRelease"),
+      "build.gradle and build-android-apk.yml must sign APK using fixed kebabschoice-upload.keystore",
+    );
+
+    // 2. AndroidManifest + file_paths.xml + AppUpdatePlugin.java + MainActivity.java registration order
+    assert.ok(
+      manifestXml.includes("android.permission.REQUEST_INSTALL_PACKAGES") &&
+        manifestXml.includes("androidx.core.content.FileProvider") &&
+        manifestXml.includes("@xml/file_paths") &&
+        filePathsXml.includes('<cache-path name="apk_updates" path="updates/" />') &&
+        appUpdateJava.includes('@CapacitorPlugin(name = "AppUpdate")') &&
+        appUpdateJava.includes("public void downloadAndInstallApk(") &&
+        appUpdateJava.includes("apkDownloadProgress") &&
+        appUpdateJava.includes("KebabsChoicePOS.apk") &&
+        appUpdateJava.includes("FileProvider.getUriForFile") &&
+        appUpdateJava.includes("application/vnd.android.package-archive") &&
+        appUpdateJava.includes("FLAG_GRANT_READ_URI_PERMISSION") &&
+        appUpdateJava.includes("FLAG_ACTIVITY_NEW_TASK"),
+      "AndroidManifest, file_paths.xml, and AppUpdatePlugin.java must configure direct FileProvider APK installation",
+    );
+
+    const idxAppUpdate = mainActivityJava.indexOf("registerPlugin(AppUpdatePlugin.class);");
+    const idxSuperCreate = mainActivityJava.indexOf("super.onCreate(savedInstanceState);");
+    assert.ok(
+      idxAppUpdate > 0 && idxAppUpdate < idxSuperCreate,
+      "MainActivity.java must register AppUpdatePlugin BEFORE super.onCreate(savedInstanceState)",
+    );
+
+    // 3. In-app downloadAndInstallApkUpdate progress events (0% -> 48% -> 100%) without opening browser
+    let browserOpened = false;
+    let progressListener = null;
+    let listenerRemoved = false;
+    let requestedApkUrl = "";
+    const observedProgress = [];
+
+    appUpdaterMod.resetAppUpdateStateForTests();
+    globalThis.window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      open: () => {
+        browserOpened = true;
+        return {};
+      },
+      Capacitor: {
+        isNativePlatform: () => true,
+        Plugins: {
+          AppUpdate: {
+            addListener: (eventName, cb) => {
+              assert.strictEqual(eventName, "apkDownloadProgress");
+              progressListener = cb;
+              return {
+                remove: () => {
+                  listenerRemoved = true;
+                },
+              };
+            },
+            downloadAndInstallApk: async ({ url }) => {
+              requestedApkUrl = url;
+              if (progressListener) {
+                progressListener({ percent: 0, downloadedBytes: 0, totalBytes: 10485760 });
+                progressListener({ percent: 48, downloadedBytes: 5033164, totalBytes: 10485760 });
+                progressListener({ percent: 100, downloadedBytes: 10485760, totalBytes: 10485760 });
+              }
+              return {
+                installedPrompted: true,
+                percent: 100,
+                downloadedBytes: 10485760,
+                totalBytes: 10485760,
+              };
+            },
+          },
+        },
+      },
+    };
+
+    const unsubProgress = appUpdaterMod.subscribeAppUpdateState((st) => {
+      if (st.downloading || st.installTriggered) {
+        observedProgress.push({
+          downloading: st.downloading,
+          progress: st.downloadProgress,
+          installTriggered: st.installTriggered,
+        });
+      }
+    });
+
+    const targetUrl =
+      "https://github.com/kebabschoice-pos-v2/app/releases/download/apk-v2.0.25/KebabsChoicePOS.apk";
+    const dlResult = await appUpdaterMod.downloadAndInstallApkUpdate(targetUrl);
+    unsubProgress();
+
+    assert.strictEqual(dlResult.ok, true);
+    assert.strictEqual(dlResult.mode, "native_installer");
+    assert.strictEqual(requestedApkUrl, targetUrl);
+    assert.strictEqual(browserOpened, false, "In-app APK updater must NOT open external browser");
+    assert.strictEqual(listenerRemoved, true, "Progress listener must be cleaned up after completion");
+    assert.ok(
+      observedProgress.some((p) => p.downloading === true && p.progress === 48),
+      "Progress state must emit intermediate percentage (48%)",
+    );
+    assert.ok(
+      observedProgress.some((p) => p.progress === 100 && p.installTriggered === true),
+      "Progress state must reach 100% and mark installTriggered=true",
+    );
+
+    // 4. Web version prebuild script + Web Update notification bar UI
+    assert.strictEqual(pkgJson.scripts.prebuild, "node scripts/generate-web-version.mjs");
+    assert.ok(
+      posAppCode.includes("Mengunduh pembaruan...") &&
+        posAppCode.includes("Unduh &amp; Update") &&
+        posAppCode.includes("Pembaruan tampilan &amp; fitur tersedia") &&
+        posAppCode.includes("Muat Ulang Halaman") &&
+        posAppCode.includes("window.location.reload()") &&
+        profileTabsCode.includes("Mengunduh pembaruan...") &&
+        profileTabsCode.includes("Unduh &amp; Update"),
+      "KebabsChoicePOSApp.tsx and UnifiedProfileTabs.tsx must render in-app APK progress bar and Web Update reload notification",
+    );
+
+    let capturedWebVersionUrl = "";
+    const fetchedWebVer = await webVersionMod.fetchServerWebVersion({
+      now: 1795780000123,
+      fetchImpl: async (url) => {
+        capturedWebVersionUrl = String(url);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            buildId: "1795780000999",
+            builtAt: "2026-11-27T12:45:00.000Z",
+          }),
+        };
+      },
+    });
+    assert.strictEqual(capturedWebVersionUrl, "/web-version.json?t=1795780000123");
+    assert.strictEqual(fetchedWebVer?.buildId, "1795780000999");
+    assert.strictEqual(webVersionMod.hasNewerWebBuild("1795780000100", "1795780000100"), false);
+    assert.strictEqual(webVersionMod.hasNewerWebBuild("1795780000100", "1795780000999"), true);
+
+    console.log(`  ✅ [PASS] ${name}`);
+    passedTests++;
+  } catch (err) {
+    console.error(`  ❌ [FAIL] ${name}:`, err.message);
+    throw err;
+  } finally {
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+  }
+})();
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

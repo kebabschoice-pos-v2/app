@@ -3,20 +3,27 @@ package com.kebabschoice.pos;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
 import android.text.TextUtils;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
+import java.util.List;
+
 /**
  * PaymentAutoConfirm — Jembatan Capacitor antara PaymentNotificationListener
- * (NotificationListenerService Android) dan WebView POS Kasir.
+ * (NotificationListenerService Android), diagnostik notifikasi, serta pengecekan versi aplikasi (.apk).
  *
  * Event ke JS: "paymentNotificationReceived" -> { packageName, title, text, amount, timestamp }
  */
@@ -109,6 +116,90 @@ public class PaymentAutoConfirmPlugin extends Plugin {
             } catch (Exception fallbackErr) {
                 call.reject("Gagal membuka Pengaturan Akses Notifikasi: " + primaryErr.getMessage());
             }
+        }
+    }
+
+    /**
+     * 3. Ambil 5 riwayat notifikasi terakhir yang diterima listener di memori untuk diagnostik di Profil.
+     */
+    @PluginMethod
+    public void getRecentNotifications(PluginCall call) {
+        List<PaymentNotificationListener.RecentNotificationLog> logs =
+            PaymentNotificationListener.getRecentNotificationLogs();
+        JSArray arr = new JSArray();
+        for (PaymentNotificationListener.RecentNotificationLog item : logs) {
+            JSObject obj = new JSObject();
+            obj.put("packageName", item.packageName);
+            obj.put("title", item.title);
+            obj.put("text", item.text);
+            obj.put("parsedAmount", item.parsedAmount);
+            obj.put("matched", item.matched);
+            obj.put("timestamp", item.timestamp);
+            arr.put(obj);
+        }
+        JSObject ret = new JSObject();
+        ret.put("notifications", arr);
+        call.resolve(ret);
+    }
+
+    /**
+     * 4. Ambil informasi versi native `.apk` terpasang (`versionName` & `versionCode`) dari PackageManager.
+     */
+    @PluginMethod
+    public void getAppVersion(PluginCall call) {
+        Context ctx = getContext();
+        if (ctx == null) {
+            call.reject("Context Android tidak tersedia.");
+            return;
+        }
+        try {
+            PackageInfo pInfo;
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pInfo = ctx.getPackageManager().getPackageInfo(
+                    ctx.getPackageName(),
+                    PackageManager.PackageInfoFlags.of(0)
+                );
+            } else {
+                pInfo = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0);
+            }
+            String versionName = pInfo.versionName != null ? pInfo.versionName : "1.0.0";
+            long versionCode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.P
+                ? pInfo.getLongVersionCode()
+                : pInfo.versionCode;
+            JSObject ret = new JSObject();
+            ret.put("versionName", versionName);
+            ret.put("versionCode", versionCode);
+            ret.put("packageName", ctx.getPackageName());
+            call.resolve(ret);
+        } catch (Exception err) {
+            call.reject("Gagal membaca versi aplikasi: " + err.getMessage());
+        }
+    }
+
+    /**
+     * 5. Buka URL eksternal (mis. browser_download_url `.apk` GitHub Release) di browser sistem Android.
+     */
+    @PluginMethod
+    public void openDownloadUrl(PluginCall call) {
+        Context ctx = getContext();
+        if (ctx == null) {
+            call.reject("Context Android tidak tersedia.");
+            return;
+        }
+        String url = call.getString("url");
+        if (TextUtils.isEmpty(url)) {
+            call.reject("URL unduhan kosong.");
+            return;
+        }
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url.trim()));
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            ctx.startActivity(intent);
+            JSObject ret = new JSObject();
+            ret.put("opened", true);
+            call.resolve(ret);
+        } catch (Exception err) {
+            call.reject("Gagal membuka URL unduhan: " + err.getMessage());
         }
     }
 

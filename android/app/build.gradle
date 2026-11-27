@@ -1,5 +1,8 @@
 apply plugin: 'com.android.application'
 
+def customVersionCode = project.hasProperty('appVersionCode') ? project.property('appVersionCode').toInteger() : 1
+def customVersionName = project.hasProperty('appVersionName') ? project.property('appVersionName').toString() : "1.0.0"
+
 android {
     namespace "com.kebabschoice.pos"
     compileSdk rootProject.ext.compileSdkVersion
@@ -7,8 +10,8 @@ android {
         applicationId "com.kebabschoice.pos"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode customVersionCode
+        versionName customVersionName
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.

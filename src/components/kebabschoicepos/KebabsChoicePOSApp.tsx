@@ -254,7 +254,17 @@ import { shareReceiptImage } from "@/lib/receipt-image";
 import { getSmartCashSuggestions } from "@/lib/cash-suggestions";
 import { normalizeQrisPayload, validateQrisPayload } from "@/lib/qris-emv";
 import { isCapacitorAndroid, openWhatsAppHomeNative } from "@/lib/native-whatsapp";
-import { subscribePaymentNotifications } from "@/lib/native-qris-auto-confirm";
+import {
+  isNativeApkEnvironment,
+  subscribePaymentNotifications,
+} from "@/lib/native-qris-auto-confirm";
+import {
+  checkForAppUpdate,
+  getAppUpdateState,
+  openApkDownloadUrl,
+  subscribeAppUpdateState,
+  type AppUpdateState,
+} from "@/lib/app-updater";
 import {
   formatRupiahInput,
   parseNumberFromDots,
@@ -6087,7 +6097,8 @@ function PosPage({
         try {
           if (!evt) return;
           if (autoConfirmedOrderRef.current === currentOrderKey) return;
-          if (Math.round(Number(evt.amount) || 0) !== grandTotal) return;
+          const amount = Number(evt.amount) || 0;
+          if (amount <= 0 || !(Math.round(amount) === Math.round(grandTotal))) return;
           if (createdFloorMs > 0 && Number(evt.timestamp) > 0 && evt.timestamp < createdFloorMs) {
             return;
           }
@@ -12685,6 +12696,21 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     setSearchModalOpen(true);
   };
 
+  // Banner Update .apk Otomatis di Tablet Android (GitHub Releases)
+  const [apkUpdateState, setApkUpdateState] = useState<AppUpdateState>(() => getAppUpdateState());
+  const [apkUpdateDismissedForTag, setApkUpdateDismissedForTag] = useState<string>("");
+
+  useEffect(() => {
+    if (!isNativeApkEnvironment()) return;
+    const unsub = subscribeAppUpdateState((next) => {
+      setApkUpdateState(next);
+    });
+    void checkForAppUpdate();
+    return () => {
+      unsub();
+    };
+  }, []);
+
   // Tablet View States: Collapsible Left Sidebar & Fullscreen Focus Mode
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
     try {
@@ -13439,14 +13465,58 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
     return <DashboardPage snapshot={snapshot} userName={profile.displayName} />;
   }, [page, snapshot, profile, activeCashierName, appManagerPermissions, isSnapshotLoading]);
 
+  const showApkTopUpdateBanner =
+    apkUpdateState.isNative &&
+    apkUpdateState.hasUpdate &&
+    Boolean(apkUpdateState.downloadUrl) &&
+    apkUpdateDismissedForTag !== apkUpdateState.latestVersion;
+
   return (
     <main
       className={cn(
         "min-h-screen bg-background text-foreground",
-        page === "pos" && "min-[680px]:h-[100dvh] min-[680px]:min-h-0 min-[680px]:overflow-hidden",
+        page === "pos" &&
+          "min-[680px]:h-[100dvh] min-[680px]:min-h-0 min-[680px]:overflow-hidden min-[680px]:flex min-[680px]:flex-col",
       )}
     >
       <div className="fixed inset-0 -z-10 bg-background" />
+      {showApkTopUpdateBanner && (
+        <div
+          role="region"
+          aria-label="Banner Update Aplikasi Android"
+          className="w-full shrink-0 bg-primary text-primary-foreground px-3.5 py-2 flex items-center justify-between gap-3 text-xs shadow-xs z-40 relative"
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Download className="size-4 shrink-0" />
+            <p className="font-black truncate">
+              Update Aplikasi Tersedia (v{apkUpdateState.latestVersion})
+              <span className="hidden sm:inline font-medium opacity-90 ml-1.5">
+                • Terpasang v{apkUpdateState.installedVersion}
+              </span>
+            </p>
+          </div>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                void openApkDownloadUrl(apkUpdateState.downloadUrl);
+              }}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-background text-foreground hover:bg-background/90 px-3 py-1 text-xs font-black shadow-2xs transition-colors cursor-pointer active:scale-95"
+            >
+              <Download className="size-3.5 text-primary" />
+              <span>Unduh Update</span>
+            </button>
+            <button
+              type="button"
+              aria-label="Tutup banner update"
+              onClick={() => setApkUpdateDismissedForTag(apkUpdateState.latestVersion)}
+              className="inline-flex size-6 items-center justify-center rounded-md hover:bg-primary-foreground/15 transition-colors cursor-pointer"
+            >
+              <X className="size-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
       {isPosMode && isSidebarCollapsed && (
         <button
           type="button"
@@ -13476,7 +13546,7 @@ export function KebabsChoicePOSApp({ page }: { page: AppPage }) {
       <div
         className={cn(
           "flex w-full min-w-0",
-          page === "pos" && "min-[680px]:h-[100dvh] min-[680px]:overflow-hidden",
+          page === "pos" && "min-[680px]:flex-1 min-[680px]:min-h-0 min-[680px]:overflow-hidden",
         )}
       >
         <Sidebar

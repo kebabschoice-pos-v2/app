@@ -1,11 +1,22 @@
 name: Build Android APK
 
 on:
+  push:
+    branches:
+      - main
+    paths:
+      - "android/**"
+      - "capacitor.config.ts"
+      - "capacitor-www/**"
+      - ".github/workflows/build-android-apk.yml"
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build-apk:
-    name: Build KebabsChoice POS APK (debug)
+    name: Build & Release KebabsChoice POS APK
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -32,15 +43,51 @@ jobs:
       - name: Sync Capacitor Android
         run: npx cap sync android
 
-      - name: Build debug APK
+      - name: Compute APK version & build debug APK
+        id: apk_meta
         run: |
+          APP_VERSION_NAME="2.0.${{ github.run_number }}"
+          APP_VERSION_CODE=$((20000 + ${{ github.run_number }}))
+          RELEASE_TAG="apk-v${APP_VERSION_NAME}"
+          echo "version_name=${APP_VERSION_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version_code=${APP_VERSION_CODE}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+
           cd android
           chmod +x ./gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleDebug --no-daemon \
+            -PappVersionCode="${APP_VERSION_CODE}" \
+            -PappVersionName="${APP_VERSION_NAME}"
+
+          cp app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/KebabsChoicePOS.apk
+          cat <<EOF > app/build/outputs/apk/debug/version.json
+          {
+            "versionName": "${APP_VERSION_NAME}",
+            "versionCode": ${APP_VERSION_CODE},
+            "tagName": "${RELEASE_TAG}",
+            "apkFileName": "KebabsChoicePOS.apk"
+          }
+          EOF
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: KebabsChoicePOS-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/KebabsChoicePOS.apk
           if-no-files-found: error
+
+      - name: Publish GitHub Release with KebabsChoicePOS.apk
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.apk_meta.outputs.release_tag }}
+          name: KebabsChoice POS v${{ steps.apk_meta.outputs.version_name }}
+          body: |
+            Rilis otomatis aplikasi tablet Android **KebabsChoice POS v${{ steps.apk_meta.outputs.version_name }}** (`versionCode: ${{ steps.apk_meta.outputs.version_code }}`).
+
+            - Unduh file **`KebabsChoicePOS.apk`** langsung di tablet kasir atau klik tombol **Unduh Update** pada banner aplikasi POS.
+          files: |
+            android/app/build/outputs/apk/debug/KebabsChoicePOS.apk
+            android/app/build/outputs/apk/debug/version.json
+          draft: false
+          prerelease: false
+          make_latest: true

@@ -4,6 +4,7 @@ import {
   BellRing,
   CheckCircle2,
   ChevronRight,
+  Download,
   Globe2,
   Grid3X3,
   History,
@@ -74,10 +75,20 @@ import { useTranslation } from "@/lib/i18n";
 import { ThemeModal } from "@/components/theme/ThemeModal";
 import { LanguageSettingsPage } from "@/pages/account/LanguageSettingsPage";
 import {
+  getRecentNotificationsNative,
   isNativeApkEnvironment,
   isNotificationAccessEnabledNative,
   openNotificationAccessSettingsNative,
+  subscribePaymentNotifications,
+  type RecentNotificationLogItem,
 } from "@/lib/native-qris-auto-confirm";
+import {
+  checkForAppUpdate,
+  getAppUpdateState,
+  openApkDownloadUrl,
+  subscribeAppUpdateState,
+  type AppUpdateState,
+} from "@/lib/app-updater";
 
 export type ProfileMenuSection =
   | "display"
@@ -142,6 +153,9 @@ export function UnifiedProfileTabs({
   const [showPairedBtPicker, setShowPairedBtPicker] = useState(false);
   const [isNativeApk] = useState<boolean>(() => isNativeApkEnvironment());
   const [notifAccessEnabled, setNotifAccessEnabled] = useState<boolean>(false);
+  const [recentNotifLogs, setRecentNotifLogs] = useState<RecentNotificationLogItem[]>([]);
+  const [isLoadingNotifLogs, setIsLoadingNotifLogs] = useState<boolean>(false);
+  const [appUpdate, setAppUpdate] = useState<AppUpdateState>(() => getAppUpdateState());
 
   // Security: Password & Supervisor PIN
   const [newPassword, setNewPassword] = useState("");
@@ -290,14 +304,33 @@ export function UnifiedProfileTabs({
         isNotificationAccessEnabledNative()
           .then((enabled) => setNotifAccessEnabled(enabled))
           .catch(() => {});
+        getRecentNotificationsNative()
+          .then((logs) => setRecentNotifLogs(logs))
+          .catch(() => {});
       }
     };
     refreshNotifAccess();
     window.addEventListener("focus", refreshNotifAccess);
     document.addEventListener("visibilitychange", refreshNotifAccess);
 
+    const unsubAppUpdate = subscribeAppUpdateState((nextUpdate) => {
+      setAppUpdate(nextUpdate);
+    });
+    if (isNativeApkEnvironment()) {
+      void checkForAppUpdate();
+    }
+    const unsubLiveNotif = isNativeApkEnvironment()
+      ? subscribePaymentNotifications(() => {
+          getRecentNotificationsNative()
+            .then((logs) => setRecentNotifLogs(logs))
+            .catch(() => {});
+        })
+      : () => {};
+
     return () => {
       unsubPrinter();
+      unsubAppUpdate();
+      unsubLiveNotif();
       window.removeEventListener("ui-scale-changed", syncScale);
       window.removeEventListener("pos:view-mode-changed", syncView);
       window.removeEventListener("pos:sound-changed", syncSound);
@@ -305,6 +338,50 @@ export function UnifiedProfileTabs({
       document.removeEventListener("visibilitychange", refreshNotifAccess);
     };
   }, [propEmail, propName, propRole]);
+
+  useEffect(() => {
+    if (activeSection === "display" && isNativeApkEnvironment()) {
+      getRecentNotificationsNative()
+        .then((logs) => setRecentNotifLogs(logs))
+        .catch(() => {});
+    }
+  }, [activeSection]);
+
+  const handleReloadNotificationLogs = async () => {
+    setIsLoadingNotifLogs(true);
+    try {
+      const [enabled, logs] = await Promise.all([
+        isNotificationAccessEnabledNative(),
+        getRecentNotificationsNative(),
+      ]);
+      setNotifAccessEnabled(enabled);
+      setRecentNotifLogs(logs);
+      toast.success(
+        logs.length > 0
+          ? `Memuat ${logs.length} riwayat notifikasi terakhir`
+          : "Log dimuat ulang (belum ada notifikasi baru di memori)",
+      );
+    } catch {
+      toast.error("Gagal memuat log notifikasi.");
+    } finally {
+      setIsLoadingNotifLogs(false);
+    }
+  };
+
+  const handleManualCheckAppUpdate = async () => {
+    const res = await checkForAppUpdate({ force: true });
+    if (res.error) {
+      toast.error(res.error);
+      return;
+    }
+    if (res.hasUpdate) {
+      toast.success(`Update Aplikasi Tersedia (v${res.latestVersion})!`);
+    } else {
+      toast.success(
+        `Aplikasi sudah menggunakan versi terbaru (v${res.installedVersion}).`,
+      );
+    }
+  };
 
   const normalizedRole = String(role || "cashier").toLowerCase();
   const isSupervisorOrOwner = ["owner", "admin", "hq", "manager"].includes(normalizedRole);
@@ -535,6 +612,69 @@ export function UnifiedProfileTabs({
           {currentDeviceLabel}
         </span>
       </div>
+
+      {/* Banner & Kontrol Update Aplikasi (.apk) Otomatis di Tablet */}
+      {isNativeApk && (
+        <div
+          className={cn(
+            "rounded-2xl border px-4 py-3 shadow-xs flex flex-wrap items-center justify-between gap-3",
+            appUpdate.hasUpdate
+              ? "border-primary/40 bg-primary/10"
+              : "border-border bg-card",
+          )}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <div
+              className={cn(
+                "flex size-9 shrink-0 items-center justify-center rounded-xl",
+                appUpdate.hasUpdate
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-foreground/80",
+              )}
+            >
+              <Download className="size-4" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xs sm:text-sm font-black text-foreground truncate">
+                {appUpdate.hasUpdate
+                  ? `Update Aplikasi Tersedia (v${appUpdate.latestVersion})`
+                  : `Aplikasi Tablet POS (v${appUpdate.installedVersion})`}
+              </p>
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">
+                {appUpdate.hasUpdate
+                  ? `Terpasang v${appUpdate.installedVersion} • Tap Unduh Update untuk pasang langsung di tablet`
+                  : "Periksa ketersediaan rilis APK terbaru langsung dari server GitHub"}
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {appUpdate.hasUpdate && appUpdate.downloadUrl && (
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  void openApkDownloadUrl(appUpdate.downloadUrl);
+                }}
+                className="h-8 rounded-xl text-xs font-black gap-1.5 shadow-brand"
+              >
+                <Download className="size-3.5" />
+                <span>Unduh Update</span>
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              disabled={appUpdate.checking}
+              onClick={handleManualCheckAppUpdate}
+              className="h-8 rounded-xl text-xs font-bold gap-1.5"
+            >
+              <RefreshCw className={cn("size-3.5", appUpdate.checking && "animate-spin")} />
+              <span>Cek Update Aplikasi</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ===================================================================== */}
       {/* MODE DAFTAR MENU PENGATURAN (SAAT BELUM ADA SUB-MENU YANG DIKLIK)      */}
@@ -882,7 +1022,7 @@ export function UnifiedProfileTabs({
 
               {/* Auto-Lunas QRIS (Shopee Partner) — Khusus di dalam .apk Android */}
               {isNativeApk && (
-                <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-2.5">
+                <div className="rounded-2xl border border-border bg-card p-4 shadow-xs space-y-3">
                   <div className="flex items-center justify-between gap-2 flex-wrap">
                     <div className="flex items-center gap-2">
                       <BellRing className="size-4 text-primary" />
@@ -902,10 +1042,11 @@ export function UnifiedProfileTabs({
                     </span>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Mendeteksi notifikasi pembayaran QRIS masuk dari aplikasi Shopee Partner secara
-                    otomatis dan langsung melunaskan tagihan kasir bila nominal cocok persis.
+                    Mendeteksi notifikasi pembayaran QRIS masuk dari aplikasi Shopee Partner, GoPay
+                    Merchant, DANA, OVO, & m-banking secara otomatis dan melunaskan tagihan kasir
+                    bila nominal cocok.
                   </p>
-                  <div className="pt-0.5">
+                  <div className="flex flex-wrap items-center gap-2 pt-0.5">
                     <Button
                       type="button"
                       size="sm"
@@ -931,6 +1072,91 @@ export function UnifiedProfileTabs({
                       <BellRing className="size-3.5" />
                       <span>Aktifkan Akses Notifikasi</span>
                     </Button>
+
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      disabled={isLoadingNotifLogs}
+                      onClick={handleReloadNotificationLogs}
+                      className="h-9 rounded-xl text-xs font-bold gap-1.5"
+                    >
+                      <RefreshCw className={cn("size-3.5", isLoadingNotifLogs && "animate-spin")} />
+                      <span>Muat Ulang Log</span>
+                    </Button>
+                  </div>
+
+                  {/* Diagnostik 5 Riwayat Notifikasi Terakhir */}
+                  <div className="rounded-xl border border-border/70 bg-muted/25 p-3 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-black uppercase tracking-wider text-muted-foreground">
+                        Log Diagnostik (5 Notifikasi Terakhir)
+                      </span>
+                      <span className="text-[11px] font-semibold text-muted-foreground">
+                        {recentNotifLogs.length}/5 tercatat
+                      </span>
+                    </div>
+
+                    {recentNotifLogs.length === 0 ? (
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        Belum ada riwayat notifikasi di memori sesi ini. Pastikan Akses Notifikasi{" "}
+                        <strong>Aktif</strong>, lalu ketuk <strong>Muat Ulang Log</strong> saat
+                        notifikasi Shopee Partner masuk di tablet.
+                      </p>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {recentNotifLogs.map((item, idx) => {
+                          const timeStr = new Date(item.timestamp).toLocaleTimeString("id-ID", {
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            second: "2-digit",
+                          });
+                          return (
+                            <div
+                              key={`${item.timestamp}-${item.packageName}-${idx}`}
+                              className={cn(
+                                "rounded-lg border px-2.5 py-2 text-xs space-y-1",
+                                item.matched
+                                  ? "border-emerald-500/35 bg-emerald-500/5"
+                                  : "border-border/70 bg-card",
+                              )}
+                            >
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  <span
+                                    className={cn(
+                                      "rounded-full px-2 py-0.5 text-[10px] font-bold",
+                                    item.matched
+                                        ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                                        : "bg-secondary text-muted-foreground",
+                                    )}
+                                  >
+                                    {item.matched ? "Cocok • Auto-Lunas" : "Diabaikan"}
+                                  </span>
+                                  <span className="font-black text-foreground">
+                                    {item.parsedAmount > 0
+                                      ? `Rp ${item.parsedAmount.toLocaleString("id-ID")}`
+                                      : "Nominal: -"}
+                                  </span>
+                                </div>
+                                <span className="text-[10px] font-mono text-muted-foreground shrink-0">
+                                  {timeStr}
+                                </span>
+                              </div>
+                              {(item.title || item.text) && (
+                                <p className="text-[11px] text-foreground/90 break-words leading-snug">
+                                  {item.title ? <strong>{item.title}: </strong> : null}
+                                  {item.text || "-"}
+                                </p>
+                              )}
+                              <p className="text-[10px] font-mono text-muted-foreground truncate">
+                                pkg: {item.packageName || "-"}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

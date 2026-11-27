@@ -193,11 +193,15 @@ public class MainActivity extends BridgeActivity {
             case "http":
             case "https":
                 String host = url.getHost() == null ? "" : url.getHost().toLowerCase(Locale.ROOT);
+                String path = url.getPath() == null ? "" : url.getPath().toLowerCase(Locale.ROOT);
                 return host.equals("wa.me")
                     || host.equals("api.whatsapp.com")
                     || host.equals("chat.whatsapp.com")
                     || host.equals("web.whatsapp.com")
-                    || host.equals("play.google.com");
+                    || host.equals("play.google.com")
+                    || host.equals("github.com")
+                    || host.endsWith(".githubusercontent.com")
+                    || path.endsWith(".apk");
             default:
                 return false;
         }

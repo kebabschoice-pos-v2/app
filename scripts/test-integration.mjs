@@ -4828,6 +4828,255 @@ test("Verifies PaymentNotificationListener.java, PaymentAutoConfirmPlugin.java, 
   );
 });
 
+// --- TEST 121: Expanded Shopee Partner / Merchant / Bank Notification Detection, 5-Item Diagnostic Log, & Automatic GitHub Releases .apk Updater ---
+console.log("\n▶ 121. PERLUAS DETEKSI NOTIFIKASI SHOPEE PARTNER (+ LOG DIAGNOSTIK) & AUTO-UPDATE .APK TABLET");
+
+const appUpdaterMod = await import("../src/lib/app-updater.ts");
+
+test("Expanded package matcher, incoming payment keywords, and nominal parser handle all Shopee/Spay/GoPay/DANA/OVO/Bank packages and Rp9.900..9.900 formats", () => {
+  const {
+    extractNotificationRupiahAmount,
+    isIncomingPaymentNotificationText,
+    isMonitoredPaymentPackage,
+    parseShopeePartnerNotification,
+  } = autoConfirmMod;
+
+  // 1. Expanded case-insensitive package matching
+  const validPackages = [
+    "com.shopee.partner.id",
+    "COM.AIRPAY.MERCHANT",
+    "id.spay.merchant",
+    "com.gojek.gopaymerchant",
+    "id.dana.bisnis",
+    "ovo.id",
+    "id.qris.merchant",
+    "com.bca.mybca",
+    "id.co.bri.brimo",
+    "bmri.livin.mandiri",
+    "src.com.bni",
+    "id.co.seabank.app",
+  ];
+  for (const pkg of validPackages) {
+    assert.strictEqual(
+      isMonitoredPaymentPackage(pkg),
+      true,
+      `Package '${pkg}' must be accepted by expanded payment package matcher`,
+    );
+  }
+  assert.strictEqual(isMonitoredPaymentPackage("com.kebabschoice.pos"), false);
+  assert.strictEqual(isMonitoredPaymentPackage("com.whatsapp"), false);
+
+  // 2. Expanded incoming payment keywords (case-insensitive)
+  const validTexts = [
+    "Dana diterima",
+    "Anda menerima Rp9.900",
+    "Terima pembayaran",
+    "Transaksi berhasil",
+    "Saldo masuk",
+    "Tagihan dibayar",
+    "Pembayaran sukses",
+    "Payment received",
+    "Invoice paid",
+    "QRIS 9.900",
+  ];
+  for (const txt of validTexts) {
+    assert.strictEqual(
+      isIncomingPaymentNotificationText(txt),
+      true,
+      `Payment text '${txt}' must match expanded payment keywords`,
+    );
+  }
+
+  // 3. All Rupiah & bare nominal formats -> 9900
+  const amountSamples = [
+    "Pembayaran diterima Rp9.900",
+    "Pembayaran diterima Rp 9.900",
+    "Payment received Rp9,900",
+    "Dana masuk Rp 9.900,00",
+    "Transaksi berhasil IDR 9.900",
+    "QRIS berhasil 9.900",
+  ];
+  for (const sample of amountSamples) {
+    assert.strictEqual(
+      extractNotificationRupiahAmount(sample),
+      9900,
+      `Sample '${sample}' must parse as 9900`,
+    );
+  }
+
+  const parsedBankQris = parseShopeePartnerNotification({
+    packageName: "id.co.seabank.app",
+    title: "SeaBank QRIS",
+    text: "Anda menerima pembayaran QRIS 9.900",
+  });
+  assert.ok(parsedBankQris && parsedBankQris.amount === 9900);
+});
+
+await (async () => {
+  totalTests++;
+  const name =
+    "Diagnostic RecentNotificationLog (max 5 items), getRecentNotifications, getAppVersion, Muat Ulang Log UI, and GitHub Releases .apk auto-update check work end-to-end";
+  const prevWin = globalThis.window;
+  try {
+    const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
+    const listenerJava = read(
+      "android/app/src/main/java/com/kebabschoice/pos/PaymentNotificationListener.java",
+    );
+    const pluginJava = read(
+      "android/app/src/main/java/com/kebabschoice/pos/PaymentAutoConfirmPlugin.java",
+    );
+    const gradleCode = read("android/app/build.gradle");
+    const workflowYaml = read(".github/workflows/build-android-apk.yml");
+    const posAppCode = read("src/components/kebabschoicepos/KebabsChoicePOSApp.tsx");
+    const profileTabsCode = read("src/components/kebabschoicepos/UnifiedProfileTabs.tsx");
+
+    // 1. Verify Java listener + plugin + Gradle + GitHub Actions workflow + UI wiring
+    for (const token of [
+      "shopee",
+      "airpay",
+      "spay",
+      "gopay",
+      "dana",
+      "ovo",
+      "qris",
+      "merchant",
+      "bca",
+      "bri",
+      "mandiri",
+      "bni",
+      "seabank",
+    ]) {
+      assert.ok(
+        listenerJava.includes(`"${token}"`),
+        `PaymentNotificationListener.java must include package token "${token}"`,
+      );
+    }
+    assert.ok(
+      listenerJava.includes("RecentNotificationLog") &&
+        listenerJava.includes("MAX_RECENT_NOTIFICATIONS = 5") &&
+        pluginJava.includes("public void getRecentNotifications(PluginCall call)") &&
+        pluginJava.includes("public void getAppVersion(PluginCall call)") &&
+        gradleCode.includes("appVersionCode") &&
+        gradleCode.includes("appVersionName") &&
+        workflowYaml.includes("contents: write") &&
+        workflowYaml.includes("softprops/action-gh-release@v2") &&
+        workflowYaml.includes("KebabsChoicePOS.apk") &&
+        workflowYaml.includes("apk-v") &&
+        posAppCode.includes("Math.round(amount) === Math.round(grandTotal)") &&
+        posAppCode.includes("Update Aplikasi Tersedia") &&
+        posAppCode.includes("Unduh Update") &&
+        profileTabsCode.includes("Muat Ulang Log") &&
+        profileTabsCode.includes("Cek Update Aplikasi") &&
+        profileTabsCode.includes("Update Aplikasi Tersedia") &&
+        profileTabsCode.includes("Unduh Update"),
+      "Android Java plugins, build.gradle, GitHub Actions workflow, KebabsChoicePOSApp.tsx, and UnifiedProfileTabs.tsx must wire diagnostic logs & auto-update banner",
+    );
+
+    // 2. Verify runtime getRecentNotificationsNative + checkForAppUpdate + openApkDownloadUrl
+    let openedDownloadUrl = "";
+    globalThis.window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      open: (url) => {
+        openedDownloadUrl = url;
+        return {};
+      },
+      Capacitor: {
+        isNativePlatform: () => true,
+        Plugins: {
+          PaymentAutoConfirm: {
+            getRecentNotifications: async () => ({
+              notifications: [
+                {
+                  packageName: "com.shopee.merchant.id",
+                  title: "Shopee Partner",
+                  text: "Pembayaran QRIS diterima Rp9.900",
+                  parsedAmount: 9900,
+                  matched: true,
+                  timestamp: 1700000050000,
+                },
+                {
+                  packageName: "com.shopee.merchant.id",
+                  title: "Info Toko",
+                  text: "Laporan harian tersedia",
+                  parsedAmount: 0,
+                  matched: false,
+                  timestamp: 1700000040000,
+                },
+              ],
+            }),
+            getAppVersion: async () => ({
+              versionName: "2.0.10",
+              versionCode: 20010,
+            }),
+          },
+        },
+      },
+    };
+
+    const logs = await autoConfirmMod.getRecentNotificationsNative();
+    assert.strictEqual(logs.length, 2);
+    assert.strictEqual(logs[0].parsedAmount, 9900);
+    assert.strictEqual(logs[0].matched, true);
+    assert.strictEqual(logs[1].matched, false);
+
+    appUpdaterMod.resetAppUpdateStateForTests();
+    assert.strictEqual(appUpdaterMod.compareAppVersions("apk-v2.0.12", "2.0.10"), 1);
+    assert.strictEqual(appUpdaterMod.compareAppVersions("apk-v2.0.10", "2.0.10"), 0);
+    assert.strictEqual(appUpdaterMod.compareAppVersions("1.0.0", "2.0.10"), -1);
+
+    let fetchedReleaseUrl = "";
+    const updateState = await appUpdaterMod.checkForAppUpdate({
+      force: true,
+      fetchImpl: async (url) => {
+        fetchedReleaseUrl = String(url);
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            tag_name: "apk-v2.0.12",
+            name: "KebabsChoice POS v2.0.12",
+            draft: false,
+            published_at: "2026-11-27T12:00:00Z",
+            assets: [
+              {
+                name: "KebabsChoicePOS.apk",
+                browser_download_url:
+                  "https://github.com/kebabschoice-pos-v2/app/releases/download/apk-v2.0.12/KebabsChoicePOS.apk",
+              },
+            ],
+          }),
+        };
+      },
+    });
+
+    assert.strictEqual(
+      fetchedReleaseUrl,
+      "https://api.github.com/repos/kebabschoice-pos-v2/app/releases/latest",
+    );
+    assert.strictEqual(updateState.hasUpdate, true);
+    assert.strictEqual(updateState.installedVersion, "2.0.10");
+    assert.strictEqual(updateState.latestVersion, "2.0.12");
+    assert.strictEqual(
+      updateState.downloadUrl,
+      "https://github.com/kebabschoice-pos-v2/app/releases/download/apk-v2.0.12/KebabsChoicePOS.apk",
+    );
+
+    const downloadOpened = await appUpdaterMod.openApkDownloadUrl(updateState.downloadUrl);
+    assert.strictEqual(downloadOpened, true);
+    assert.strictEqual(openedDownloadUrl, updateState.downloadUrl);
+
+    console.log(`  ✅ [PASS] ${name}`);
+    passedTests++;
+  } catch (err) {
+    console.error(`  ❌ [FAIL] ${name}:`, err.message);
+    throw err;
+  } finally {
+    if (prevWin === undefined) delete globalThis.window;
+    else globalThis.window = prevWin;
+  }
+})();
+
 console.log("\n==================================================");
 console.log(`RESULTS: ${passedTests}/${totalTests} TESTS PASSED (100% SUCCESS)`);
 console.log("==================================================\n");

@@ -3,6 +3,16 @@ import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 /**
  * Jembatan Native Android `PaymentAutoConfirm` + Parser Notifikasi Pembayaran QRIS Indonesia
  * (Shopee Partner, GoBiz, DANA, OVO, dsb.) untuk pelunasan otomatis di modal QRIS POS.
+ *
+ * CATATAN PENTING ARSITEKTUR CAPACITOR ANDROID:
+ * - Objek plugin yang diinjeksi `JSExport.java` ke `window.Capacitor.Plugins.PaymentAutoConfirm`
+ *   memiliki `addListener(eventName, cb)` yang memanggil `window.Capacitor.addListener(...)` dan
+ *   mengembalikan `{ remove: async () => ... }` secara SINKRON (bukan Promise!).
+ * - Sebaliknya, proxy `registerPlugin("PaymentAutoConfirm")` dari `@capacitor/core` mengembalikan
+ *   `Promise<PluginListenerHandle>`.
+ * - Seluruh pemanggilan di modul ini mendukung KEDUA bentuk return (sinkron maupun Promise) serta
+ *   dibungkus `try / catch` ketat agar tidak pernah melempar uncaught error ke React ErrorBoundary,
+ *   baik di `.apk` versi baru, `.apk` versi lama (Live URL), maupun di browser biasa.
  */
 
 export interface PaymentNotificationEvent {
@@ -14,12 +24,12 @@ export interface PaymentNotificationEvent {
 }
 
 export interface PaymentAutoConfirmPluginInterface {
-  isNotificationAccessEnabled(): Promise<{ enabled: boolean }>;
-  openNotificationAccessSettings(): Promise<{ opened: boolean }>;
+  isNotificationAccessEnabled(): Promise<{ enabled: boolean }> | { enabled: boolean };
+  openNotificationAccessSettings(): Promise<{ opened: boolean }> | { opened: boolean };
   addListener(
     eventName: "paymentNotificationReceived",
     listenerFunc: (event: PaymentNotificationEvent) => void,
-  ): Promise<PluginListenerHandle>;
+  ): Promise<PluginListenerHandle> | PluginListenerHandle;
 }
 
 const MONITORED_MERCHANT_PACKAGES = new Set([
@@ -95,6 +105,7 @@ export function parseShopeePartnerNotification(input: {
   text?: string;
   timestamp?: number;
 }): PaymentNotificationEvent | null {
+  if (!input || typeof input !== "object") return null;
   const packageName = String(input.packageName ?? "com.shopee.merchant.id").trim();
   if (!isMonitoredPaymentPackage(packageName)) {
     return null;
@@ -121,33 +132,86 @@ export function parseShopeePartnerNotification(input: {
 
 let cachedPluginProxy: PaymentAutoConfirmPluginInterface | null = null;
 
-function getPaymentAutoConfirmPlugin(): PaymentAutoConfirmPluginInterface | null {
-  if (typeof window === "undefined") return null;
-  const cap = (window as any).Capacitor;
-  if (!cap?.isNativePlatform?.()) return null;
-
-  const direct = cap?.Plugins?.PaymentAutoConfirm as
-    | PaymentAutoConfirmPluginInterface
-    | undefined;
-  if (direct) return direct;
-
-  if (!cachedPluginProxy) {
-    cachedPluginProxy =
-      registerPlugin<PaymentAutoConfirmPluginInterface>("PaymentAutoConfirm");
+function isPaymentAutoConfirmPluginRegistered(cap: any): boolean {
+  try {
+    if (!cap) return false;
+    if (cap.Plugins && cap.Plugins.PaymentAutoConfirm) {
+      return true;
+    }
+    if (
+      Array.isArray(cap.PluginHeaders) &&
+      cap.PluginHeaders.some((h: any) => h?.name === "PaymentAutoConfirm")
+    ) {
+      return true;
+    }
+    if (typeof cap.isPluginAvailable === "function") {
+      return Boolean(cap.isPluginAvailable("PaymentAutoConfirm"));
+    }
+  } catch {
+    return false;
   }
-  return cachedPluginProxy;
+  return false;
+}
+
+function getPaymentAutoConfirmPlugin(): PaymentAutoConfirmPluginInterface | null {
+  try {
+    if (typeof window === "undefined") return null;
+    const cap = (window as any).Capacitor;
+    if (!cap || typeof cap.isNativePlatform !== "function" || !cap.isNativePlatform()) {
+      return null;
+    }
+
+    // Di `.apk` versi lama yang belum memuat `PaymentAutoConfirmPlugin.java` (mode Live URL Vercel),
+    // jangan panggil `registerPlugin` agar tidak membuat proxy unimplemented yang melempar exception.
+    if (!isPaymentAutoConfirmPluginRegistered(cap)) {
+      return null;
+    }
+
+    const direct = cap.Plugins?.PaymentAutoConfirm as
+      | PaymentAutoConfirmPluginInterface
+      | undefined;
+    if (direct) return direct;
+
+    if (!cachedPluginProxy) {
+      cachedPluginProxy =
+        registerPlugin<PaymentAutoConfirmPluginInterface>("PaymentAutoConfirm");
+    }
+    return cachedPluginProxy;
+  } catch {
+    return null;
+  }
+}
+
+function safeRemoveListenerHandle(handle: unknown): void {
+  if (!handle || typeof (handle as PluginListenerHandle).remove !== "function") {
+    return;
+  }
+  try {
+    const maybePromise = (handle as PluginListenerHandle).remove();
+    if (maybePromise && typeof (maybePromise as Promise<void>).catch === "function") {
+      (maybePromise as Promise<void>).catch(() => {});
+    }
+  } catch {
+    // Jangan pernah biarkan error cleanup meledak ke siklus unmount React
+  }
 }
 
 export function isNativeApkEnvironment(): boolean {
-  if (typeof window === "undefined") return false;
-  return Boolean((window as any).Capacitor?.isNativePlatform?.());
+  try {
+    if (typeof window === "undefined") return false;
+    return Boolean((window as any).Capacitor?.isNativePlatform?.());
+  } catch {
+    return false;
+  }
 }
 
 export async function isNotificationAccessEnabledNative(): Promise<boolean> {
-  const plugin = getPaymentAutoConfirmPlugin();
-  if (!plugin) return false;
   try {
-    const res = await plugin.isNotificationAccessEnabled();
+    const plugin = getPaymentAutoConfirmPlugin();
+    if (!plugin || typeof plugin.isNotificationAccessEnabled !== "function") {
+      return false;
+    }
+    const res = await Promise.resolve(plugin.isNotificationAccessEnabled());
     return Boolean(res?.enabled);
   } catch {
     return false;
@@ -155,10 +219,12 @@ export async function isNotificationAccessEnabledNative(): Promise<boolean> {
 }
 
 export async function openNotificationAccessSettingsNative(): Promise<boolean> {
-  const plugin = getPaymentAutoConfirmPlugin();
-  if (!plugin) return false;
   try {
-    const res = await plugin.openNotificationAccessSettings();
+    const plugin = getPaymentAutoConfirmPlugin();
+    if (!plugin || typeof plugin.openNotificationAccessSettings !== "function") {
+      return false;
+    }
+    const res = await Promise.resolve(plugin.openNotificationAccessSettings());
     return Boolean(res?.opened !== false);
   } catch {
     return false;
@@ -167,7 +233,10 @@ export async function openNotificationAccessSettingsNative(): Promise<boolean> {
 
 /**
  * Dengarkan event `paymentNotificationReceived` dari service native Android `PaymentNotificationListener`.
- * Aman dipanggil di browser biasa (no-op untuk bridge native).
+ * Mendukung penuh:
+ * - Return sinkron `{ remove }` dari `window.Capacitor.Plugins.PaymentAutoConfirm.addListener` (`JSExport.java`)
+ * - Return asinkron `Promise<{ remove }>` dari `@capacitor/core` `registerPlugin`
+ * - Fallback aman (no-op) di browser biasa atau `.apk` lama tanpa pernah melempar error ke React.
  */
 export function subscribePaymentNotifications(
   onPayment: (event: PaymentNotificationEvent) => void,
@@ -180,58 +249,84 @@ export function subscribePaymentNotifications(
   let listenerHandle: PluginListenerHandle | null = null;
 
   const deliverIfValid = (raw: Partial<PaymentNotificationEvent> | null | undefined) => {
-    if (disposed || !raw) return;
-    const pkg = String(raw.packageName || "com.shopee.merchant.id");
-    const title = String(raw.title || "");
-    const text = String(raw.text || "");
-    const combined = `${title} ${text}`.trim();
+    try {
+      if (disposed || !raw || typeof raw !== "object") return;
+      const pkg = String(raw.packageName || "com.shopee.merchant.id");
+      const title = String(raw.title || "");
+      const text = String(raw.text || "");
+      const combined = `${title} ${text}`.trim();
 
-    if (!isMonitoredPaymentPackage(pkg)) return;
-    if (combined && !isIncomingPaymentNotificationText(combined)) return;
+      if (!isMonitoredPaymentPackage(pkg)) return;
+      if (combined && !isIncomingPaymentNotificationText(combined)) return;
 
-    const resolvedAmount =
-      typeof raw.amount === "number" && raw.amount > 0
-        ? Math.round(raw.amount)
-        : extractNotificationRupiahAmount(combined) ?? 0;
-    if (resolvedAmount <= 0) return;
+      const resolvedAmount =
+        typeof raw.amount === "number" && Number.isFinite(raw.amount) && raw.amount > 0
+          ? Math.round(raw.amount)
+          : extractNotificationRupiahAmount(combined) ?? 0;
+      if (resolvedAmount <= 0) return;
 
-    onPayment({
-      packageName: pkg,
-      title,
-      text,
-      amount: resolvedAmount,
-      timestamp:
-        typeof raw.timestamp === "number" && raw.timestamp > 0 ? raw.timestamp : Date.now(),
-    });
+      onPayment({
+        packageName: pkg,
+        title,
+        text,
+        amount: resolvedAmount,
+        timestamp:
+          typeof raw.timestamp === "number" && Number.isFinite(raw.timestamp) && raw.timestamp > 0
+            ? raw.timestamp
+            : Date.now(),
+      });
+    } catch {
+      // Jangan pernah biarkan kegagalan parsing / callback menjatuhkan WebView atau React
+    }
   };
 
-  const plugin = getPaymentAutoConfirmPlugin();
-  if (plugin && typeof plugin.addListener === "function") {
-    plugin
-      .addListener("paymentNotificationReceived", (evt) => {
+  try {
+    const plugin = getPaymentAutoConfirmPlugin();
+    if (plugin && typeof plugin.addListener === "function") {
+      const registration = plugin.addListener("paymentNotificationReceived", (evt) => {
         deliverIfValid(evt);
-      })
-      .then((handle) => {
+      });
+
+      if (registration && typeof (registration as Promise<PluginListenerHandle>).then === "function") {
+        (registration as Promise<PluginListenerHandle>)
+          .then((handle) => {
+            if (disposed) {
+              safeRemoveListenerHandle(handle);
+            } else {
+              listenerHandle = handle ?? null;
+            }
+          })
+          .catch(() => {});
+      } else if (registration && typeof (registration as PluginListenerHandle).remove === "function") {
         if (disposed) {
-          void handle?.remove?.();
+          safeRemoveListenerHandle(registration);
         } else {
-          listenerHandle = handle;
+          listenerHandle = registration as PluginListenerHandle;
         }
-      })
-      .catch(() => {});
+      }
+    }
+  } catch {
+    // Abaikan kegagalan registrasi plugin native agar UI Modal QRIS tetap berjalan normal
   }
 
   const handleWindowSimulation = (e: Event) => {
-    const detail = (e as CustomEvent<PaymentNotificationEvent>).detail;
-    deliverIfValid(detail);
+    try {
+      const detail = (e as CustomEvent<PaymentNotificationEvent>)?.detail;
+      deliverIfValid(detail);
+    } catch {}
   };
-  window.addEventListener("paymentNotificationReceived", handleWindowSimulation);
+
+  try {
+    window.addEventListener("paymentNotificationReceived", handleWindowSimulation);
+  } catch {}
 
   return () => {
     disposed = true;
-    window.removeEventListener("paymentNotificationReceived", handleWindowSimulation);
-    if (listenerHandle && typeof listenerHandle.remove === "function") {
-      void listenerHandle.remove();
-    }
+    try {
+      window.removeEventListener("paymentNotificationReceived", handleWindowSimulation);
+    } catch {}
+    const handleToClean = listenerHandle;
+    listenerHandle = null;
+    safeRemoveListenerHandle(handleToClean);
   };
 }

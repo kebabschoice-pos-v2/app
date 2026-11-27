@@ -4767,7 +4767,11 @@ function PosPage({
     const updated = [newHold, ...allHeldOrders];
     setAllHeldOrders(updated);
     if (typeof window !== "undefined") {
-      localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
+      try {
+        localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
+      } catch (storageErr) {
+        console.warn("[POS] Gagal menyimpan held_orders ke localStorage:", storageErr);
+      }
     }
     playPosSound("success");
     setCart([]);
@@ -4821,14 +4825,21 @@ function PosPage({
     const updated = [newHold, ...allHeldOrders];
     setAllHeldOrders(updated);
     if (typeof window !== "undefined") {
-      localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
+      try {
+        localStorage.setItem("kebabschoicepos_held_orders", JSON.stringify(updated));
+      } catch (storageErr) {
+        console.warn("[QRIS] Gagal menyimpan held_orders ke localStorage:", storageErr);
+      }
     }
 
     playPosSound("option");
     setIsQrisModalOpen(false);
     setQrisModalData(null);
     setQrisPendingOrder(null);
+    setQrisOpenedAtMs(0);
     setQrisStatus("PENDING");
+    setIsCheckingQris(false);
+    setIsSettlingQris(false);
     setQrisPersistError(null);
     setCart([]);
     setIsCustomerStepModalOpen(false);
@@ -5507,13 +5518,14 @@ function PosPage({
     setCart((current) => current.filter((item) => (item.cart_item_id || item.id) !== cartItemId));
   };
 
-  // Realtime QRIS status listener (Tahap 4)
+  // Realtime QRIS status listener (Tahap 4 — khusus QRIS Dinamis non-statis)
   useEffect(() => {
-    if (!isQrisModalOpen || !qrisModalData?.external_reference_id) return;
+    const extRef = String(qrisModalData?.external_reference_id || "");
+    if (!isQrisModalOpen || !extRef || extRef.startsWith("QRIS-STATIC-")) return;
 
-    const unsub = subscribeQrisStatus(
-      qrisModalData.external_reference_id,
-      (status, details) => {
+    let unsub: (() => void) | undefined;
+    try {
+      unsub = subscribeQrisStatus(extRef, (status, details) => {
         if (status === "PAID") {
           setQrisStatus("PAID");
           if (details?.settlement_reference) {
@@ -5522,10 +5534,16 @@ function PosPage({
         } else if (status === "EXPIRED" || status === "FAILED") {
           setQrisStatus(status);
         }
-      },
-    );
+      });
+    } catch (err) {
+      console.warn("[QRIS] subscribeQrisStatus warning:", err);
+    }
 
-    return () => unsub();
+    return () => {
+      try {
+        unsub?.();
+      } catch {}
+    };
   }, [isQrisModalOpen, qrisModalData?.external_reference_id]);
 
   // Finalize order after QRIS payment is confirmed PAID
@@ -6056,25 +6074,43 @@ function PosPage({
       return;
     }
     const grandTotal = Math.round(
-      Number(qrisPendingOrder?.total ?? qrisModalData.amount ?? total) || 0,
+      Number(qrisPendingOrder?.total ?? qrisModalData?.amount ?? total) || 0,
     );
     if (grandTotal <= 0) return;
 
-    const currentOrderKey = `${qrisModalData.order_number}_${grandTotal}`;
+    const currentOrderKey = `${qrisModalData?.order_number || "qris"}_${grandTotal}`;
     const createdFloorMs = qrisOpenedAtMs > 0 ? qrisOpenedAtMs - 5000 : 0;
 
-    return subscribePaymentNotifications((evt) => {
-      if (autoConfirmedOrderRef.current === currentOrderKey) return;
-      if (Math.round(Number(evt.amount) || 0) !== grandTotal) return;
-      if (createdFloorMs > 0 && evt.timestamp < createdFloorMs) return;
+    let unsubscribe: (() => void) | undefined;
+    try {
+      unsubscribe = subscribePaymentNotifications((evt) => {
+        try {
+          if (!evt) return;
+          if (autoConfirmedOrderRef.current === currentOrderKey) return;
+          if (Math.round(Number(evt.amount) || 0) !== grandTotal) return;
+          if (createdFloorMs > 0 && Number(evt.timestamp) > 0 && evt.timestamp < createdFloorMs) {
+            return;
+          }
 
-      autoConfirmedOrderRef.current = currentOrderKey;
-      toast.success(
-        `Dana ${formatRupiah(grandTotal)} terdeteksi otomatis dari Shopee Partner!`,
-      );
-      playPosSound("success");
-      void confirmStaticQrisRef.current();
-    });
+          autoConfirmedOrderRef.current = currentOrderKey;
+          toast.success(
+            `Dana ${formatRupiah(grandTotal)} terdeteksi otomatis dari Shopee Partner!`,
+          );
+          playPosSound("success");
+          void Promise.resolve(confirmStaticQrisRef.current()).catch(() => {});
+        } catch (cbErr) {
+          console.warn("[QRIS] Auto-confirm callback warning:", cbErr);
+        }
+      });
+    } catch (subErr) {
+      console.warn("[QRIS] Gagal mendaftarkan listener notifikasi pembayaran:", subErr);
+    }
+
+    return () => {
+      try {
+        unsubscribe?.();
+      } catch {}
+    };
   }, [
     isQrisModalOpen,
     qrisStatus,
@@ -9032,6 +9068,8 @@ function PosPage({
                     setIsQrisModalOpen(false);
                     setQrisModalData(null);
                     setQrisPendingOrder(null);
+                    setQrisOpenedAtMs(0);
+                    setQrisStatus("PENDING");
                   }}
                 >
                   Batal / Ganti Metode Pembayaran

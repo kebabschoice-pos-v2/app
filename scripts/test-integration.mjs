@@ -4645,6 +4645,119 @@ test("Shopee Partner notification parser detects 'Pembayaran QRIS diterima Rp 22
   assert.strictEqual(rejectedChat, null, "WhatsApp chat notification must never trigger auto-confirm");
 });
 
+test("Capacitor Android synchronous JSExport addListener handle & older APK missing plugin never crash subscribePaymentNotifications", () => {
+  const {
+    subscribePaymentNotifications,
+    isNativeApkEnvironment,
+    isNotificationAccessEnabledNative,
+  } = autoConfirmMod;
+
+  const prevWindow = globalThis.window;
+  try {
+    // Skenario 1: Persis jembatan native Android `JSExport.java` -> `window.Capacitor.Plugins.PaymentAutoConfirm.addListener`
+    // mengembalikan objek `{ remove: async () => {} }` secara SINKRON (BUKAN Promise, tidak punya `.then`).
+    let registeredCb = null;
+    let removeCalledCount = 0;
+    const windowListeners = new Map();
+
+    globalThis.window = {
+      addEventListener: (name, fn) => {
+        windowListeners.set(name, fn);
+      },
+      removeEventListener: (name, fn) => {
+        if (windowListeners.get(name) === fn) windowListeners.delete(name);
+      },
+      Capacitor: {
+        isNativePlatform: () => true,
+        PluginHeaders: [{ name: "PaymentAutoConfirm", methods: [] }],
+        Plugins: {
+          PaymentAutoConfirm: {
+            // Persis seperti `JSExport.java` baris 57-61 + `native-bridge.js` baris 187-198:
+            addListener: (_eventName, cb) => {
+              registeredCb = cb;
+              return {
+                remove: async () => {
+                  removeCalledCount += 1;
+                },
+              };
+            },
+            isNotificationAccessEnabled: () => ({ enabled: true }),
+            openNotificationAccessSettings: () => ({ opened: true }),
+          },
+        },
+      },
+    };
+
+    assert.strictEqual(isNativeApkEnvironment(), true);
+
+    const receivedEvents = [];
+    // Tidak boleh melempar `TypeError: plugin.addListener(...).then is not a function`!
+    const unsubscribeSync = subscribePaymentNotifications((evt) => {
+      receivedEvents.push(evt);
+    });
+    assert.strictEqual(typeof unsubscribeSync, "function");
+    assert.strictEqual(typeof registeredCb, "function", "Native listener must be registered");
+
+    // Kirim notifikasi Shopee Partner masuk Rp 22.000
+    registeredCb({
+      packageName: "com.shopee.merchant.id",
+      title: "Shopee Partner",
+      text: "Pembayaran QRIS diterima Rp 22.000",
+      amount: 22000,
+      timestamp: 1700000010000,
+    });
+    assert.strictEqual(receivedEvents.length, 1, "Valid Shopee Partner event must be delivered");
+    assert.strictEqual(receivedEvents[0].amount, 22000);
+
+    // Unsubscribe harus memanggil `remove()` secara aman tanpa error
+    unsubscribeSync();
+    assert.strictEqual(removeCalledCount, 1, "Synchronous PluginListenerHandle.remove() must be called on cleanup");
+
+    // Skenario 2: `.apk` versi lama di tablet (Live URL Vercel) di mana `PaymentAutoConfirm` belum terdaftar
+    globalThis.window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      Capacitor: {
+        isNativePlatform: () => true,
+        isPluginAvailable: () => false,
+        PluginHeaders: [{ name: "BluetoothPrinter", methods: [] }],
+        Plugins: {},
+      },
+    };
+    const unsubOldApk = subscribePaymentNotifications(() => {});
+    assert.strictEqual(typeof unsubOldApk, "function");
+    unsubOldApk();
+
+    // Skenario 3: Plugin rusak yang melempar exception sinkron saat `addListener` maupun `remove`
+    globalThis.window = {
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      Capacitor: {
+        isNativePlatform: () => true,
+        Plugins: {
+          PaymentAutoConfirm: {
+            addListener: () => {
+              throw new Error("Simulated native bridge failure");
+            },
+          },
+        },
+      },
+    };
+    const unsubBroken = subscribePaymentNotifications(() => {});
+    assert.strictEqual(typeof unsubBroken, "function");
+    unsubBroken();
+
+    // Pastikan helper async juga tidak pernah reject
+    void isNotificationAccessEnabledNative();
+  } finally {
+    if (typeof prevWindow === "undefined") {
+      delete globalThis.window;
+    } else {
+      globalThis.window = prevWindow;
+    }
+  }
+});
+
 test("Verifies PaymentNotificationListener.java, PaymentAutoConfirmPlugin.java, AndroidManifest.xml, QRIS Hold & Auto-Confirm, Profile toggle, and /orders KPI & Filter", () => {
   const read = (rel) => fs.readFileSync(path.join(process.cwd(), rel), "utf8");
   const listenerJava = read(

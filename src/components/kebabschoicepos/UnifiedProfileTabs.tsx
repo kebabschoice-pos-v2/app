@@ -911,12 +911,18 @@ export function UnifiedProfileTabs({
                       size="sm"
                       variant={notifAccessEnabled ? "outline" : "default"}
                       onClick={async () => {
-                        const opened = await openNotificationAccessSettingsNative();
-                        if (opened) {
-                          toast.info(
-                            "Geser saklar 'KebabsChoice POS' pada daftar Akses Notifikasi Android.",
-                          );
-                        } else {
+                        try {
+                          const opened = await openNotificationAccessSettingsNative();
+                          if (opened) {
+                            toast.info(
+                              "Geser saklar 'KebabsChoice POS' pada daftar Akses Notifikasi Android.",
+                            );
+                          } else {
+                            toast.error(
+                              "Pengaturan Akses Notifikasi belum tersedia. Pastikan APK versi terbaru sudah terpasang di tablet.",
+                            );
+                          }
+                        } catch {
                           toast.error("Gagal membuka Pengaturan Akses Notifikasi Android.");
                         }
                       }}
